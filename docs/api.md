@@ -1,32 +1,10 @@
-# Integração com a API Exercisedb
-
-O LimitBreak usará a API Exercisedb para buscar dados de exercícios e mostrar informações úteis aos usuários.
-
-## Base da API
-
-- Endpoint principal: `https://exercisedb.p.rapidapi.com/exercises`
-
-## Dados esperados
-
-A API retorna exercícios com campos como:
-
-- `id`
-- `name`
-- `bodyPart`
-- `target`
-- `equipment`
-- `gifUrl`
-- `instructions`
-
-## Uso no app
-
-1. Buscar lista de exercícios.
-2. Filtrar por grupo muscular, equipamento ou tipo de treino.
-3. Exibir detalhes do exercício selecionado.
-4. Usar GIF ou imagens para demonstrar o movimento.
-
-## Considerações
-
-- Verificar se a API exige chaves ou quotas.
-- Considerar cache local para a navegação e melhor performance.
-- Criar componentes de interface reutilizáveis para cards e fichas de exercício.
+curl https://oss.exercisedb.dev/api/v1/liveness
+curl 'https://oss.exercisedb.dev/api/v1/exercises?name=Bench%20Press&targetMuscles=pectorals%2Cshoulders&secondaryMuscles=abs%2Ctrapezius&bodyParts=Chest%2CShoulders&equipments=Barbell%2CDumbbell&limit=10&after=&before='
+curl 'https://oss.exercisedb.dev/api/v1/exercises/search?search=shoulders%20exercises&threshold=0.5'
+curl 'https://oss.exercisedb.dev/api/v1/exercises/bodyparts?bodyParts=Chest%2CShoulders&limit=10&after=&before='
+curl 'https://oss.exercisedb.dev/api/v1/exercises/muscles?targetMuscles=pectorals%2Cshoulders&secondaryMuscles=abs%2Ctrapezius&limit=10&after=&before='
+curl 'https://oss.exercisedb.dev/api/v1/exercises/equipments?equipments=Barbell%2CDumbbell&limit=10&after=&before='
+curl https://oss.exercisedb.dev/api/v1/exercises/EIeI8Vf
+curl https://oss.exercisedb.dev/api/v1/bodyparts
+curl https://oss.exercisedb.dev/api/v1/muscles
+curl https://oss.exercisedb.dev/api/v1/equipments
