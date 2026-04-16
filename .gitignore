@@ -17,4 +17,4 @@ coverage/
 
 # System files
 Thumbs.db
-
+.env
