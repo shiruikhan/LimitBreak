@@ -1,0 +1,19 @@
+# Node
+node_modules/
+.npm/
+package-lock.json
+yarn-error.log
+pnpm-lock.yaml
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# System files
+Thumbs.db
