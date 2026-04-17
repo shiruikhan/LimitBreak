@@ -18,3 +18,4 @@ coverage/
 # System files
 Thumbs.db
 .env
+.streamlit/secrets.toml
