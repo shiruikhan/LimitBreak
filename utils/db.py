@@ -6,16 +6,41 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_DB_PARAMS: dict | None = None
 
-@st.cache_resource
+
+def _db_params() -> dict:
+    global _DB_PARAMS
+    if _DB_PARAMS is None:
+        _DB_PARAMS = dict(
+            host=os.getenv("host"),
+            port=os.getenv("port"),
+            dbname=os.getenv("database"),
+            user=os.getenv("user"),
+            password=os.getenv("password"),
+        )
+    return _DB_PARAMS
+
+
+def _new_conn():
+    return psycopg2.connect(**_db_params())
+
+
 def get_connection():
-    return psycopg2.connect(
-        host=os.getenv("host"),
-        port=os.getenv("port"),
-        dbname=os.getenv("database"),
-        user=os.getenv("user"),
-        password=os.getenv("password"),
-    )
+    """Returns a live psycopg2 connection stored per Streamlit session.
+    Reconnects automatically if the server closed the connection.
+    """
+    conn = st.session_state.get("_db_conn")
+    if conn is None or conn.closed != 0:
+        st.session_state._db_conn = _new_conn()
+        return st.session_state._db_conn
+    # Roll back any aborted transaction so the connection is reusable
+    if conn.status != psycopg2.extensions.STATUS_READY:
+        try:
+            conn.rollback()
+        except Exception:
+            st.session_state._db_conn = _new_conn()
+    return st.session_state._db_conn
 
 
 @st.cache_data
@@ -267,6 +292,94 @@ def swap_team_slots(user_id: str, slot_a: int, slot_b: int) -> bool:
             cur.execute("UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=%s;", (slot_a, user_id, slot_b))
             cur.execute("UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=99;", (slot_b, user_id))
 
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+
+
+# ── Move management ────────────────────────────────────────────────────────────
+
+def get_available_moves(species_id: int, level: int) -> list[dict]:
+    """All level-up moves the Pokémon can know at its current level."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT m.id, m.name, sm.level_learned_at, m.damage_class,
+                       t.name AS type_name, m.power, m.accuracy
+                FROM pokemon_moves m
+                JOIN pokemon_species_moves sm ON m.id = sm.move_id
+                LEFT JOIN pokemon_types t ON m.type_id = t.id
+                WHERE sm.species_id = %s
+                  AND sm.learn_method = 'level-up'
+                  AND sm.level_learned_at <= %s
+                ORDER BY sm.level_learned_at ASC;
+            """, (species_id, level))
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r[0], "name": r[1], "level_learned_at": r[2],
+                    "damage_class": r[3], "type_name": r[4],
+                    "power": r[5], "accuracy": r[6],
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def get_active_moves(user_pokemon_id: int) -> list[dict]:
+    """The 4 equipped moves for a user's Pokémon, ordered by slot."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT upm.slot, m.id, m.name, m.damage_class,
+                       t.name AS type_name, m.power, m.accuracy
+                FROM user_pokemon_moves upm
+                JOIN pokemon_moves m ON upm.move_id = m.id
+                LEFT JOIN pokemon_types t ON m.type_id = t.id
+                WHERE upm.user_pokemon_id = %s
+                ORDER BY upm.slot;
+            """, (user_pokemon_id,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "slot": r[0], "id": r[1], "name": r[2],
+                    "damage_class": r[3], "type_name": r[4],
+                    "power": r[5], "accuracy": r[6],
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def equip_move(user_pokemon_id: int, slot: int, move_id: int) -> bool:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO user_pokemon_moves (user_pokemon_id, slot, move_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_pokemon_id, slot)
+                DO UPDATE SET move_id = EXCLUDED.move_id;
+            """, (user_pokemon_id, slot, move_id))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+
+
+def unequip_move(user_pokemon_id: int, slot: int) -> bool:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM user_pokemon_moves WHERE user_pokemon_id = %s AND slot = %s;",
+                (user_pokemon_id, slot),
+            )
         conn.commit()
         return True
     except Exception:
