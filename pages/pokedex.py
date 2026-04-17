@@ -3,7 +3,6 @@ import streamlit as st
 from utils.db import (
     get_all_pokemon, get_pokemon_details, get_pokemon_moves,
     get_full_evolution_chain, get_image_as_base64,
-    get_user_pokemon_ids, capture_pokemon,
 )
 from utils.type_colors import get_type_color, TYPE_COLORS
 
@@ -145,18 +144,6 @@ def _inject_global_css():
 .info-key { font-size: 0.72rem; font-weight: 700; letter-spacing: 1px;
     text-transform: uppercase; color: #8b949e; min-width: 70px; }
 
-/* Capture button */
-.stButton.capture > button {
-    background: linear-gradient(90deg, #4E8234, #78C850) !important;
-    color: #fff !important; font-weight: 700 !important;
-    border: none !important; border-radius: 8px !important;
-    padding: 8px 20px !important;
-}
-.stButton.owned > button {
-    background: #21262d !important;
-    color: #58a66e !important; font-weight: 700 !important;
-    border: 1px solid #30363d !important; border-radius: 8px !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -212,7 +199,7 @@ def _type_badge(type_name: str, size: str = "md") -> str:
 
 # ── Main render ────────────────────────────────────────────────────────────────
 
-def _render_pokedex(pid: int, user_id: str | None):
+def _render_pokedex(pid: int):
     details = get_pokemon_details(pid)
     if not details:
         st.error("Pokémon não encontrado.")
@@ -225,13 +212,6 @@ def _render_pokedex(pid: int, user_id: str | None):
     c1 = get_type_color(type1)
     c2 = get_type_color(type2 or type1)
     _inject_header_css(c1, c2)
-
-    # Owned / capture state
-    owned_ids: set[int] = get_user_pokemon_ids(user_id) if user_id else set()
-    is_owned = pid in owned_ids
-
-    # Shiny toggle
-    show_shiny = st.session_state.get("show_shiny", False)
 
     # ── HEADER CARD ──────────────────────────────────────────────────────────
     st.markdown("<div class='poke-header'>", unsafe_allow_html=True)
@@ -259,44 +239,14 @@ def _render_pokedex(pid: int, user_id: str | None):
             unsafe_allow_html=True,
         )
 
-        st.write("")
-
-        # Capture / owned button
-        if user_id:
-            if is_owned:
-                st.markdown("<div class='stButton owned'>", unsafe_allow_html=True)
-                st.button("✓ Capturado", key="btn_owned", disabled=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div class='stButton capture'>", unsafe_allow_html=True)
-                if st.button("⚡ Capturar", key="btn_capture"):
-                    if capture_pokemon(user_id, pid):
-                        st.success("Pokémon capturado!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao capturar.")
-                st.markdown("</div>", unsafe_allow_html=True)
-
     # Center: Image
     with col_img:
         if sprite_url:
-            active_url = sprite_shiny_url if (show_shiny and sprite_shiny_url) else sprite_url
-            # sprite_shiny_url still points to PokéAPI — show via URL; HQ only for normal
-            if show_shiny and sprite_shiny_url:
-                st.image(sprite_shiny_url, width=280)
-            else:
-                hq = _hq_path(sprite_url)
-                try:
-                    st.image(hq, width=280)
-                except Exception:
-                    st.image(sprite_url, width=280)
-
-        # Shiny toggle
-        if sprite_shiny_url:
-            new_shiny = st.toggle("✨ Shiny", value=show_shiny, key="shiny_toggle")
-            if new_shiny != show_shiny:
-                st.session_state.show_shiny = new_shiny
-                st.rerun()
+            hq = _hq_path(sprite_url)
+            try:
+                st.image(hq, width=280)
+            except Exception:
+                st.image(sprite_url, width=280)
 
     # Right: Moves
     with col_moves:
@@ -417,6 +367,5 @@ _inject_global_css()
 pokemon_list = get_all_pokemon()
 pokemon_dict = {f"#{str(p[0]).zfill(3)} {p[1]}": p[0] for p in pokemon_list}
 
-user_id = st.session_state.get("user_id")
 selected_id = _render_sidebar(pokemon_dict)
-_render_pokedex(selected_id, user_id)
+_render_pokedex(selected_id)
