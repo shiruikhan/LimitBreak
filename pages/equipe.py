@@ -37,6 +37,42 @@ def _xp_progress(level: int, xp: int) -> float:
     needed = level * XP_PER_LV
     return min(xp / needed, 1.0) if needed else 1.0
 
+# Cores canônicas de cada stat (padrão Pokémon)
+_STAT_COLORS = {
+    "HP":     "#FF5959",
+    "ATK":    "#F5AC78",
+    "DEF":    "#FAE078",
+    "SP.ATK": "#9DB7F5",
+    "SP.DEF": "#A7DB8D",
+    "SPD":    "#FA92B2",
+}
+_STAT_MAX = 255  # maior stat base possível
+
+def _stat_bars(member: dict) -> str:
+    """Retorna o HTML do mini-grid de stats para um card de Pokémon."""
+    stats = [
+        ("HP",     member["stat_hp"]),
+        ("ATK",    member["stat_attack"]),
+        ("DEF",    member["stat_defense"]),
+        ("SP.ATK", member["stat_sp_attack"]),
+        ("SP.DEF", member["stat_sp_defense"]),
+        ("SPD",    member["stat_speed"]),
+    ]
+    rows = ""
+    for label, val in stats:
+        pct   = min((val or 0) / _STAT_MAX * 100, 100)
+        color = _STAT_COLORS[label]
+        rows += (
+            f"<div class='stat-row-mini'>"
+            f"<span class='stat-lbl-mini'>{label}</span>"
+            f"<div class='stat-bar-mini'>"
+            f"<div class='stat-fill-mini' style='width:{pct:.0f}%;background:{color}'></div>"
+            f"</div>"
+            f"<span class='stat-val-mini'>{val or 0}</span>"
+            f"</div>"
+        )
+    return f"<div class='stat-grid'>{rows}</div>"
+
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -80,6 +116,18 @@ st.markdown("""
 .xp-track { background: #21262d; border-radius: 4px; height: 5px; margin-top: 8px; overflow: hidden; }
 .xp-fill  { height: 100%; border-radius: 4px; background: linear-gradient(90deg,#4E8234,#78C850); }
 .xp-label { font-size: 0.62rem; color: #8b949e; margin-top: 2px; }
+
+/* Stats mini-grid */
+.stat-grid { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+.stat-row-mini {
+    display: grid; grid-template-columns: 28px 1fr 26px;
+    align-items: center; gap: 4px;
+}
+.stat-lbl-mini { font-size: 0.55rem; font-weight: 700; color: #8b949e;
+                  text-transform: uppercase; letter-spacing: 0.3px; }
+.stat-bar-mini { background: #21262d; border-radius: 3px; height: 4px; overflow: hidden; }
+.stat-fill-mini { height: 100%; border-radius: 3px; }
+.stat-val-mini { font-size: 0.6rem; font-weight: 700; color: #e6edf3; text-align: right; }
 .coins-badge {
     display: inline-flex; align-items: center; gap: 6px; background: #21262d;
     border-radius: 20px; padding: 6px 14px; font-weight: 700; font-size: 0.82rem; border: 1px solid #30363d;
@@ -248,6 +296,7 @@ for slot in range(1, 7):
             prog     = _xp_progress(member["level"], member["xp"])
             needed   = member["level"] * XP_PER_LV
 
+            stat_html = _stat_bars(member)
             st.markdown(
                 f"<div class='{card_cls}'>{lbl_html}{img_tag}"
                 f"<div class='poke-card-name'>#{member['species_id']} {member['name'].upper()}</div>"
@@ -255,6 +304,7 @@ for slot in range(1, 7):
                 f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {member['level']}</div>"
                 f"<div class='xp-track'><div class='xp-fill' style='width:{prog*100:.0f}%'></div></div>"
                 f"<div class='xp-label'>{member['xp']} / {needed} XP</div>"
+                f"{stat_html}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
