@@ -65,7 +65,9 @@ def get_pokemon_details(pokemon_id: int) -> tuple | None:
     with get_connection().cursor() as cur:
         cur.execute("""
             SELECT p.id, p.name, p.sprite_url, p.sprite_shiny_url,
-                   t1.name AS type1, t2.name AS type2, p.base_experience
+                   t1.name AS type1, t2.name AS type2, p.base_experience,
+                   p.base_hp, p.base_attack, p.base_defense,
+                   p.base_sp_attack, p.base_sp_defense, p.base_speed
             FROM pokemon_species p
             LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
             LEFT JOIN pokemon_types t2 ON p.type2_id = t2.id
@@ -151,12 +153,19 @@ def create_user_profile(user_id: str, username: str, starter_id: int) -> bool:
                 ON CONFLICT (id) DO NOTHING;
             """, (user_id, username, starter_id))
 
-            # Add starter to user_pokemon
+            # Add starter to user_pokemon, copying base stats as individual stats
             cur.execute("""
-                INSERT INTO user_pokemon (user_id, species_id, level, xp)
-                VALUES (%s, %s, 1, 0)
+                INSERT INTO user_pokemon (
+                    user_id, species_id, level, xp,
+                    stat_hp, stat_attack, stat_defense,
+                    stat_sp_attack, stat_sp_defense, stat_speed
+                )
+                SELECT %s, %s, 1, 0,
+                       base_hp, base_attack, base_defense,
+                       base_sp_attack, base_sp_defense, base_speed
+                FROM pokemon_species WHERE id = %s
                 RETURNING id;
-            """, (user_id, starter_id))
+            """, (user_id, starter_id, starter_id))
             up_id = cur.fetchone()[0]
 
             # Put starter in team slot 1
@@ -178,7 +187,11 @@ def get_user_team(user_id: str) -> list[dict]:
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT ut.slot, up.id, up.species_id, p.name, p.sprite_url,
-                       up.level, up.xp, t1.name AS type1, t2.name AS type2
+                       up.level, up.xp, t1.name AS type1, t2.name AS type2,
+                       up.stat_hp, up.stat_attack, up.stat_defense,
+                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
+                       p.base_hp, p.base_attack, p.base_defense,
+                       p.base_sp_attack, p.base_sp_defense, p.base_speed
                 FROM user_team ut
                 JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species p ON up.species_id = p.id
@@ -193,6 +206,10 @@ def get_user_team(user_id: str) -> list[dict]:
                     "slot": r[0], "user_pokemon_id": r[1], "species_id": r[2],
                     "name": r[3], "sprite_url": r[4], "level": r[5], "xp": r[6],
                     "type1": r[7], "type2": r[8],
+                    "stat_hp": r[9],  "stat_attack": r[10], "stat_defense": r[11],
+                    "stat_sp_attack": r[12], "stat_sp_defense": r[13], "stat_speed": r[14],
+                    "base_hp": r[15], "base_attack": r[16], "base_defense": r[17],
+                    "base_sp_attack": r[18], "base_sp_defense": r[19], "base_speed": r[20],
                 }
                 for r in rows
             ]
@@ -219,9 +236,17 @@ def capture_pokemon(user_id: str, species_id: int) -> bool:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO user_pokemon (user_id, species_id, level, xp)
-                VALUES (%s, %s, 1, 0) RETURNING id;
-            """, (user_id, species_id))
+                INSERT INTO user_pokemon (
+                    user_id, species_id, level, xp,
+                    stat_hp, stat_attack, stat_defense,
+                    stat_sp_attack, stat_sp_defense, stat_speed
+                )
+                SELECT %s, %s, 1, 0,
+                       base_hp, base_attack, base_defense,
+                       base_sp_attack, base_sp_defense, base_speed
+                FROM pokemon_species WHERE id = %s
+                RETURNING id;
+            """, (user_id, species_id, species_id))
             up_id = cur.fetchone()[0]
 
             # Fill first available team slot (1-6)
