@@ -1,5 +1,8 @@
 import os
 import base64
+import random
+import datetime
+import calendar as cal_module
 import psycopg2
 import streamlit as st
 from dotenv import load_dotenv
@@ -687,3 +690,229 @@ def use_stat_item(user_id: str, item_id: int, user_pokemon_id: int) -> tuple[boo
     except Exception as e:
         conn.rollback()
         return False, f"Erro ao usar item: {e}"
+
+
+# ── Calendário / Check-in ──────────────────────────────────────────────────────
+
+def get_monthly_checkins(user_id: str, year: int, month: int) -> dict:
+    """Retorna dados de check-in do mês para renderizar o calendário.
+
+    Returns:
+        {
+            day_number: {
+                "streak": int,
+                "coins": int,
+                "bonus_item": bool,       # ganhou XP Share
+                "spawned_species_id": int | None,
+            }
+        }
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT
+                    EXTRACT(DAY FROM checked_date)::int AS day,
+                    streak,
+                    coins_earned,
+                    bonus_item_id IS NOT NULL AS has_bonus,
+                    spawned_species_id
+                FROM user_checkins
+                WHERE user_id = %s
+                  AND EXTRACT(YEAR  FROM checked_date) = %s
+                  AND EXTRACT(MONTH FROM checked_date) = %s;
+            """, (user_id, year, month))
+            return {
+                r[0]: {
+                    "streak": r[1],
+                    "coins": r[2],
+                    "bonus_item": r[3],
+                    "spawned_species_id": r[4],
+                }
+                for r in cur.fetchall()
+            }
+    except Exception:
+        return {}
+
+
+def get_checkin_streak(user_id: str) -> int:
+    """Retorna o streak atual (dias consecutivos até hoje ou ontem)."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT checked_date, streak
+                FROM user_checkins
+                WHERE user_id = %s
+                ORDER BY checked_date DESC
+                LIMIT 1;
+            """, (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return 0
+            last_date, last_streak = row
+            today     = datetime.date.today()
+            yesterday = today - datetime.timedelta(days=1)
+            if last_date in (today, yesterday):
+                return last_streak
+            return 0
+    except Exception:
+        return 0
+
+
+def do_checkin(user_id: str) -> dict:
+    """Executa o check-in diário do usuário.
+
+    Regras:
+    - 1 moeda por dia (UNIQUE constraint bloqueia duplicatas)
+    - Dia 15 e último dia do mês: +1 XP Share
+    - Streak múltiplo de 3: 25% de chance de capturar um Pokémon
+      aleatório que o usuário ainda não possui (nível 5)
+
+    Returns:
+        {
+            "success":       bool,
+            "already_done":  bool,
+            "streak":        int,
+            "coins_earned":  int,
+            "bonus_xp_share": bool,
+            "spawn_rolled":  bool,   # True se o dado foi lançado
+            "spawned": {id, name, sprite_url, type1} | None,
+        }
+    """
+    conn    = get_connection()
+    today   = datetime.date.today()
+    result  = {
+        "success": False, "already_done": False,
+        "streak": 0, "coins_earned": 0,
+        "bonus_xp_share": False, "spawn_rolled": False, "spawned": None,
+    }
+
+    try:
+        with conn.cursor() as cur:
+
+            # ── Streak ────────────────────────────────────────────────────────
+            yesterday = today - datetime.timedelta(days=1)
+            cur.execute("""
+                SELECT checked_date, streak FROM user_checkins
+                WHERE user_id = %s ORDER BY checked_date DESC LIMIT 1;
+            """, (user_id,))
+            last = cur.fetchone()
+            if last and last[0] == yesterday:
+                streak = last[1] + 1
+            else:
+                streak = 1
+
+            # ── Bonus de meio/fim de mês? ─────────────────────────────────────
+            last_day      = cal_module.monthrange(today.year, today.month)[1]
+            is_bonus_day  = today.day in (15, last_day)
+            bonus_item_id = None
+            if is_bonus_day:
+                cur.execute("SELECT id FROM shop_items WHERE slug = 'xp-share';")
+                row = cur.fetchone()
+                bonus_item_id = row[0] if row else None
+
+            # ── INSERT check-in (UNIQUE bloqueia duplicata) ───────────────────
+            try:
+                cur.execute("""
+                    INSERT INTO user_checkins
+                        (user_id, checked_date, streak, coins_earned, bonus_item_id)
+                    VALUES (%s, %s, %s, 1, %s);
+                """, (user_id, today, streak, bonus_item_id))
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+                result["already_done"] = True
+                return result
+
+            # ── +1 moeda ──────────────────────────────────────────────────────
+            cur.execute(
+                "UPDATE user_profiles SET coins = coins + 1 WHERE id = %s;",
+                (user_id,)
+            )
+
+            # ── XP Share nos dias especiais ───────────────────────────────────
+            if bonus_item_id:
+                cur.execute("""
+                    INSERT INTO user_inventory (user_id, item_id, quantity)
+                    VALUES (%s, %s, 1)
+                    ON CONFLICT (user_id, item_id)
+                    DO UPDATE SET quantity = user_inventory.quantity + 1;
+                """, (user_id, bonus_item_id))
+                result["bonus_xp_share"] = True
+
+            # ── Spawn em múltiplo de 3 ────────────────────────────────────────
+            spawned_species_id = None
+            if streak % 3 == 0:
+                result["spawn_rolled"] = True
+                if random.random() < 0.25:
+                    # Pokémon que o usuário ainda não possui
+                    cur.execute("""
+                        SELECT id FROM pokemon_species
+                        WHERE id NOT IN (
+                            SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
+                        )
+                        ORDER BY RANDOM() LIMIT 1;
+                    """, (user_id,))
+                    spawn_row = cur.fetchone()
+                    if spawn_row:
+                        spawned_species_id = spawn_row[0]
+
+                        # Captura o Pokémon (nível 5)
+                        cur.execute("""
+                            INSERT INTO user_pokemon (
+                                user_id, species_id, level, xp,
+                                stat_hp, stat_attack, stat_defense,
+                                stat_sp_attack, stat_sp_defense, stat_speed
+                            )
+                            SELECT %s, %s, 5, 0,
+                                   base_hp, base_attack, base_defense,
+                                   base_sp_attack, base_sp_defense, base_speed
+                            FROM pokemon_species WHERE id = %s
+                            RETURNING id;
+                        """, (user_id, spawned_species_id, spawned_species_id))
+                        up_id = cur.fetchone()[0]
+
+                        # Slot de equipe livre, se houver
+                        cur.execute(
+                            "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
+                            (user_id,)
+                        )
+                        used = {r[0] for r in cur.fetchall()}
+                        free = next((s for s in range(1, 7) if s not in used), None)
+                        if free:
+                            cur.execute("""
+                                INSERT INTO user_team (user_id, slot, user_pokemon_id)
+                                VALUES (%s, %s, %s);
+                            """, (user_id, free, up_id))
+
+                        # Atualiza o registro do check-in com o spawn
+                        cur.execute("""
+                            UPDATE user_checkins SET spawned_species_id = %s
+                            WHERE user_id = %s AND checked_date = %s;
+                        """, (spawned_species_id, user_id, today))
+
+                        # Busca dados do Pokémon para o resultado
+                        cur.execute("""
+                            SELECT p.id, p.name, p.sprite_url,
+                                   t1.name AS type1
+                            FROM pokemon_species p
+                            LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
+                            WHERE p.id = %s;
+                        """, (spawned_species_id,))
+                        pdata = cur.fetchone()
+                        if pdata:
+                            result["spawned"] = {
+                                "id": pdata[0], "name": pdata[1],
+                                "sprite_url": pdata[2], "type1": pdata[3],
+                            }
+
+        conn.commit()
+        result.update({
+            "success": True,
+            "streak":  streak,
+            "coins_earned": 1,
+        })
+        return result
+
+    except Exception as e:
+        conn.rollback()
+        result["error"] = str(e)
+        return result
