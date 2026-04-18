@@ -348,6 +348,79 @@ def capture_pokemon(user_id: str, species_id: int) -> bool:
         return False
 
 
+def get_user_bench(user_id: str) -> list[dict]:
+    """Retorna todos os user_pokemon do usuário que NÃO estão na equipe ativa."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT up.id, up.species_id, p.name, p.sprite_url,
+                       up.level, up.xp,
+                       t1.name AS type1, t2.name AS type2,
+                       up.stat_hp, up.stat_attack, up.stat_defense,
+                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed
+                FROM user_pokemon up
+                JOIN pokemon_species p  ON up.species_id = p.id
+                LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
+                LEFT JOIN pokemon_types t2 ON p.type2_id = t2.id
+                WHERE up.user_id = %s
+                  AND up.id NOT IN (
+                      SELECT user_pokemon_id FROM user_team WHERE user_id = %s
+                  )
+                ORDER BY up.level DESC, up.id DESC;
+            """, (user_id, user_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "user_pokemon_id": r[0], "species_id": r[1],
+                    "name": r[2], "sprite_url": r[3],
+                    "level": r[4], "xp": r[5],
+                    "type1": r[6], "type2": r[7],
+                    "stat_hp": r[8],  "stat_attack": r[9],  "stat_defense": r[10],
+                    "stat_sp_attack": r[11], "stat_sp_defense": r[12], "stat_speed": r[13],
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def add_to_team(user_id: str, user_pokemon_id: int) -> tuple[bool, str]:
+    """Adiciona um Pokémon do banco ao primeiro slot livre da equipe.
+
+    Retorna (True, mensagem) ou (False, mensagem de erro).
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Verifica se o Pokémon pertence ao usuário e não está na equipe
+            cur.execute(
+                "SELECT id FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                (user_pokemon_id, user_id)
+            )
+            if not cur.fetchone():
+                return False, "Pokémon não encontrado."
+
+            cur.execute(
+                "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
+                (user_id,)
+            )
+            occupied = {r[0] for r in cur.fetchall()}
+            free_slot = next((s for s in range(1, 7) if s not in occupied), None)
+            if free_slot is None:
+                return False, "A equipe já está cheia (6/6)."
+
+            cur.execute("""
+                INSERT INTO user_team (user_id, slot, user_pokemon_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, slot) DO UPDATE SET user_pokemon_id = EXCLUDED.user_pokemon_id;
+            """, (user_id, free_slot, user_pokemon_id))
+        conn.commit()
+        return True, f"Pokémon adicionado ao slot {free_slot}!"
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+
+
 def set_team_slot(user_id: str, slot: int, user_pokemon_id: int) -> bool:
     conn = get_connection()
     try:

@@ -1,8 +1,8 @@
 import os
 import streamlit as st
 from utils.db import (
-    get_user_team, get_user_profile, swap_team_slots,
-    remove_from_team, get_image_as_base64,
+    get_user_team, get_user_bench, get_user_profile, swap_team_slots,
+    remove_from_team, add_to_team, get_image_as_base64,
     get_available_moves, get_active_moves, equip_move, unequip_move,
 )
 from utils.type_colors import get_type_color
@@ -178,6 +178,19 @@ st.markdown("""
 
 /* Replace mode highlight */
 .replace-mode { border-color: #f8d030 !important; background: #1a1700 !important; }
+
+/* Banco de Pokémon */
+.bench-title {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; color: #8b949e;
+    border-bottom: 1px solid #21262d; padding-bottom: 6px; margin: 24px 0 14px;
+}
+.bench-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    padding: 12px 10px 10px; text-align: center;
+}
+.bench-name { font-size: 0.78rem; font-weight: 700; color: #e6edf3; margin: 4px 0 2px; }
+.bench-lv   { font-size: 0.68rem; color: #8b949e; margin-bottom: 4px; }
 
 .stButton > button { border-radius: 6px !important; }
 </style>
@@ -478,13 +491,77 @@ if sel_slot and sel_slot in team_by_slot:
                                 st.session_state.replacing_move_id = mv["id"]
                                 st.rerun()
 
-elif not team:
-    st.markdown("---")
+# ── Banco de Pokémon ───────────────────────────────────────────────────────────
+bench     = get_user_bench(user_id)
+team_full = len(team) >= 6
+
+st.markdown("<div class='bench-title'>📦 Banco de Pokémon</div>", unsafe_allow_html=True)
+
+if not bench:
     st.markdown(
-        "<div style='text-align:center;padding:40px;color:#8b949e'>"
+        "<div style='color:#8b949e;font-size:0.82rem;padding:8px 0 4px'>"
+        "Nenhum Pokémon no banco. Pokémons removidos da equipe aparecem aqui.</div>",
+        unsafe_allow_html=True,
+    )
+else:
+    if team_full:
+        st.caption("⚠️ Equipe cheia — remova um Pokémon da equipe para poder adicionar outro.")
+
+    # Grade responsiva de 6 colunas
+    bench_cols = st.columns(6)
+    for idx, pk in enumerate(bench):
+        col = bench_cols[idx % 6]
+        with col:
+            b64 = _thumb(pk["species_id"])
+            img_tag = (
+                f"<img src='data:image/png;base64,{b64}' width='60' "
+                f"style='display:block;margin:0 auto;image-rendering:pixelated'>"
+                if b64 else "<div style='font-size:2rem;text-align:center'>❓</div>"
+            )
+            c1   = get_type_color(pk["type1"])
+            c2   = get_type_color(pk["type2"])
+            bg1  = c1["bg"]
+            bg2  = c2["bg"] if pk["type2"] else bg1
+            t1 = (
+                f"<span class='type-sm' style='background:{bg1};color:{c1['text']};font-size:0.5rem'>"
+                f"{pk['type1'].upper()}</span>"
+            ) if pk["type1"] else ""
+            t2 = (
+                f"<span class='type-sm' style='background:{bg2};color:{c2['text']};font-size:0.5rem'>"
+                f"{pk['type2'].upper()}</span>"
+            ) if pk["type2"] else ""
+
+            stat_html = _stat_bars(pk)
+
+            st.markdown(
+                f"<div class='bench-card'>"
+                f"{img_tag}"
+                f"<div class='bench-name'>{pk['name'].upper()}</div>"
+                f"<div class='bench-lv'>Lv. {pk['level']}</div>"
+                f"<div style='text-align:center'>{t1}{t2}</div>"
+                f"{stat_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.write("")
+            if st.button(
+                "→ Equipe",
+                key=f"bench_add_{pk['user_pokemon_id']}",
+                disabled=team_full,
+                use_container_width=True,
+            ):
+                ok, msg = add_to_team(user_id, pk["user_pokemon_id"])
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+                st.rerun()
+
+if not team:
+    st.markdown(
+        "<div style='text-align:center;padding:24px;color:#8b949e'>"
         "<div style='font-size:3rem'>🎮</div>"
-        "<div style='font-size:1.1rem;margin-top:12px'>Equipe vazia</div>"
-        "<div style='font-size:0.85rem;margin-top:6px'>Sua equipe é formada durante o cadastro e ao capturar Pokémon na Pokédex.</div>"
+        "<div style='font-size:1rem;margin-top:8px'>Equipe vazia — adicione Pokémon do banco acima.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
