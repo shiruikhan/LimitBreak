@@ -242,10 +242,11 @@ def _thumb_b64(pokemon_id: int) -> str | None:
 def _type_pip(type_name: str | None, type_slug: str | None) -> str:
     if not type_name or not type_slug:
         return ""
-    c = get_type_color(type_slug)
+    c  = get_type_color(type_slug)
+    bg = c["bg"]
+    fg = c["text"]
     return (
-        f"<span class='type-pip' "
-        f"style='background:{c[\"bg\"]};color:{c[\"text\"]}'>"
+        f"<span class='type-pip' style='background:{bg};color:{fg}'>"
         f"{type_name}</span>"
     )
 
@@ -270,11 +271,12 @@ else:
         t2_pip     = _type_pip(p["type2"], p["type2_slug"])
 
         if is_captured:
-            b64 = _thumb_b64(pid)
+            b64      = _thumb_b64(pid)
+            pname    = p["name"]
             if b64:
                 img_html = (
                     f"<div class='pdex-img-wrap'>"
-                    f"<img src='data:image/png;base64,{b64}' alt='{p[\"name\"]}'>"
+                    f"<img src='data:image/png;base64,{b64}' alt='{pname}'>"
                     f"</div>"
                 )
             else:
@@ -286,10 +288,10 @@ else:
             card   = (
                 f"<div class='pdex-card captured' "
                 f"style='border-color:{border};background:linear-gradient("
-                f"180deg,{c[\"bg\"]}22 0%,#161b22 40%)'>"
+                f"180deg,{border}22 0%,#161b22 40%)'>"
                 f"<div class='pdex-num'>{num_str}</div>"
                 f"{img_html}"
-                f"<div class='pdex-name'>{p['name']}</div>"
+                f"<div class='pdex-name'>{pname}</div>"
                 f"<div>{t1_pip}{t2_pip}</div>"
                 f"</div>"
             )
