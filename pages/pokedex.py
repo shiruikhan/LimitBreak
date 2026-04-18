@@ -221,7 +221,8 @@ def _render_pokedex(pid: int):
         st.error("Pokémon não encontrado.")
         return
 
-    pk_id, name, sprite_url, sprite_shiny_url, type1, type2, base_xp = details
+    pk_id, name, sprite_url, sprite_shiny_url, type1, type2, base_xp, \
+        base_hp, base_atk, base_def, base_spa, base_spd, base_spe = details
     moves = get_pokemon_moves(pid)
     evolutions = get_full_evolution_chain(pid)
 
