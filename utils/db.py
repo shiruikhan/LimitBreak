@@ -910,9 +910,298 @@ def do_checkin(user_id: str) -> dict:
             "streak":  streak,
             "coins_earned": 1,
         })
+
+        # ── +10 XP para o Pokémon principal (slot 1) ──────────────────────────
+        # Feito após o commit do check-in para manter transações independentes.
+        # Quando o módulo de treinos estiver integrado, o XP virá de lá;
+        # o check-in apenas garante um pequeno progresso diário.
+        xp_result = None
+        try:
+            with get_connection().cursor() as cur2:
+                cur2.execute("""
+                    SELECT up.id FROM user_team ut
+                    JOIN user_pokemon up ON ut.user_pokemon_id = up.id
+                    WHERE ut.user_id = %s AND ut.slot = 1;
+                """, (user_id,))
+                main_row = cur2.fetchone()
+            if main_row:
+                xp_result = award_xp(main_row[0], 10, "check-in")
+        except Exception:
+            pass  # XP é bônus — falha silenciosa para não cancelar o check-in
+        result["xp_result"] = xp_result
+
         return result
 
     except Exception as e:
         conn.rollback()
         result["error"] = str(e)
         return result
+
+
+# ── XP, level-up e evolução ────────────────────────────────────────────────────
+
+def _recalc_stats_on_evolution(cur, user_pokemon_id: int, new_species_id: int) -> None:
+    """Recalcula stat_* = new_base_* + total de vitaminas aplicadas.
+
+    Chamado internamente após qualquer tipo de evolução para manter
+    os stats individuais consistentes com a nova espécie.
+    """
+    cur.execute("""
+        SELECT stat, COALESCE(SUM(delta), 0)
+        FROM user_pokemon_stat_boosts
+        WHERE user_pokemon_id = %s
+        GROUP BY stat;
+    """, (user_pokemon_id,))
+    boosts = {r[0]: r[1] for r in cur.fetchall()}
+
+    cur.execute("""
+        SELECT base_hp, base_attack, base_defense,
+               base_sp_attack, base_sp_defense, base_speed
+        FROM pokemon_species WHERE id = %s;
+    """, (new_species_id,))
+    bases = cur.fetchone()
+    if not bases:
+        return
+
+    stat_cols = ["hp", "attack", "defense", "sp_attack", "sp_defense", "speed"]
+    set_parts = ", ".join(
+        f"stat_{stat} = %s" for stat in stat_cols
+    )
+    values = [(bases[i] or 0) + boosts.get(stat, 0) for i, stat in enumerate(stat_cols)]
+    cur.execute(
+        f"UPDATE user_pokemon SET {set_parts} WHERE id = %s;",
+        values + [user_pokemon_id],
+    )
+
+
+def award_xp(user_pokemon_id: int, amount: int, source: str = "xp") -> dict:
+    """Concede XP a um Pokémon, processando level-ups e evoluções automáticas.
+
+    Ponto de integração para o módulo de treinos: quando o outro dev
+    implementar o sistema de exercícios, basta chamar esta função com
+    o user_pokemon_id do Pokémon ativo e o amount calculado.
+
+    Args:
+        user_pokemon_id: ID do user_pokemon que receberá o XP.
+        amount:          Quantidade de XP a conceder (positivo).
+        source:          Origem do XP para rastreabilidade ("check-in",
+                         "exercise", "battle", etc.).
+
+    Returns:
+        {
+            "levels_gained": int,
+            "old_level":     int,
+            "new_level":     int,
+            "new_xp":        int,
+            "evolutions":    list[{from_name, to_name, to_id, sprite_url}],
+            "error":         str | None,
+        }
+    """
+    result = {
+        "levels_gained": 0,
+        "old_level": 0,
+        "new_level": 0,
+        "new_xp": 0,
+        "evolutions": [],
+        "error": None,
+    }
+    if amount <= 0:
+        return result
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Estado atual (FOR UPDATE garante consistência em acessos simultâneos)
+            cur.execute("""
+                SELECT level, xp, species_id
+                FROM user_pokemon WHERE id = %s FOR UPDATE;
+            """, (user_pokemon_id,))
+            row = cur.fetchone()
+            if not row:
+                result["error"] = "Pokémon não encontrado."
+                return result
+
+            level, xp, species_id = row
+            result["old_level"] = level
+            xp += amount
+
+            # ── Loop de level-up ──────────────────────────────────────────────
+            # Fórmula: level * 100 XP para o próximo nível
+            while xp >= level * 100:
+                xp    -= level * 100
+                level += 1
+                result["levels_gained"] += 1
+
+                # Verifica evolução por nível (limite de 3 por chamada)
+                if len(result["evolutions"]) < 3:
+                    cur.execute("""
+                        SELECT e.to_species_id, p2.name, p2.sprite_url,
+                               p1.name AS from_name
+                        FROM pokemon_evolutions e
+                        JOIN pokemon_species p2 ON e.to_species_id = p2.id
+                        JOIN pokemon_species p1 ON e.from_species_id = p1.id
+                        WHERE e.from_species_id = %s
+                          AND e.trigger_name    = 'level-up'
+                          AND e.min_level       <= %s
+                        ORDER BY e.min_level DESC
+                        LIMIT 1;
+                    """, (species_id, level))
+                    evo = cur.fetchone()
+                    if evo:
+                        to_id, to_name, to_sprite, from_name = evo
+                        result["evolutions"].append({
+                            "from_name":  from_name,
+                            "to_name":    to_name,
+                            "to_id":      to_id,
+                            "sprite_url": to_sprite,
+                        })
+                        species_id = to_id  # próxima iteração usa a nova espécie
+
+            # ── Persiste level, xp e espécie ─────────────────────────────────
+            cur.execute("""
+                UPDATE user_pokemon
+                SET level = %s, xp = %s, species_id = %s
+                WHERE id = %s;
+            """, (level, xp, species_id, user_pokemon_id))
+
+            # ── Recalcula stats se houve evolução ────────────────────────────
+            if result["evolutions"]:
+                _recalc_stats_on_evolution(cur, user_pokemon_id, species_id)
+
+        conn.commit()
+        result["new_level"] = level
+        result["new_xp"]    = xp
+        return result
+
+    except Exception as e:
+        conn.rollback()
+        result["error"] = str(e)
+        return result
+
+
+def get_stone_targets(user_id: str, stone_slug: str) -> list[dict]:
+    """Retorna os Pokémon do usuário que podem evoluir com a pedra especificada.
+
+    Inclui Pokémon da equipe e da coleção completa.
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT up.id, up.species_id, p1.name AS from_name,
+                       e.to_species_id, p2.name AS to_name, p2.sprite_url,
+                       up.level,
+                       EXISTS(
+                           SELECT 1 FROM user_team ut
+                           WHERE ut.user_pokemon_id = up.id
+                       ) AS in_team
+                FROM user_pokemon up
+                JOIN pokemon_species p1 ON up.species_id = p1.id
+                JOIN pokemon_evolutions e
+                     ON e.from_species_id = up.species_id
+                    AND e.trigger_name    = 'use-item'
+                    AND e.item_name       = %s
+                JOIN pokemon_species p2 ON e.to_species_id = p2.id
+                WHERE up.user_id = %s
+                ORDER BY in_team DESC, up.id;
+            """, (stone_slug, user_id))
+            return [
+                {
+                    "user_pokemon_id": r[0],
+                    "species_id":      r[1],
+                    "from_name":       r[2],
+                    "to_species_id":   r[3],
+                    "to_name":         r[4],
+                    "sprite_url":      r[5],
+                    "level":           r[6],
+                    "in_team":         r[7],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple[bool, str, dict]:
+    """Evolui um Pokémon usando uma pedra do inventário do usuário.
+
+    Debita a pedra, atualiza species_id e recalcula stats em uma
+    única transação.
+
+    Returns:
+        (success, message, evolution_data)
+        evolution_data: {from_name, to_name, to_id, sprite_url} ou {}
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Dados do item (slug da pedra)
+            cur.execute(
+                "SELECT slug, name FROM shop_items WHERE id = %s AND category = 'stone';",
+                (item_id,)
+            )
+            item_row = cur.fetchone()
+            if not item_row:
+                return False, "Item não encontrado ou não é uma pedra.", {}
+            stone_slug, stone_name = item_row
+
+            # Verifica ownership e inventário
+            cur.execute("""
+                SELECT quantity FROM user_inventory
+                WHERE user_id = %s AND item_id = %s FOR UPDATE;
+            """, (user_id, item_id))
+            inv = cur.fetchone()
+            if not inv or inv[0] < 1:
+                return False, f"Você não possui {stone_name}.", {}
+
+            # Verifica ownership do Pokémon
+            cur.execute(
+                "SELECT species_id FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                (user_pokemon_id, user_id)
+            )
+            poke_row = cur.fetchone()
+            if not poke_row:
+                return False, "Pokémon não encontrado na sua coleção.", {}
+            current_species = poke_row[0]
+
+            # Verifica se esta pedra evolui este Pokémon
+            cur.execute("""
+                SELECT e.to_species_id, p1.name, p2.name, p2.sprite_url
+                FROM pokemon_evolutions e
+                JOIN pokemon_species p1 ON e.from_species_id = p1.id
+                JOIN pokemon_species p2 ON e.to_species_id   = p2.id
+                WHERE e.from_species_id = %s
+                  AND e.trigger_name    = 'use-item'
+                  AND e.item_name       = %s
+                LIMIT 1;
+            """, (current_species, stone_slug))
+            evo_row = cur.fetchone()
+            if not evo_row:
+                return False, "Este Pokémon não evolui com essa pedra.", {}
+
+            to_id, from_name, to_name, to_sprite = evo_row
+
+            # Aplica evolução
+            cur.execute(
+                "UPDATE user_pokemon SET species_id = %s WHERE id = %s;",
+                (to_id, user_pokemon_id)
+            )
+            _recalc_stats_on_evolution(cur, user_pokemon_id, to_id)
+
+            # Debita pedra do inventário
+            cur.execute("""
+                UPDATE user_inventory SET quantity = quantity - 1
+                WHERE user_id = %s AND item_id = %s;
+            """, (user_id, item_id))
+
+        conn.commit()
+        evo_data = {
+            "from_name":  from_name,
+            "to_name":    to_name,
+            "to_id":      to_id,
+            "sprite_url": to_sprite,
+        }
+        return True, f"{from_name} evoluiu para {to_name}!", evo_data
+
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao evoluir: {e}", {}

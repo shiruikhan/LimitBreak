@@ -1,8 +1,12 @@
+import os
 import streamlit as st
 from utils.db import (
     get_shop_items, get_user_inventory, get_user_profile,
     get_user_team, buy_item, use_stat_item,
+    get_stone_targets, evolve_with_stone, get_image_as_base64,
 )
+
+BASE_DIR = os.getcwd()
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 
@@ -160,7 +164,7 @@ with tab_shop:
 
     # ── Pedras de Evolução ─────────────────────────────────────────────────────
     st.markdown("<div class='section-title'>🪨 Pedras de Evolução</div>", unsafe_allow_html=True)
-    st.caption("Usadas para evoluir Pokémon específicos. A aplicação nas evoluções será implementada em breve.")
+    st.caption("Compre e use na aba Mochila para evoluir Pokémon compatíveis da sua coleção.")
     _item_grid(stones, cols=5)
 
     # ── Vitaminas ──────────────────────────────────────────────────────────────
@@ -239,22 +243,67 @@ with tab_bag:
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
 
-        # ── Pedras de Evolução (em breve) ──────────────────────────────────────
+        # ── Pedras de Evolução ─────────────────────────────────────────────────
         if inv_stones:
             st.markdown("<div class='section-title'>🪨 Pedras de Evolução</div>", unsafe_allow_html=True)
-            cols = st.columns(5)
-            for idx, (iid, qty) in enumerate(inv_stones):
-                item = item_map[iid]
-                with cols[idx % 5]:
-                    st.markdown(
-                        f"<div class='inv-card' style='flex-direction:column;text-align:center'>"
-                        f"<div class='inv-icon'>{item['icon']}</div>"
-                        f"<div class='inv-name'>{item['name']}</div>"
-                        f"<div class='inv-qty'>Qtd: {qty}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown("<div class='soon-badge' style='display:block;text-align:center;margin-top:4px'>Em breve</div>", unsafe_allow_html=True)
+
+            for iid, qty in inv_stones:
+                item       = item_map[iid]
+                stone_slug = item["slug"]
+                targets    = get_stone_targets(user_id, stone_slug)
+
+                with st.expander(f"{item['icon']} {item['name']}  ·  Qtd: {qty}", expanded=bool(targets)):
+                    if not targets:
+                        st.info("Nenhum dos seus Pokémon evolui com esta pedra.", icon="ℹ️")
+                    else:
+                        options = {
+                            f"{t['from_name']} → {t['to_name']} (Lv.{t['level']}"
+                            f"{' · equipe' if t['in_team'] else ''})": t
+                            for t in targets
+                        }
+                        chosen_label = st.selectbox(
+                            "Pokémon para evoluir:",
+                            list(options.keys()),
+                            key=f"stone_target_{iid}",
+                        )
+                        chosen = options[chosen_label]
+
+                        # Preview da evolução
+                        b64 = None
+                        if chosen["sprite_url"]:
+                            sp = os.path.join(BASE_DIR, chosen["sprite_url"].lstrip("/\\"))
+                            hq = sp.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
+                            b64 = get_image_as_base64(hq) or get_image_as_base64(sp)
+
+                        col_img, col_info = st.columns([1, 3])
+                        with col_img:
+                            if b64:
+                                st.markdown(
+                                    f"<img src='data:image/png;base64,{b64}' "
+                                    f"style='width:80px;image-rendering:pixelated'>",
+                                    unsafe_allow_html=True,
+                                )
+                        with col_info:
+                            st.markdown(
+                                f"<div style='font-size:.85rem;color:#8b949e;margin-top:8px'>"
+                                f"<b style='color:#e6edf3'>{chosen['from_name']}</b> "
+                                f"<span style='color:#7038F8'>→</span> "
+                                f"<b style='color:#A27DFA'>{chosen['to_name']}</b>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                        if st.button(
+                            f"✨ Usar {item['name']} em {chosen['from_name']}",
+                            key=f"use_stone_{iid}_{chosen['user_pokemon_id']}",
+                            type="primary",
+                        ):
+                            ok, msg, evo_data = evolve_with_stone(user_id, iid, chosen["user_pokemon_id"])
+                            st.session_state.shop_msg      = msg
+                            st.session_state.shop_msg_type = "success" if ok else "error"
+                            if ok and evo_data:
+                                st.session_state.team_evo_notice = evo_data
+                            st.rerun()
 
         # ── Outros ────────────────────────────────────────────────────────────
         if inv_others:

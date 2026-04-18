@@ -147,9 +147,42 @@ with st.sidebar:
         st.rerun()
 
 # ── Session state defaults ─────────────────────────────────────────────────────
-for k, v in [("sel_team_slot", None), ("replacing_move_id", None)]:
+for k, v in [("sel_team_slot", None), ("replacing_move_id", None), ("team_evo_notice", None)]:
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ── Evolution notice banner ────────────────────────────────────────────────────
+evo_notice = st.session_state.team_evo_notice
+if evo_notice:
+    _evo_b64   = None
+    _evo_sprite = evo_notice.get("sprite_url", "")
+    if _evo_sprite:
+        _evo_full = os.path.join(BASE_DIR, _evo_sprite.lstrip("/\\"))
+        _evo_hq   = _evo_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
+        _evo_b64  = get_image_as_base64(_evo_hq) or get_image_as_base64(_evo_full)
+
+    _evo_img = (
+        f"<img src='data:image/png;base64,{_evo_b64}' "
+        f"style='width:72px;image-rendering:pixelated;filter:drop-shadow(0 0 10px #BC8CFF)'>"
+        if _evo_b64 else "<div style='font-size:2.5rem'>🌟</div>"
+    )
+    st.markdown(
+        f"<div style='background:#1f0f2e;border:1px solid #BC8CFF;border-radius:14px;"
+        f"padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:16px'>"
+        f"<div>{_evo_img}</div>"
+        f"<div>"
+        f"<div style='font-weight:800;color:#e6edf3;font-size:1rem'>🌟 Pokémon evoluiu!</div>"
+        f"<div style='margin-top:4px'>"
+        f"<span style='color:#8b949e;font-weight:700'>{evo_notice.get('from_name','')}</span>"
+        f"<span style='color:#BC8CFF;margin:0 8px'>→</span>"
+        f"<span style='color:#BC8CFF;font-size:1.05rem;font-weight:800'>{evo_notice.get('to_name','')}</span>"
+        f"</div>"
+        f"<div style='color:#8b949e;font-size:0.8rem;margin-top:4px'>"
+        f"Stats recalculados para a nova forma!</div>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.session_state.team_evo_notice = None
 
 # ── Data ───────────────────────────────────────────────────────────────────────
 user_id = st.session_state.get("user_id")

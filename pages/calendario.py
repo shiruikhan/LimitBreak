@@ -90,12 +90,18 @@ st.markdown("""
     border-radius: 14px; padding: 20px 24px; margin-bottom: 16px;
     border: 1px solid;
 }
-.result-card.success { background: #1c2d16; border-color: #4E8234; }
-.result-card.spawn   { background: #1a1030; border-color: #7038F8; }
-.result-card.bonus   { background: #1c1a0a; border-color: #A1871F; }
+.result-card.success  { background: #1c2d16; border-color: #4E8234; }
+.result-card.spawn    { background: #1a1030; border-color: #7038F8; }
+.result-card.spawned  { background: #1a1030; border-color: #7038F8; }
+.result-card.bonus    { background: #1c1a0a; border-color: #A1871F; }
+.result-card.levelup  { background: #0f1f2e; border-color: #58A6FF; }
+.result-card.evolution{ background: #1f0f2e; border-color: #BC8CFF; }
 .result-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
 .result-body  { color: #8b949e; font-size: 0.85rem; }
 .spawn-name   { font-size: 1.2rem; font-weight: 800; color: #A27DFA; }
+.evo-arrow    { color: #BC8CFF; font-size: 1.1rem; margin: 0 8px; }
+.evo-name-from{ color: #8b949e; font-weight: 700; }
+.evo-name-to  { color: #BC8CFF; font-size: 1.1rem; font-weight: 800; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -250,6 +256,76 @@ if res:
                 f"</div></div></div>",
                 unsafe_allow_html=True,
             )
+
+        # ── XP / Level-up / Evolução ───────────────────────────────────────────
+        xp_res = res.get("xp_result") or {}
+        if xp_res and not xp_res.get("error"):
+            levels_gained = xp_res.get("levels_gained", 0)
+            new_level     = xp_res.get("new_level", 0)
+            new_xp        = xp_res.get("new_xp", 0)
+            xp_to_next    = new_level * 100
+            evolutions    = xp_res.get("evolutions", [])
+
+            # XP ganho (sempre exibido se não houve erro)
+            if levels_gained == 0:
+                st.markdown(
+                    f"<div class='result-card' style='background:#161b22;border-color:#30363d'>"
+                    f"<div class='result-title'>⚡ +10 XP para seu Pokémon principal!</div>"
+                    f"<div class='result-body'>"
+                    f"XP: <b style='color:#58A6FF'>{new_xp}</b> / {xp_to_next} para o nível {new_level + 1}"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Level-up
+            if levels_gained > 0:
+                old_level = xp_res.get("old_level", new_level - levels_gained)
+                lvl_txt   = (
+                    f"Nível <b style='color:#58A6FF'>{old_level}</b> → "
+                    f"<b style='color:#58A6FF'>{new_level}</b>"
+                    if levels_gained == 1
+                    else f"Subiu <b style='color:#58A6FF'>{levels_gained} níveis</b> "
+                         f"({old_level} → <b style='color:#58A6FF'>{new_level}</b>)"
+                )
+                st.markdown(
+                    f"<div class='result-card levelup'>"
+                    f"<div class='result-title'>🆙 Level Up!</div>"
+                    f"<div class='result-body'>{lvl_txt} &nbsp;·&nbsp; "
+                    f"XP: <b style='color:#58A6FF'>{new_xp}</b> / {xp_to_next} para o próximo nível"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Evoluções
+            for evo in evolutions:
+                evo_b64     = None
+                evo_sprite  = evo.get("sprite_url", "")
+                if evo_sprite:
+                    evo_full = os.path.join(BASE_DIR, evo_sprite.lstrip("/\\"))
+                    evo_hq   = evo_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
+                    evo_b64  = get_image_as_base64(evo_hq) or get_image_as_base64(evo_full)
+
+                evo_img = (
+                    f"<img src='data:image/png;base64,{evo_b64}' "
+                    f"style='width:90px;image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)'>"
+                    if evo_b64 else "<div style='font-size:3rem'>🌟</div>"
+                )
+                st.markdown(
+                    f"<div class='result-card evolution' "
+                    f"style='display:flex;align-items:center;gap:20px'>"
+                    f"<div>{evo_img}</div>"
+                    f"<div>"
+                    f"<div class='result-title'>🌟 Seu Pokémon evoluiu!</div>"
+                    f"<div style='margin-top:6px'>"
+                    f"<span class='evo-name-from'>{evo['from_name']}</span>"
+                    f"<span class='evo-arrow'>→</span>"
+                    f"<span class='evo-name-to'>{evo['to_name']}</span>"
+                    f"</div>"
+                    f"<div class='result-body' style='margin-top:6px'>"
+                    f"Stats recalculados para a nova forma!</div>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
 
     st.session_state.checkin_result = None
 
