@@ -13,15 +13,32 @@ _DB_PARAMS: dict | None = None
 
 
 def _db_params() -> dict:
+    """Carrega parâmetros de conexão.
+
+    Prioridade:
+      1. st.secrets["database"]  — Streamlit Cloud (ou secrets.toml local)
+      2. Variáveis de ambiente   — arquivo .env para desenvolvimento local
+    """
     global _DB_PARAMS
     if _DB_PARAMS is None:
-        _DB_PARAMS = dict(
-            host=os.getenv("host"),
-            port=os.getenv("port"),
-            dbname=os.getenv("database"),
-            user=os.getenv("user"),
-            password=os.getenv("password"),
-        )
+        try:
+            db = st.secrets["database"]
+            _DB_PARAMS = dict(
+                host=db["host"],
+                port=int(db["port"]),
+                dbname=db["name"],
+                user=db["user"],
+                password=db["password"],
+            )
+        except (KeyError, FileNotFoundError):
+            # Fallback: .env local
+            _DB_PARAMS = dict(
+                host=os.getenv("host"),
+                port=os.getenv("port"),
+                dbname=os.getenv("database"),
+                user=os.getenv("user"),
+                password=os.getenv("password"),
+            )
     return _DB_PARAMS
 
 
@@ -46,11 +63,47 @@ def get_connection():
     return st.session_state._db_conn
 
 
-@st.cache_data
+# URL base do repo público de assets (HybridShivam/Pokemon)
+_GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
+
+
+@st.cache_data(show_spinner=False)
 def get_image_as_base64(path: str) -> str | None:
+    """Converte uma imagem em base64.
+
+    Aceita:
+    - Caminho local (dev): tenta abrir o arquivo
+    - URL http/https: faz GET e converte
+    - Caminho local não encontrado: faz fallback automático para o CDN
+      público do HybridShivam/Pokemon no GitHub (Streamlit Cloud)
+    """
+    import requests as _req
+
     try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
+        # ── 1. URL remota explícita ───────────────────────────────────────────
+        if path.startswith(("http://", "https://")):
+            r = _req.get(path, timeout=10)
+            return base64.b64encode(r.content).decode() if r.status_code == 200 else None
+
+        # ── 2. Arquivo local ──────────────────────────────────────────────────
+        try:
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+        except FileNotFoundError:
+            pass
+
+        # ── 3. Fallback: GitHub CDN (produção no Streamlit Cloud) ─────────────
+        # Transforma qualquer caminho local que contenha "assets/" em URL remota.
+        # Ex.: C:\...\src\Pokemon\assets\images\0001.png
+        #   →  https://raw.githubusercontent.com/.../assets/images/0001.png
+        norm = path.replace("\\", "/")
+        if "assets/" in norm:
+            rel = norm.split("assets/", 1)[1]
+            r = _req.get(f"{_GITHUB_ASSETS_CDN}/assets/{rel}", timeout=10)
+            return base64.b64encode(r.content).decode() if r.status_code == 200 else None
+
+        return None
+
     except Exception:
         return None
 

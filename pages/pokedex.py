@@ -8,15 +8,31 @@ from utils.type_colors import get_type_color, TYPE_COLORS
 
 BASE_DIR = os.getcwd()
 TOTAL_POKEMON = 1025
+_GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _resolve_asset(local_path: str) -> str:
+    """Retorna o caminho local se existir, senão URL do GitHub CDN."""
+    if os.path.isfile(local_path):
+        return local_path
+    norm = local_path.replace("\\", "/")
+    if "assets/" in norm:
+        rel = norm.split("assets/", 1)[1]
+        return f"{_GITHUB_ASSETS_CDN}/assets/{rel}"
+    return local_path  # melhor esforço
+
 def _hq_path(sprite_url: str) -> str:
-    return os.path.join(BASE_DIR, sprite_url.replace("/images/", "/imagesHQ/").lstrip("/"))
+    """Caminho/URL para a imagem HQ (official artwork)."""
+    local = os.path.join(BASE_DIR, sprite_url.replace("/images/", "/imagesHQ/").lstrip("/\\"))
+    return _resolve_asset(local)
 
 def _thumb_path(pokemon_id: int) -> str:
-    return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails", f"{str(pokemon_id).zfill(4)}.png")
+    """Caminho/URL para o thumbnail de um Pokémon."""
+    local = os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
+                         f"{str(pokemon_id).zfill(4)}.png")
+    return _resolve_asset(local)
 
 def _type_icon_path(type_name: str) -> str:
     return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "Others", "type-icons", "png", f"{type_name.lower()}.png")
@@ -246,7 +262,8 @@ def _render_pokedex(pid: int):
             try:
                 st.image(hq, width=280)
             except Exception:
-                st.image(sprite_url, width=280)
+                local_sp = os.path.join(BASE_DIR, sprite_url.lstrip("/\\"))
+                st.image(_resolve_asset(local_sp), width=280)
 
     # Right: Moves
     with col_moves:
