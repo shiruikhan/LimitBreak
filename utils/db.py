@@ -61,6 +61,30 @@ def get_all_pokemon() -> list[tuple]:
         return cur.fetchall()
 
 
+@st.cache_data
+def get_all_pokemon_with_types() -> list[dict]:
+    """Retorna todos os 1.025 Pokémon com tipos e sprite — cacheado globalmente."""
+    with get_connection().cursor() as cur:
+        cur.execute("""
+            SELECT p.id, p.name, p.sprite_url,
+                   t1.name AS type1, t1.slug AS type1_slug,
+                   t2.name AS type2, t2.slug AS type2_slug
+            FROM pokemon_species p
+            LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
+            LEFT JOIN pokemon_types t2 ON p.type2_id = t2.id
+            ORDER BY p.id;
+        """)
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0], "name": r[1], "sprite_url": r[2],
+                "type1": r[3], "type1_slug": r[4],
+                "type2": r[5], "type2_slug": r[6],
+            }
+            for r in rows
+        ]
+
+
 def get_pokemon_details(pokemon_id: int) -> tuple | None:
     with get_connection().cursor() as cur:
         cur.execute("""

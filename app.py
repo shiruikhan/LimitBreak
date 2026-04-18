@@ -36,8 +36,9 @@ elif st.session_state.needs_starter:
 else:
     # Fully onboarded
     pg = st.navigation([
-        st.Page("pages/pokedex.py", title="Pokédex", icon="📖"),
-        st.Page("pages/equipe.py", title="Minha Equipe", icon="⚔️"),
+        st.Page("pages/pokedex.py",         title="Pokédex",        icon="📖"),
+        st.Page("pages/pokedex_pessoal.py", title="Minha Pokédex",  icon="🗂️"),
+        st.Page("pages/equipe.py",          title="Minha Equipe",   icon="⚔️"),
     ])
 
 pg.run()
