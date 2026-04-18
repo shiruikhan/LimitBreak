@@ -5,7 +5,7 @@ from utils.supabase_client import get_supabase
 from utils.db import get_user_pokemon_ids
 
 # Mesmo key que app.py — acessa os mesmos cookies do browser
-cookie_manager = stx.CookieManager(key="lb_cookies")
+cookie_manager = stx.CookieManager(key="lb_cookies_login")
 
 def _save_session(session):
     """Persiste o refresh_token em cookie por 30 dias."""

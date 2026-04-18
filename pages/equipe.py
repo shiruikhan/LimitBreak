@@ -192,7 +192,7 @@ with st.sidebar:
     if st.button("Sair", use_container_width=True):
         # Apaga o cookie de sessão do browser
         import extra_streamlit_components as stx
-        _cm = stx.CookieManager(key="lb_cookies")
+        _cm = stx.CookieManager(key="lb_cookies_logout")
         _cm.delete("lb_refresh_token", key="delete_on_logout")
         # Limpa o session state
         for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter"]:
