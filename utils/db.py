@@ -530,3 +530,160 @@ def get_stat_boost_summary(user_pokemon_id: int) -> dict:
             return summary
     except Exception:
         return {s: 0 for s in _VALID_STATS}
+
+
+# ── Loja ──────────────────────────────────────────────────────────────────────
+
+@st.cache_data
+def get_shop_items() -> list[dict]:
+    """Retorna o catálogo completo da loja — cacheado globalmente."""
+    with get_connection().cursor() as cur:
+        cur.execute("""
+            SELECT id, slug, name, description, category,
+                   price, effect_stat, effect_value, icon
+            FROM shop_items
+            ORDER BY category, price;
+        """)
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0], "slug": r[1], "name": r[2], "description": r[3],
+                "category": r[4], "price": r[5], "effect_stat": r[6],
+                "effect_value": r[7], "icon": r[8],
+            }
+            for r in rows
+        ]
+
+
+def get_user_inventory(user_id: str) -> dict[int, int]:
+    """Retorna {item_id: quantity} para os itens que o usuário possui (quantity > 0)."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT item_id, quantity FROM user_inventory
+                WHERE user_id = %s AND quantity > 0;
+            """, (user_id,))
+            return {r[0]: r[1] for r in cur.fetchall()}
+    except Exception:
+        return {}
+
+
+def buy_item(user_id: str, item_id: int) -> tuple[bool, str]:
+    """Compra um item: debita moedas e adiciona ao inventário.
+
+    Returns:
+        (True, mensagem_sucesso) ou (False, mensagem_erro)
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Preço do item
+            cur.execute("SELECT name, price FROM shop_items WHERE id = %s;", (item_id,))
+            row = cur.fetchone()
+            if not row:
+                return False, "Item não encontrado."
+            item_name, price = row
+
+            # Saldo do usuário (FOR UPDATE trava a linha contra compras simultâneas)
+            cur.execute(
+                "SELECT coins FROM user_profiles WHERE id = %s FOR UPDATE;",
+                (user_id,)
+            )
+            profile = cur.fetchone()
+            if not profile:
+                return False, "Perfil não encontrado."
+            if profile[0] < price:
+                return False, f"Moedas insuficientes. Você tem {profile[0]} 🪙, precisa de {price} 🪙."
+
+            # Debita moedas
+            cur.execute(
+                "UPDATE user_profiles SET coins = coins - %s WHERE id = %s;",
+                (price, user_id)
+            )
+
+            # Adiciona ao inventário (upsert)
+            cur.execute("""
+                INSERT INTO user_inventory (user_id, item_id, quantity)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (user_id, item_id)
+                DO UPDATE SET quantity = user_inventory.quantity + 1;
+            """, (user_id, item_id))
+
+        conn.commit()
+        return True, f"**{item_name}** comprado com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao comprar: {e}"
+
+
+def use_stat_item(user_id: str, item_id: int, user_pokemon_id: int) -> tuple[bool, str]:
+    """Usa uma vitamina de stat em um Pokémon da equipe do usuário.
+
+    Debita 1 unidade do inventário, aplica o boost e registra o histórico
+    em user_pokemon_stat_boosts — tudo na mesma transação.
+
+    Returns:
+        (True, mensagem_sucesso) ou (False, mensagem_erro)
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Detalhes do item
+            cur.execute("""
+                SELECT name, category, effect_stat, effect_value
+                FROM shop_items WHERE id = %s;
+            """, (item_id,))
+            item = cur.fetchone()
+            if not item:
+                return False, "Item não encontrado."
+            iname, category, stat, value = item
+            if category != "stat_boost" or not stat or not value:
+                return False, "Este item não pode ser usado diretamente."
+            if stat not in _VALID_STATS:
+                return False, "Stat inválido."
+
+            # Verifica ownership do Pokémon
+            cur.execute(
+                "SELECT id FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                (user_pokemon_id, user_id)
+            )
+            if not cur.fetchone():
+                return False, "Pokémon não encontrado na sua coleção."
+
+            # Verifica inventário (FOR UPDATE trava contra uso duplo)
+            cur.execute("""
+                SELECT quantity FROM user_inventory
+                WHERE user_id = %s AND item_id = %s FOR UPDATE;
+            """, (user_id, item_id))
+            inv = cur.fetchone()
+            if not inv or inv[0] < 1:
+                return False, "Você não possui este item."
+
+            # Debita inventário
+            cur.execute("""
+                UPDATE user_inventory SET quantity = quantity - 1
+                WHERE user_id = %s AND item_id = %s;
+            """, (user_id, item_id))
+
+            # Registra histórico do boost
+            cur.execute("""
+                INSERT INTO user_pokemon_stat_boosts (user_pokemon_id, stat, delta, source_item)
+                VALUES (%s, %s, %s, %s);
+            """, (user_pokemon_id, stat, value, iname))
+
+            # Aplica no stat efetivo (stat validado pela whitelist acima)
+            cur.execute(f"""
+                UPDATE user_pokemon
+                SET stat_{stat} = COALESCE(stat_{stat}, 0) + %s
+                WHERE id = %s;
+            """, (value, user_pokemon_id))
+
+        conn.commit()
+        stat_label = {
+            "hp": "HP", "attack": "Ataque", "defense": "Defesa",
+            "sp_attack": "Atq. Especial", "sp_defense": "Def. Especial", "speed": "Velocidade",
+        }.get(stat, stat)
+        return True, f"+{value} {stat_label} aplicado com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao usar item: {e}"
