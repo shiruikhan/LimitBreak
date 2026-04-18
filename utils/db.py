@@ -410,3 +410,99 @@ def unequip_move(user_pokemon_id: int, slot: int) -> bool:
     except Exception:
         conn.rollback()
         return False
+
+
+# ── Stat boosts (itens da loja) ────────────────────────────────────────────────
+
+# Stats válidos — usados como whitelist antes de interpolar no nome da coluna
+_VALID_STATS = frozenset({"hp", "attack", "defense", "sp_attack", "sp_defense", "speed"})
+
+
+def apply_stat_boost(user_pokemon_id: int, stat: str, delta: int, source_item: str) -> bool:
+    """Aplica um boost permanente a um stat do Pokémon do usuário.
+
+    Registra o histórico em user_pokemon_stat_boosts e atualiza o valor
+    efetivo em user_pokemon.stat_<stat> — tudo na mesma transação.
+
+    Args:
+        user_pokemon_id: ID do user_pokemon a ser modificado.
+        stat:            Nome do stat ('hp', 'attack', 'defense',
+                         'sp_attack', 'sp_defense', 'speed').
+        delta:           Variação (positiva para buff, negativa para nerf).
+        source_item:     Nome do item que causou a alteração (ex: 'HP Up').
+
+    Returns:
+        True em caso de sucesso, False em caso de erro.
+    """
+    if stat not in _VALID_STATS:
+        raise ValueError(f"Stat inválido: '{stat}'. Válidos: {sorted(_VALID_STATS)}")
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Registra o boost no histórico auditável
+            cur.execute("""
+                INSERT INTO user_pokemon_stat_boosts (user_pokemon_id, stat, delta, source_item)
+                VALUES (%s, %s, %s, %s);
+            """, (user_pokemon_id, stat, delta, source_item))
+
+            # Atualiza o valor efetivo (stat é validado pela whitelist acima — seguro interpolar)
+            cur.execute(f"""
+                UPDATE user_pokemon
+                SET stat_{stat} = COALESCE(stat_{stat}, 0) + %s
+                WHERE id = %s;
+            """, (delta, user_pokemon_id))
+
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+
+
+def get_stat_boosts(user_pokemon_id: int) -> list[dict]:
+    """Retorna o histórico completo de boosts de um Pokémon, do mais antigo ao mais recente."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT id, stat, delta, source_item, applied_at
+                FROM user_pokemon_stat_boosts
+                WHERE user_pokemon_id = %s
+                ORDER BY applied_at ASC;
+            """, (user_pokemon_id,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "stat": r[1],
+                    "delta": r[2],
+                    "source_item": r[3],
+                    "applied_at": r[4],
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def get_stat_boost_summary(user_pokemon_id: int) -> dict:
+    """Retorna o total acumulado de boosts por stat para um Pokémon.
+
+    Exemplo de retorno:
+        {'hp': 20, 'attack': 10, 'defense': 0, ...}
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT stat, COALESCE(SUM(delta), 0) AS total
+                FROM user_pokemon_stat_boosts
+                WHERE user_pokemon_id = %s
+                GROUP BY stat;
+            """, (user_pokemon_id,))
+            rows = cur.fetchall()
+            summary = {s: 0 for s in _VALID_STATS}
+            for stat, total in rows:
+                summary[stat] = total
+            return summary
+    except Exception:
+        return {s: 0 for s in _VALID_STATS}

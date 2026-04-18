@@ -193,6 +193,23 @@ No Streamlit Cloud, configurar em **App settings → Secrets** (mesmo formato TO
 
 > Constraint PK: `(user_pokemon_id, slot)`. Apenas moves com `level_learned_at <= level` podem ser equipados.
 
+### `user_pokemon_stat_boosts`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_pokemon_id | INT FK | FK → user_pokemon (CASCADE DELETE) |
+| stat | TEXT | 'hp', 'attack', 'defense', 'sp_attack', 'sp_defense', 'speed' |
+| delta | SMALLINT | Variação aplicada (positivo = buff, negativo = nerf) |
+| source_item | TEXT | Nome do item que causou a modificação (ex: 'HP Up') |
+| applied_at | TIMESTAMPTZ | Timestamp da aplicação |
+
+> Cada linha é um boost individual. O valor efetivo do stat fica em `user_pokemon.stat_*`, atualizado atomicamente junto com o INSERT aqui. Este histórico serve como auditoria e para exibir o detalhamento na interface.
+
+**Funções em `db.py`:**
+- `apply_stat_boost(user_pokemon_id, stat, delta, source_item)` — aplica o boost: INSERT no histórico + UPDATE no stat, na mesma transação. Valida `stat` contra whitelist antes de interpolar no nome da coluna.
+- `get_stat_boosts(user_pokemon_id)` — histórico completo ordenado por `applied_at`
+- `get_stat_boost_summary(user_pokemon_id)` — total acumulado por stat (`{'hp': 20, 'attack': 10, ...}`)
+
 **Fórmula XP:** `level * 100` XP necessário para o próximo nível.
 
 ---

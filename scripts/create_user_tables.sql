@@ -33,19 +33,45 @@ CREATE TABLE IF NOT EXISTS user_team (
     PRIMARY KEY (user_id, slot)
 );
 
+-- 4. Moves equipados (até 4 por Pokémon)
+CREATE TABLE IF NOT EXISTS user_pokemon_moves (
+    user_pokemon_id INTEGER NOT NULL REFERENCES user_pokemon(id) ON DELETE CASCADE,
+    slot            INTEGER NOT NULL CHECK (slot BETWEEN 1 AND 4),
+    move_id         INTEGER NOT NULL REFERENCES pokemon_moves(id),
+    PRIMARY KEY (user_pokemon_id, slot)
+);
+
+-- 5. Histórico de boosts permanentes de stat (aplicados via itens da loja)
+--
+--    Cada linha registra uma modificação individual. O valor efetivo do stat
+--    fica em user_pokemon.stat_*, que é atualizado atomicamente junto com o
+--    INSERT aqui. Este histórico serve como auditoria e para exibir o detalhamento
+--    de cada boost na interface.
+CREATE TABLE IF NOT EXISTS user_pokemon_stat_boosts (
+    id               SERIAL      PRIMARY KEY,
+    user_pokemon_id  INTEGER     NOT NULL REFERENCES user_pokemon(id) ON DELETE CASCADE,
+    stat             TEXT        NOT NULL CHECK (stat IN ('hp','attack','defense','sp_attack','sp_defense','speed')),
+    delta            SMALLINT    NOT NULL,               -- positivo = buff, negativo = nerf
+    source_item      TEXT        NOT NULL,               -- nome do item que causou a alteração
+    applied_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Índices para as queries mais comuns
-CREATE INDEX IF NOT EXISTS idx_user_pokemon_user   ON user_pokemon(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_pokemon_user    ON user_pokemon(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_pokemon_species ON user_pokemon(species_id);
-CREATE INDEX IF NOT EXISTS idx_user_team_user       ON user_team(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_team_user        ON user_team(user_id);
+CREATE INDEX IF NOT EXISTS idx_stat_boosts_pokemon   ON user_pokemon_stat_boosts(user_pokemon_id);
 
 -- ============================================================
 -- Row Level Security
 -- Garante que cada usuário só veja/altere seus próprios dados
 -- ============================================================
 
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_pokemon  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_team     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_pokemon            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_team               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_pokemon_moves      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_pokemon_stat_boosts ENABLE ROW LEVEL SECURITY;
 
 -- user_profiles
 CREATE POLICY "owner_select_profile" ON user_profiles FOR SELECT USING (auth.uid() = id);
@@ -60,6 +86,20 @@ CREATE POLICY "owner_delete_pokemon" ON user_pokemon FOR DELETE USING (auth.uid(
 
 -- user_team
 CREATE POLICY "owner_all_team" ON user_team FOR ALL USING (auth.uid() = user_id);
+
+-- user_pokemon_moves (acesso via user_pokemon)
+CREATE POLICY "owner_all_moves" ON user_pokemon_moves FOR ALL
+    USING (EXISTS (
+        SELECT 1 FROM user_pokemon up
+        WHERE up.id = user_pokemon_id AND up.user_id = auth.uid()
+    ));
+
+-- user_pokemon_stat_boosts (acesso via user_pokemon)
+CREATE POLICY "owner_all_stat_boosts" ON user_pokemon_stat_boosts FOR ALL
+    USING (EXISTS (
+        SELECT 1 FROM user_pokemon up
+        WHERE up.id = user_pokemon_id AND up.user_id = auth.uid()
+    ));
 
 -- ============================================================
 -- ATENÇÃO: Como o app usa psycopg2 com credenciais diretas,
