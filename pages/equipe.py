@@ -142,6 +142,11 @@ with st.sidebar:
         st.markdown(f"<small style='color:#8b949e'>👤 {email.email}</small>", unsafe_allow_html=True)
     st.markdown("---")
     if st.button("Sair", use_container_width=True):
+        # Apaga o cookie de sessão do browser
+        import extra_streamlit_components as stx
+        _cm = stx.CookieManager(key="lb_cookies")
+        _cm.delete("lb_refresh_token", key="delete_on_logout")
+        # Limpa o session state
         for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter"]:
             st.session_state[k] = None
         st.rerun()

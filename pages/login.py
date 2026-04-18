@@ -1,6 +1,17 @@
 import streamlit as st
+from datetime import datetime, timedelta
+import extra_streamlit_components as stx
 from utils.supabase_client import get_supabase
 from utils.db import get_user_pokemon_ids
+
+# Mesmo key que app.py — acessa os mesmos cookies do browser
+cookie_manager = stx.CookieManager(key="lb_cookies")
+
+def _save_session(session):
+    """Persiste o refresh_token em cookie por 30 dias."""
+    exp = datetime.now() + timedelta(days=30)
+    cookie_manager.set("lb_refresh_token", session.refresh_token,
+                       expires_at=exp, key="save_on_login")
 
 # ── Page style ─────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -88,13 +99,13 @@ with center:
                     try:
                         client = get_supabase()
                         res = client.auth.sign_in_with_password({"email": email_l, "password": senha_l})
-                        st.session_state.user = res.user
-                        st.session_state.user_id = res.user.id
-                        st.session_state.access_token = res.session.access_token
+                        st.session_state.user          = res.user
+                        st.session_state.user_id       = str(res.user.id)
+                        st.session_state.access_token  = res.session.access_token
                         st.session_state.refresh_token = res.session.refresh_token
+                        _save_session(res.session)
 
-                        # Prompt starter selection if user has no Pokémon yet
-                        if not get_user_pokemon_ids(res.user.id):
+                        if not get_user_pokemon_ids(str(res.user.id)):
                             st.session_state.needs_starter = True
                         st.rerun()
                     except Exception as e:
@@ -121,11 +132,12 @@ with center:
                         res = client.auth.sign_up({"email": email_s, "password": senha_s})
 
                         if res.user:
-                            st.session_state.user = res.user
-                            st.session_state.user_id = res.user.id
+                            st.session_state.user          = res.user
+                            st.session_state.user_id       = str(res.user.id)
                             if res.session:
-                                st.session_state.access_token = res.session.access_token
+                                st.session_state.access_token  = res.session.access_token
                                 st.session_state.refresh_token = res.session.refresh_token
+                                _save_session(res.session)
                             st.session_state.needs_starter = True
                             st.rerun()
                         else:
