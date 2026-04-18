@@ -21,11 +21,14 @@ Aplicativo web (com futura conversão para Android) de acompanhamento de treinos
 
 - **Frontend/Backend:** Python + Streamlit
 - **Banco de dados:** PostgreSQL hospedado no Supabase
+- **Autenticação:** Supabase Auth via `supabase-py`
 - **Fonte de dados Pokémon:** PokéAPI (`https://pokeapi.co`)
-- **Conexão ao banco:** `psycopg2`
+- **Conexão ao banco:** `psycopg2` (direto, não via REST)
 - **Variáveis de ambiente:** `python-dotenv` (arquivo `.env` local, não versionado)
 
-### Variáveis de ambiente necessárias (`.env`)
+### Credenciais
+
+**`.env`** — conexão PostgreSQL direta (nunca no git):
 ```
 host=
 port=
@@ -34,25 +37,52 @@ user=
 password=
 ```
 
+**`.streamlit/secrets.toml`** — credenciais Supabase Auth (nunca no git):
+```toml
+[supabase]
+url      = "https://SEU_PROJECT_ID.supabase.co"
+anon_key = "sua_anon_key_aqui"
+```
+
+`SUPABASE_URL` e `SUPABASE_ANON_KEY` ficam no dashboard do Supabase em **Settings → API**.  
+No Streamlit Cloud, configurar em **App settings → Secrets** (mesmo formato TOML).
+
+**Nota:** Auth usa `supabase-py`; todas as queries de dados usam `psycopg2` direto. RLS está definido no SQL mas não é aplicado via psycopg2 (apenas via REST API).
+
 ---
 
 ## Estrutura de Arquivos
 
 ```
 /
-├── app_pokedex.py          # App Streamlit principal — Pokédex interativo
-├── CLAUDE.md               # Este arquivo
-├── README.md               # Visão geral do produto
+├── app.py                       # Entry point — roteamento de 3 estados (auth gate)
+├── app_pokedex.py               # LEGADO — Pokédex standalone, manter apenas como referência
+├── requirements.txt             # streamlit, psycopg2-binary, supabase, python-dotenv, requests
+├── CLAUDE.md                    # Este arquivo
+├── README.md                    # Visão geral do produto (para o GitHub)
+├── pages/
+│   ├── login.py                 # Login / Cadastro com Supabase Auth
+│   ├── starter.py               # Seleção de Pokémon inicial (+ easter egg)
+│   ├── pokedex.py               # Pokédex redesenhado (gradiente por tipo, move cards)
+│   └── equipe.py                # Equipe ativa — 6 slots, moveset, promover, remover
+├── utils/
+│   ├── __init__.py
+│   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
+│   ├── db.py                    # Todas as queries psycopg2 (Pokédex + usuário)
+│   └── supabase_client.py       # Supabase client singleton (somente Auth)
 ├── scripts/
-│   ├── seed_types.py       # Popula pokemon_types via PokéAPI (executar 1º)
-│   ├── seed_pokedex.py     # Popula pokemon_species, pokemon_moves, pokemon_species_moves (executar 2º)
-│   ├── seed_evolutions.py  # Popula pokemon_evolutions (executar 3º)
-│   └── update_sprites.py   # Substitui URLs da PokéAPI por caminhos locais no banco
+│   ├── seed_types.py            # Popula pokemon_types via PokéAPI (executar 1º)
+│   ├── seed_pokedex.py          # Popula pokemon_species, pokemon_moves, species_moves (2º)
+│   ├── seed_evolutions.py       # Popula pokemon_evolutions (3º)
+│   ├── seed_stats.py            # Popula base stats em pokemon_species via PokéAPI (4º)
+│   ├── update_sprites.py        # Substitui URLs da PokéAPI por caminhos locais
+│   └── create_user_tables.sql   # DDL das tabelas de usuário — executar no Supabase
 └── src/Pokemon/assets/
-    ├── images/             # Sprites base (0001.png … 1025.png)
-    ├── imagesHQ/           # Arte em alta qualidade (mesmo padrão de nome)
-    ├── thumbnails/         # Thumbnails para cadeia evolutiva (0001.png … 1025.png)
+    ├── images/                  # Sprites base (0001.png … 1025.png)
+    ├── imagesHQ/                # Arte em alta qualidade (mesmo padrão de nome)
+    ├── thumbnails/              # Thumbnails para cadeia evolutiva
     └── Others/
+        ├── type-icons/png/      # Ícones de tipo (grass.png, fire.png, …)
         └── damage-category-icons/1x/   # Physical.png, Special.png, Status.png
 ```
 
@@ -76,8 +106,16 @@ password=
 | type1_id | INT FK | FK → pokemon_types |
 | type2_id | INT FK | FK → pokemon_types (nullable) |
 | base_experience | INT | XP base ao derrotar |
-| sprite_url | TEXT | Caminho local: `/src/Pokemon/assets/images/XXXX.png` |
+| sprite_url | TEXT | Caminho local: `src/Pokemon/assets/images/XXXX.png` |
 | sprite_shiny_url | TEXT | URL original da PokéAPI (shiny) |
+| base_hp | SMALLINT | Base stat HP |
+| base_attack | SMALLINT | Base stat Ataque |
+| base_defense | SMALLINT | Base stat Defesa |
+| base_sp_attack | SMALLINT | Base stat Ataque Especial |
+| base_sp_defense | SMALLINT | Base stat Defesa Especial |
+| base_speed | SMALLINT | Base stat Velocidade |
+
+> Base stats populados via `scripts/seed_stats.py` após o seed principal.
 
 ### `pokemon_moves`
 | Coluna | Tipo | Descrição |
@@ -99,7 +137,7 @@ password=
 | learn_method | TEXT | Método de aprendizado (seed filtra apenas "level-up") |
 | level_learned_at | INT | Nível em que aprende o golpe |
 
-> Constraint UNIQUE esperada: `(species_id, move_id, learn_method)` — necessária para o `ON CONFLICT DO NOTHING` do seed funcionar corretamente.
+> Constraint UNIQUE: `(species_id, move_id, learn_method)` — necessária para o `ON CONFLICT DO NOTHING` do seed.
 
 ### `pokemon_evolutions`
 | Coluna | Tipo | Descrição |
@@ -110,143 +148,6 @@ password=
 | min_level | INT | Nível mínimo (nullable) |
 | trigger_name | TEXT | "level-up", "use-item", etc. |
 | item_name | TEXT | Nome do item quando trigger = "use-item" (nullable) |
-
----
-
-## App Principal — `app_pokedex.py`
-
-### Fluxo
-1. Conexão ao banco via `@st.cache_resource` (singleton por sessão Streamlit)
-2. Sidebar com selectbox de todos os 1.025 Pokémon
-3. Ao selecionar: carrega detalhes, moveset e cadeia evolutiva
-4. Layout em 3 colunas: info | imagem HQ | moveset (scroll)
-5. Seção inferior: cadeia evolutiva completa com thumbnails e setas
-
-### Funções principais
-| Função | Descrição |
-|---|---|
-| `init_connection()` | Conexão ao Supabase, cacheada |
-| `get_image_as_base64(path)` | Lê imagem local e converte para base64 para embutir no HTML |
-| `get_all_pokemon()` | Lista todos os Pokémon (id, name) para o selectbox |
-| `get_pokemon_details(id)` | Nome, sprite_url, type1, type2 |
-| `get_pokemon_moves(id)` | Moveset por level-up ordenado por nível |
-| `get_full_evolution_chain(id)` | CTE recursiva que encontra a família inteira — ancestors → base_pokemon → full_chain |
-
-### Detalhe da CTE recursiva de evolução
-A query usa dois CTEs recursivos encadeados:
-1. `ancestors` — sobe na árvore para encontrar o Pokémon raiz (sem predecessores)
-2. `full_chain` — desce a partir da raiz mapeando todos os filhos/netos
-
-Isso permite exibir a cadeia completa independente de qual membro da família estiver selecionado (ex: selecionar Ivysaur mostra Bulbasaur → Ivysaur → Venusaur).
-
----
-
-## Scripts de Seed — Ordem de Execução
-
-Os scripts devem ser executados nesta ordem por causa das Foreign Keys:
-
-```
-1. python scripts/seed_types.py       # pokemon_types (sem dependências)
-2. python scripts/seed_pokedex.py     # pokemon_moves + pokemon_species + pokemon_species_moves
-3. python scripts/seed_evolutions.py  # pokemon_evolutions
-4. python scripts/update_sprites.py   # atualiza sprite_url para caminhos locais
-```
-
-Todos os scripts usam `ON CONFLICT ... DO UPDATE` (upsert), portanto são **idempotentes** — podem ser reexecutados sem duplicar dados.
-
-**Filtros aplicados nos seeds:**
-- Tipos com `id ≥ 10000` são ignorados (tipagens especiais não oficiais: "unknown", "shadow")
-- Moves com `id > 10000` são ignorados (Z-moves, Max moves)
-- Moves do learnset com `id > 1000` são ignorados (moves de DLCs/futuras gerações)
-- Apenas moveset via `"level-up"` é salvo (máquinas TM/HM e eggs não são usados)
-- Evoluções: o `id` é gerado como `(from_id * 1000) + to_id` para garantir idempotência sem precisar de constraint composta
-
----
-
-## Funcionalidades Planejadas (Gamificação)
-
-### Implementado
-- [x] Pokédex interativo com sprites, tipos, moveset e cadeia evolutiva
-- [x] Seed completo: 1.025 Pokémon, ~900 moves, evoluções, tipagens
-
-### A implementar (responsabilidade deste repo)
-- [ ] Tela de criação de conta com escolha de Pokémon inicial (iniciais de todas as gerações)
-- [ ] Sistema de XP: cada exercício realizado dá XP ao Pokémon ativo
-- [ ] Evolução automática ao atingir o `min_level` da cadeia evolutiva
-- [ ] Gerenciamento de equipe (até 6 Pokémon ativos + banco)
-- [ ] Sistema de encontros: 25% de chance de spawn por exercício, com tipagem vinculada ao tipo de exercício
-- [ ] Captura garantida (100%) quando o encontro ocorre
-- [ ] Calendário de presença com recompensa de moedas por frequência
-- [ ] Loja virtual: XP Share, skins regionais (Galar, Alola, etc.)
-- [ ] Pokédex pessoal do usuário (capturados vs não capturados)
-
-### Contrato com o outro dev (eventos esperados no banco)
-O sistema de gamificação precisa consumir (ou ser notificado de) eventos gerados pelo módulo de treinos:
-- Exercício completado (com tipo de musculação para definir tipagem do spawn)
-- Check-in diário realizado
-
----
-
-## Convenções de Código
-
-- Nomes de arquivos de sprite: `XXXX.png` com ID zero-padded de 4 dígitos (`0001.png`, `0025.png`)
-- `sprite_url` no banco armazena caminho relativo a partir da raiz do projeto: `/src/Pokemon/assets/images/XXXX.png`
-- Imagens HQ ficam em `/src/Pokemon/assets/imagesHQ/` com o mesmo padrão de nome — o app faz a troca via `.replace("/images/", "/imagesHQ/")`
-- CSS de tipos Pokémon usa classes `.bg-{tipo}` (ex: `.bg-grass`, `.bg-poison`) — expandir conforme necessidade
-- Queries SQL com parâmetros usam `%s` (psycopg2) — nunca f-strings com valores diretos
-
----
-
-## Estrutura de Arquivos (atualizada)
-
-```
-/
-├── app.py                      # Entry point — st.navigation, auth gate
-├── app_pokedex.py              # LEGADO — Pokédex standalone (manter como referência)
-├── requirements.txt            # streamlit, psycopg2-binary, supabase, python-dotenv, requests
-├── CLAUDE.md
-├── pages/
-│   ├── login.py                # Login / Cadastro com Supabase Auth + seleção de starter
-│   ├── pokedex.py              # Pokédex redesenhado (gradiente por tipo, moves com ícones)
-│   └── equipe.py               # Equipe ativa — 6 slots, promover principal, remover
-├── utils/
-│   ├── __init__.py
-│   ├── type_colors.py          # Paleta de cores dos 18 tipos Pokémon
-│   ├── db.py                   # Todas as queries psycopg2 (Pokédex + usuário)
-│   └── supabase_client.py      # Supabase client (somente Auth)
-└── scripts/
-    ├── seed_types.py
-    ├── seed_pokedex.py
-    ├── seed_evolutions.py
-    ├── update_sprites.py
-    └── create_user_tables.sql  # Executar no SQL Editor do Supabase antes de usar o app
-```
-
-### Credenciais
-
-**`.env`** — apenas conexão PostgreSQL direta:
-```
-host=
-port=
-database=
-user=
-password=
-```
-
-**`.streamlit/secrets.toml`** — credenciais Supabase (nunca no `.env`, nunca no git):
-```toml
-[supabase]
-url      = "https://SEU_PROJECT_ID.supabase.co"
-anon_key = "sua_anon_key_aqui"
-```
-
-Ambos os arquivos estão no `.gitignore`.  
-`SUPABASE_URL` e `SUPABASE_ANON_KEY` ficam no dashboard do Supabase em **Settings → API**.  
-No Streamlit Cloud, as secrets são configuradas em **App settings → Secrets** (mesmo formato TOML).
-
----
-
-## Tabelas de Usuário (novas)
 
 ### `user_profiles`
 | Coluna | Tipo | Descrição |
@@ -261,17 +162,36 @@ No Streamlit Cloud, as secrets são configuradas em **App settings → Secrets**
 |---|---|---|
 | id | SERIAL PK | |
 | user_id | UUID FK | Dono do Pokémon |
-| species_id | INT FK | Espécie |
+| species_id | INT FK | Espécie (FK → pokemon_species) |
 | level | INT | Nível atual (começa em 1) |
 | xp | INT | XP acumulado |
 | is_shiny | BOOL | |
+| stat_hp | SMALLINT | HP individual (copiado dos base stats na captura) |
+| stat_attack | SMALLINT | Ataque individual |
+| stat_defense | SMALLINT | Defesa individual |
+| stat_sp_attack | SMALLINT | Ataque Especial individual |
+| stat_sp_defense | SMALLINT | Defesa Especial individual |
+| stat_speed | SMALLINT | Velocidade individual |
+
+> Os `stat_*` são copiados dos `base_*` da espécie no momento da captura/criação. No futuro podem ser modificados por itens ou evoluções.
 
 ### `user_team`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| user_id | UUID | FK |
+| user_id | UUID FK | |
 | slot | INT | 1–6 (slot 1 = Pokémon principal) |
-| user_pokemon_id | INT FK | Pokémon na equipe |
+| user_pokemon_id | INT FK | FK → user_pokemon |
+
+> Constraint PK: `(user_id, slot)`.
+
+### `user_pokemon_moves`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| user_pokemon_id | INT FK | FK → user_pokemon (CASCADE DELETE) |
+| slot | INT | 1–4 (até 4 moves equipados) |
+| move_id | INT FK | FK → pokemon_moves |
+
+> Constraint PK: `(user_pokemon_id, slot)`. Apenas moves com `level_learned_at <= level` podem ser equipados.
 
 **Fórmula XP:** `level * 100` XP necessário para o próximo nível.
 
@@ -279,35 +199,153 @@ No Streamlit Cloud, as secrets são configuradas em **App settings → Secrets**
 
 ## Fluxo de Autenticação
 
-1. `app.py` checa `st.session_state.user`
-2. Se `None` → carrega `pages/login.py` (hidden nav)
-3. Login/Signup via `supabase-py` → armazena `user`, `user_id`, `access_token`, `refresh_token` em `session_state`
-4. Novo usuário (`needs_starter=True`) → tela de seleção de starter (27 opções, Gen 1–9)
-5. Seleção cria `user_profiles` + primeiro `user_pokemon` + `user_team` slot 1
-6. Navegação normal: Pokédex + Minha Equipe
+```
+app.py
+  │
+  ├─ user == None          → pages/login.py    (nav hidden)
+  ├─ needs_starter == True → pages/starter.py  (nav hidden)
+  └─ autenticado           → pages/pokedex.py + pages/equipe.py
+```
 
-**Nota:** Auth usa `supabase-py`; todas as queries de dados usam `psycopg2` direto. RLS está definido no SQL mas não é aplicado via psycopg2 (apenas via REST API).
+1. `app.py` checa `st.session_state.user`
+2. Se `None` → `pages/login.py` — login ou cadastro via Supabase Auth
+3. Login bem-sucedido → checa `get_user_pokemon_ids()`. Se vazio → `needs_starter = True`
+4. `pages/starter.py` — 27 iniciais (Gen 1–9) + 2 secretos via easter egg
+5. Confirmação cria `user_profiles` + `user_pokemon` (com stats copiados) + `user_team` slot 1
+6. Navegação normal: Pokédex + Minha Equipe
 
 ---
 
-## Como iniciar o app
+## Páginas do App
+
+### `pages/login.py`
+- Tabs "Entrar" / "Criar conta"
+- Autenticação via `supabase-py` (`sign_in_with_password` / `sign_up`)
+- Armazena `user`, `user_id`, `access_token`, `refresh_token` em `session_state`
+- Dispara `needs_starter = True` se o usuário não tem Pokémon
+
+### `pages/starter.py`
+- Grade de 27 iniciais (Gen 1–9), 9 por linha, com thumbnail e botão de seleção
+- **Easter egg secreto:** clicar 7 vezes em qualquer área fora dos botões desbloqueia Cubone (#104) e Mimikyu (#778), exibidos com borda roxa
+- Mecanismo do easter egg: botão invisível com label `\u2800` (Braille blank) + JS em `components.html(height=0)` que escuta cliques no `window.parent.document` e dispara `.click()` programaticamente após 7 acertos. Guard `window.parent._easterInit` evita listeners duplicados em reruns.
+- Ao confirmar: chama `create_user_profile()` → cria perfil + Pokémon + slot de equipe
+
+### `pages/pokedex.py`
+- Sidebar com selectbox de todos os 1.025 Pokémon
+- Header com gradiente dinâmico baseado nos tipos do Pokémon selecionado
+- Layout: info + sprite HQ | move cards com ícone de tipo, classe de dano, power, accuracy
+- Cadeia evolutiva completa via CTE recursiva
+- Base stats exibidos como barras (quando populados via `seed_stats.py`)
+
+### `pages/equipe.py`
+- Grade de 6 slots; clique no card seleciona o Pokémon
+- Ações: ⚔ Golpes / ↑ Promover para slot 1 / 🗑 Remover da equipe
+- Painel de movimentos: coluna esquerda = 4 slots ativos (com ✕ para desquipar); coluna direita = lista de moves disponíveis pelo nível
+- **Modo substituição:** se os 4 slots estão cheios, clicar em um novo move entra em modo "replace" — slots ficam amarelos e cada um exibe "↩ Slot X" para confirmação
+- Moves já equipados aparecem acinzentados na lista de disponíveis
+
+---
+
+## Scripts de Seed — Ordem de Execução
+
+```bash
+python scripts/seed_types.py       # 1. pokemon_types (sem dependências)
+python scripts/seed_pokedex.py     # 2. pokemon_moves + pokemon_species + species_moves
+python scripts/seed_evolutions.py  # 3. pokemon_evolutions
+python scripts/seed_stats.py       # 4. base stats em pokemon_species (PokéAPI, ~5 min)
+python scripts/update_sprites.py   # 5. atualiza sprite_url para caminhos locais
+```
+
+O SQL das tabelas de usuário fica em `scripts/create_user_tables.sql` — executar uma única vez no SQL Editor do Supabase.
+
+Todos os scripts são **idempotentes** — usam `ON CONFLICT ... DO UPDATE/NOTHING` e podem ser reexecutados sem duplicar dados. O `seed_stats.py` processa apenas espécies com `base_hp IS NULL`.
+
+**Filtros aplicados nos seeds:**
+- Tipos com `id ≥ 10000` ignorados (tipagens especiais: "unknown", "shadow")
+- Moves com `id > 10000` ignorados (Z-moves, Max moves)
+- Moves do learnset com `id > 1000` ignorados (DLCs/gerações futuras)
+- Apenas moveset via `"level-up"` salvo (TM/HM e egg moves não são usados)
+- ID de evolução gerado como `(from_id * 1000) + to_id` para idempotência
+
+---
+
+## Conexão ao Banco — Detalhe Técnico
+
+A conexão psycopg2 é armazenada em `st.session_state._db_conn` (não em `@st.cache_resource`) para evitar que conexões expiradas sejam compartilhadas entre sessões diferentes.
+
+```python
+def get_connection():
+    conn = st.session_state.get("_db_conn")
+    if conn is None or conn.closed != 0:
+        st.session_state._db_conn = _new_conn()
+        return st.session_state._db_conn
+    if conn.status != psycopg2.extensions.STATUS_READY:
+        try:
+            conn.rollback()
+        except Exception:
+            st.session_state._db_conn = _new_conn()
+    return st.session_state._db_conn
+```
+
+---
+
+## CTE Recursiva de Evolução — Detalhe
+
+A query usa três CTEs encadeados:
+1. `ancestors` — sobe na árvore para encontrar o Pokémon raiz
+2. `base_pokemon` — seleciona o id mais baixo (a raiz)
+3. `full_chain` — desce a partir da raiz mapeando toda a família
+
+Permite exibir a cadeia completa independente do membro selecionado (ex: Ivysaur mostra Bulbasaur → Ivysaur → Venusaur).
+
+---
+
+## Convenções de Código
+
+- Nomes de arquivos de sprite: `XXXX.png` com ID zero-padded de 4 dígitos (`0001.png`, `0025.png`)
+- `sprite_url` armazena caminho relativo à raiz: `src/Pokemon/assets/images/XXXX.png`
+- Imagens HQ: `src/Pokemon/assets/imagesHQ/` — o app troca via `.replace("/images/", "/imagesHQ/")`
+- Queries SQL usam `%s` (psycopg2) — nunca f-strings com valores diretos
+- Cores de tipo ficam em `utils/type_colors.py` como dict `TYPE_COLORS[slug] = {bg, light, dark, text}`
+
+---
+
+## Como Iniciar o App
 
 ```bash
 pip install -r requirements.txt
 
-# 1. Configure o .env com as credenciais
-# 2. Execute o SQL de migração no Supabase
-# 3. Inicie o app
+# 1. Criar .env com as credenciais PostgreSQL
+# 2. Criar .streamlit/secrets.toml com as credenciais Supabase
+# 3. Executar scripts/create_user_tables.sql no SQL Editor do Supabase
+# 4. (Primeira vez) Executar os scripts de seed na ordem acima
 streamlit run app.py
 ```
 
 ---
 
-## Estado Atual do Projeto
+## Estado Atual do Projeto (abril 2026)
 
-**Fase:** MVP com auth e Pokédex funcional.
+**Fase:** MVP funcional com auth, Pokédex, equipe e movimentos.
 
-- Auth completo: login, cadastro, seleção de starter
-- Pokédex redesenhado: gradiente por tipo, type icons, move cards com power/accuracy, evolution chain melhorada, toggle shiny, botão capturar
-- Equipe: 6 slots, promover para principal (slot 1), remover, XP bar, moedas
-- Sem lógica de XP por treino ainda (aguarda módulo do outro dev)
+### Implementado
+- [x] Pokédex completo: sprites, tipos, moveset por nível, cadeia evolutiva, base stats (após seed)
+- [x] Seed completo: 1.025 Pokémon, ~900 moves, evoluções, tipagens, base stats
+- [x] Autenticação: login, cadastro, sessão persistente via Supabase Auth
+- [x] Onboarding: seleção de Pokémon inicial (27 + 2 secretos via easter egg)
+- [x] Equipe: 6 slots, promover para principal, remover
+- [x] Movimentos: 4 slots equipáveis por Pokémon, respeitando nível, modo substituição
+- [x] Stats individuais em `user_pokemon` (copiados dos base stats na captura)
+
+### A implementar
+- [ ] Sistema de XP: exercício realizado → XP para o Pokémon ativo
+- [ ] Evolução automática ao atingir `min_level` da cadeia evolutiva
+- [ ] Sistema de encontros: 25% de chance de spawn por exercício, tipagem vinculada ao tipo de treino
+- [ ] Captura garantida (100%) quando o encontro ocorre
+- [ ] Pokédex pessoal: capturados vs não capturados
+- [ ] Calendário de presença com recompensa de moedas por frequência
+- [ ] Loja virtual: XP Share, skins regionais (Galar, Alola, etc.)
+
+### Contrato com o outro dev (eventos esperados no banco)
+- Exercício completado (com tipo de musculação → define tipagem do spawn)
+- Check-in diário realizado
