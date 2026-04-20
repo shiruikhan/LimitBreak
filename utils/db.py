@@ -705,18 +705,19 @@ def get_user_inventory(user_id: str) -> dict[int, int]:
 def buy_item(user_id: str, item_id: int) -> tuple[bool, str]:
     """Compra um item: debita moedas e adiciona ao inventário.
 
+    XP Share não vai ao inventário — ativa/estende o efeito diretamente.
+
     Returns:
         (True, mensagem_sucesso) ou (False, mensagem_erro)
     """
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            # Preço do item
-            cur.execute("SELECT name, price FROM shop_items WHERE id = %s;", (item_id,))
+            cur.execute("SELECT name, price, slug FROM shop_items WHERE id = %s;", (item_id,))
             row = cur.fetchone()
             if not row:
                 return False, "Item não encontrado."
-            item_name, price = row
+            item_name, price, slug = row
 
             # Saldo do usuário (FOR UPDATE trava a linha contra compras simultâneas)
             cur.execute(
@@ -735,7 +736,13 @@ def buy_item(user_id: str, item_id: int) -> tuple[bool, str]:
                 (price, user_id)
             )
 
-            # Adiciona ao inventário (upsert)
+            if slug == "xp-share":
+                # XP Share: ativa/estende direto, não entra no inventário
+                _extend_xp_share(cur, user_id)
+                conn.commit()
+                return True, f"📡 **{item_name}** ativado! +15 dias adicionados ao efeito."
+
+            # Demais itens: adiciona ao inventário (upsert)
             cur.execute("""
                 INSERT INTO user_inventory (user_id, item_id, quantity)
                 VALUES (%s, %s, 1)
@@ -961,12 +968,7 @@ def do_checkin(user_id: str) -> dict:
 
             # ── XP Share nos dias especiais ───────────────────────────────────
             if bonus_item_id:
-                cur.execute("""
-                    INSERT INTO user_inventory (user_id, item_id, quantity)
-                    VALUES (%s, %s, 1)
-                    ON CONFLICT (user_id, item_id)
-                    DO UPDATE SET quantity = user_inventory.quantity + 1;
-                """, (user_id, bonus_item_id))
+                _extend_xp_share(cur, user_id)
                 result["bonus_xp_share"] = True
 
             # ── Spawn em múltiplo de 3 ────────────────────────────────────────
@@ -1105,18 +1107,74 @@ def _recalc_stats_on_evolution(cur, user_pokemon_id: int, new_species_id: int) -
     )
 
 
-def award_xp(user_pokemon_id: int, amount: int, source: str = "xp") -> dict:
+def get_xp_share_status(user_id: str) -> dict:
+    """Retorna o status do XP Share do usuário.
+
+    Returns:
+        {"active": bool, "expires_at": datetime | None, "days_left": int}
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute(
+                "SELECT xp_share_expires_at FROM user_profiles WHERE id = %s;",
+                (user_id,)
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return {"active": False, "expires_at": None, "days_left": 0}
+            expires_at = row[0]
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
+            now    = datetime.datetime.now(tz=_BRT)
+            active = expires_at > now
+            days_left = max(0, (expires_at.date() - _today_brt()).days) if active else 0
+            return {"active": active, "expires_at": expires_at, "days_left": days_left}
+    except Exception:
+        return {"active": False, "expires_at": None, "days_left": 0}
+
+
+def _extend_xp_share(cur, user_id: str) -> None:
+    """Estende (ou inicia) o XP Share em +15 dias dentro de uma transação aberta."""
+    cur.execute("""
+        UPDATE user_profiles
+        SET xp_share_expires_at =
+            GREATEST(COALESCE(xp_share_expires_at, NOW()), NOW())
+            + INTERVAL '15 days'
+        WHERE id = %s;
+    """, (user_id,))
+
+
+def _distribute_xp_share(user_id: str, main_pokemon_id: int, amount: int, source: str) -> None:
+    """Distribui XP (30%) para os demais membros da equipe via XP Share."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT user_pokemon_id FROM user_team
+                WHERE user_id = %s AND user_pokemon_id != %s
+                ORDER BY slot;
+            """, (user_id, main_pokemon_id))
+            others = [r[0] for r in cur.fetchall()]
+        for pid in others:
+            award_xp(pid, amount, source, _distributing=True)
+    except Exception:
+        pass
+
+
+def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
+             _distributing: bool = False) -> dict:
     """Concede XP a um Pokémon, processando level-ups e evoluções automáticas.
 
-    Ponto de integração para o módulo de treinos: quando o outro dev
-    implementar o sistema de exercícios, basta chamar esta função com
-    o user_pokemon_id do Pokémon ativo e o amount calculado.
+    Se XP Share estiver ativo e _distributing=False, distribui 30% do XP
+    para os demais membros da equipe automaticamente.
+
+    Ponto de integração para o módulo de treinos:
+        award_xp(user_pokemon_id, xp_amount, "exercise")
 
     Args:
         user_pokemon_id: ID do user_pokemon que receberá o XP.
         amount:          Quantidade de XP a conceder (positivo).
-        source:          Origem do XP para rastreabilidade ("check-in",
-                         "exercise", "battle", etc.).
+        source:          Origem do XP ("check-in", "exercise", "battle", etc.).
+        _distributing:   Uso interno — evita recursão no XP Share.
 
     Returns:
         {
@@ -1140,11 +1198,12 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp") -> dict:
         return result
 
     conn = get_connection()
+    user_id = None
     try:
         with conn.cursor() as cur:
             # Estado atual (FOR UPDATE garante consistência em acessos simultâneos)
             cur.execute("""
-                SELECT level, xp, species_id
+                SELECT level, xp, species_id, user_id
                 FROM user_pokemon WHERE id = %s FOR UPDATE;
             """, (user_pokemon_id,))
             row = cur.fetchone()
@@ -1152,7 +1211,7 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp") -> dict:
                 result["error"] = "Pokémon não encontrado."
                 return result
 
-            level, xp, species_id = row
+            level, xp, species_id, user_id = row
             result["old_level"] = level
             xp += amount
 
@@ -1202,6 +1261,14 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp") -> dict:
         conn.commit()
         result["new_level"] = level
         result["new_xp"]    = xp
+
+        # ── Distribuição via XP Share (só para chamada original) ──────────────
+        if not _distributing and user_id:
+            status = get_xp_share_status(user_id)
+            if status["active"]:
+                share_amount = max(1, int(amount * 0.30))
+                _distribute_xp_share(user_id, user_pokemon_id, share_amount, source)
+
         return result
 
     except Exception as e:

@@ -88,11 +88,13 @@ with center:
         # ── Login tab ──────────────────────────────────────────────────────────
         with tab_login:
             st.write("")
-            email_l = st.text_input("E-mail", key="login_email", placeholder="treinador@email.com")
-            senha_l = st.text_input("Senha", type="password", key="login_senha", placeholder="••••••••")
-            st.write("")
+            with st.form("form_login"):
+                email_l = st.text_input("E-mail", key="login_email", placeholder="treinador@email.com")
+                senha_l = st.text_input("Senha", type="password", key="login_senha", placeholder="••••••••")
+                st.write("")
+                submitted_l = st.form_submit_button("Entrar", use_container_width=True)
 
-            if st.button("Entrar", key="btn_login"):
+            if submitted_l:
                 if not email_l or not senha_l:
                     st.warning("Preencha e-mail e senha.")
                 else:
@@ -114,12 +116,14 @@ with center:
         # ── Signup tab ─────────────────────────────────────────────────────────
         with tab_signup:
             st.write("")
-            email_s = st.text_input("E-mail", key="signup_email", placeholder="treinador@email.com")
-            senha_s = st.text_input("Senha", type="password", key="signup_senha", placeholder="Mínimo 6 caracteres")
-            senha_s2 = st.text_input("Confirmar senha", type="password", key="signup_senha2", placeholder="••••••••")
-            st.write("")
+            with st.form("form_signup"):
+                email_s  = st.text_input("E-mail", key="signup_email", placeholder="treinador@email.com")
+                senha_s  = st.text_input("Senha", type="password", key="signup_senha", placeholder="Mínimo 6 caracteres")
+                senha_s2 = st.text_input("Confirmar senha", type="password", key="signup_senha2", placeholder="••••••••")
+                st.write("")
+                submitted_s = st.form_submit_button("Criar conta", use_container_width=True)
 
-            if st.button("Criar conta", key="btn_signup"):
+            if submitted_s:
                 if not email_s or not senha_s:
                     st.warning("Preencha todos os campos.")
                 elif senha_s != senha_s2:

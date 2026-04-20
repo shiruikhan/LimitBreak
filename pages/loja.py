@@ -4,6 +4,7 @@ from utils.db import (
     get_shop_items, get_user_inventory, get_user_profile,
     get_user_team, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
+    get_xp_share_status,
 )
 
 BASE_DIR = os.getcwd()
@@ -84,12 +85,13 @@ def _clear_msg():
 
 # ── Dados ──────────────────────────────────────────────────────────────────────
 
-user_id   = st.session_state.user_id
-profile   = get_user_profile(user_id)
-coins     = profile["coins"] if profile else 0
-items     = get_shop_items()
-inventory = get_user_inventory(user_id)
-team      = get_user_team(user_id)
+user_id      = st.session_state.user_id
+profile      = get_user_profile(user_id)
+coins        = profile["coins"] if profile else 0
+items        = get_shop_items()
+inventory    = get_user_inventory(user_id)
+team         = get_user_team(user_id)
+xp_share_st  = get_xp_share_status(user_id)
 
 # Catálogo por categoria
 stones      = [i for i in items if i["category"] == "stone"]
@@ -174,7 +176,50 @@ with tab_shop:
 
     # ── Outros ────────────────────────────────────────────────────────────────
     st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
-    _item_grid(others, cols=4)
+    st.caption("Efeitos ativados automaticamente na compra — não vão para a mochila.")
+
+    cols = st.columns(4)
+    for idx, item in enumerate(others):
+        is_xp_share = item["slug"] == "xp-share"
+        can_buy     = coins >= item["price"]
+        price_cls   = "" if can_buy else "cant-afford"
+
+        with cols[idx % 4]:
+            if is_xp_share and xp_share_st["active"]:
+                days = xp_share_st["days_left"]
+                status_html = (
+                    f"<div style='font-size:0.7rem;color:#58A6FF;margin-top:4px'>"
+                    f"📡 Ativo · {days} dia{'s' if days != 1 else ''} restante{'s' if days != 1 else ''}</div>"
+                )
+            else:
+                status_html = ""
+
+            st.markdown(
+                f"<div class='item-card'>"
+                f"<div class='item-icon'>{item['icon']}</div>"
+                f"<div class='item-name'>{item['name']}</div>"
+                f"<div class='item-desc'>{item['description']}</div>"
+                f"<div class='item-price {price_cls}'>🪙 {item['price']:,}</div>"
+                f"{status_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.write("")
+            btn_label = (
+                ("✚ +15 dias" if xp_share_st["active"] else "▶ Ativar")
+                if is_xp_share
+                else ("Comprar" if can_buy else "💸 Sem moedas")
+            )
+            if st.button(
+                btn_label,
+                key=f"buy_{item['id']}",
+                disabled=not can_buy,
+                use_container_width=True,
+            ):
+                ok, msg = buy_item(user_id, item["id"])
+                st.session_state.shop_msg      = msg
+                st.session_state.shop_msg_type = "success" if ok else "error"
+                st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

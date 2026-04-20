@@ -4,6 +4,7 @@ from utils.db import (
     get_user_team, get_user_bench, get_user_profile, swap_team_slots,
     remove_from_team, add_to_team, get_image_as_base64,
     get_available_moves, get_active_moves, equip_move, unequip_move,
+    get_xp_share_status,
 )
 from utils.type_colors import get_type_color
 
@@ -256,17 +257,27 @@ if not user_id:
     st.error("Sessão expirada. Faça login novamente.")
     st.stop()
 
-profile     = get_user_profile(user_id)
-team        = get_user_team(user_id)
+profile      = get_user_profile(user_id)
+team         = get_user_team(user_id)
 team_by_slot = {m["slot"]: m for m in team}
+xp_share     = get_xp_share_status(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 col_title, col_coins = st.columns([3, 1])
 with col_title:
     st.markdown("<div class='page-title'>MINHA EQUIPE</div>", unsafe_allow_html=True)
     trainer = profile["username"] if profile else "Treinador"
-    st.markdown(f"<div class='page-sub'>Treinador {trainer} · {len(team)}/6 Pokémon</div>",
-                unsafe_allow_html=True)
+    xp_share_badge = ""
+    if xp_share["active"]:
+        xp_share_badge = (
+            f" &nbsp;<span style='font-size:0.7rem;background:#0f2030;border:1px solid #58A6FF;"
+            f"border-radius:10px;padding:2px 8px;color:#58A6FF;font-weight:700'>"
+            f"📡 XP Share · {xp_share['days_left']}d</span>"
+        )
+    st.markdown(
+        f"<div class='page-sub'>Treinador {trainer} · {len(team)}/6 Pokémon{xp_share_badge}</div>",
+        unsafe_allow_html=True,
+    )
 with col_coins:
     coins = profile["coins"] if profile else 0
     st.markdown(
