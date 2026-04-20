@@ -1411,7 +1411,7 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
 
 _MAX_BATTLES_PER_DAY = 3
 _MAX_TURNS = 50
-_WIN_COINS = 50
+_WIN_COINS = 1
 _WIN_XP = 30
 _LOSS_XP = 10
 
