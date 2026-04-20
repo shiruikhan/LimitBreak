@@ -253,6 +253,32 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 
 > **Atenção:** nome da tabela é `user_checkins` (não `user_daily_checkins`) e a coluna de data é `checked_date` (não `checked_at`). O item bônus é FK para `shop_items` (int), não slug texto.
 
+#### `user_battles`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| challenger_id | UUID FK | Usuário que iniciou a batalha |
+| opponent_id | UUID FK | Usuário desafiado |
+| challenger_pokemon_id | INT FK | user_pokemon do desafiante (slot 1 no momento) |
+| opponent_pokemon_id | INT FK | user_pokemon do oponente (slot 1 no momento) |
+| winner_id | UUID FK | nullable — NULL = empate |
+| result | TEXT | 'challenger_win', 'opponent_win', 'draw' |
+| challenger_xp_earned / opponent_xp_earned | INT | XP ganho por cada lado |
+| coins_earned | INT | Moedas ganhas pelo vencedor |
+| turn_count | INT | Número de turnos da batalha |
+| battled_at | TIMESTAMPTZ | |
+
+#### `user_battle_turns`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| battle_id | INT FK | CASCADE DELETE |
+| turn_number | INT | |
+| attacker_pokemon_id | INT FK | user_pokemon que atacou |
+| move_name / move_power | TEXT/INT | Move usado |
+| damage | INT | Dano causado |
+| challenger_hp_remaining / opponent_hp_remaining | INT | HP após o turno |
+
 ---
 
 ## Funções de `utils/db.py`
@@ -316,6 +342,25 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `_distribute_xp_share(user_id, main_pokemon_id, amount, source)` | **Interno.** Distribui 30% do XP para todos os Pokémon da equipe exceto o principal; usa `_distributing=True` para evitar recursão |
 | `get_stone_targets(user_id, stone_slug)` | Pokémon do usuário elegíveis para evoluir com a pedra; inclui flag `in_team` |
 | `evolve_with_stone(user_id, item_id, user_pokemon_id)` | Valida posse do item e do Pokémon, executa evolução, debita inventário, recalcula stats. Retorna `(bool, msg, evo_data)` |
+
+### Batalhas PvP
+| Função | Descrição |
+|---|---|
+| `get_battle_opponents(user_id)` | Lista outros usuários com slot 1 preenchido: `[{username, user_id, level, pokemon_name, sprite_url}]` |
+| `get_daily_battle_count(user_id)` | Contagem de batalhas como desafiante hoje (máx `_MAX_BATTLES_PER_DAY = 3`) |
+| `simulate_battle(challenger_id, opponent_id)` | Simula batalha offline slot-1 vs slot-1, persiste turnos no banco, concede XP e moedas. Retorna dict completo com `turns`, `result`, `challenger`, `opponent`, `coins_earned` |
+| `get_battle_history(user_id, limit=20)` | Últimas batalhas em que o usuário participou (desafiante ou oponente) |
+| `get_battle_detail(battle_id)` | Todos os turnos de uma batalha específica |
+
+**Constantes de batalha:**
+- `_MAX_BATTLES_PER_DAY = 3`
+- HP de batalha = `stat_hp + level * 2` (não afeta banco permanentemente)
+- Ordem: maior `stat_speed` ataca primeiro; empate = aleatório
+- Dano: `(atk / def) * power * random(0.85, 1.0) * (level / 20)`, mínimo 1
+- Moves físicos usam `attack/defense`; especiais usam `sp_attack/sp_defense`; status = pulado
+- Sem move equipado: usa "Investida" (power 40, físico)
+- Máx 50 turnos — depois empate
+- Vitória: +50 moedas, +30 XP; Derrota: +10 XP
 
 ### Loja e inventário
 | Função | Descrição |
@@ -385,10 +430,11 @@ def _resolve_asset(local_path: str) -> str:
 
 ### Ordem na navegação (primeira = página inicial)
 1. `pages/equipe.py` — Minha Equipe ⚔️
-2. `pages/pokedex.py` — Pokédex 📖
-3. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
-4. `pages/loja.py` — Loja 🛒
-5. `pages/calendario.py` — Calendário 📅
+2. `pages/batalha.py` — Arena 🥊
+3. `pages/pokedex.py` — Pokédex 📖
+4. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
+5. `pages/loja.py` — Loja 🛒
+6. `pages/calendario.py` — Calendário 📅
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -414,6 +460,12 @@ def _resolve_asset(local_path: str) -> str:
 - Filtros: busca por nome/número, multiselect de tipo, radio de status
 - Barra de progresso global + chips de progresso por geração
 - **Atenção:** sem backslash em f-strings — usar variáveis intermediárias antes de interpolar dicts
+
+### `pages/batalha.py`
+- Header com título + contador diário colorido (verde/laranja/vermelho conforme uso)
+- Selectbox de oponentes com seu Pokémon slot 1 + botão "⚔️ Batalhar" (desabilitado se limite atingido)
+- Resultado: card de vitória/derrota/empate + cards dos dois lutadores com HP bar + log de turnos expansível
+- Histórico: últimas batalhas como expanders com log de turnos dentro
 
 ### `pages/loja.py`
 - Tab **Loja**: grade de itens por categoria (Pedras / Vitaminas / Outros) com preço e indicador de estoque
@@ -553,6 +605,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Calendário: check-in diário, streak, spawns nível 5 em streak ×3, extensão de XP Share nos dias 15/fim-de-mês
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
 - Deploy em produção: Streamlit Cloud com CDN fallback para imagens
+- Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
 
 ### Aguardando integração com módulo de treinos
 - `award_xp(user_pokemon_id, amount, "exercise")` — função pronta, aguarda chamador
@@ -560,4 +613,3 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ### A implementar
 - [ ] Skins regionais (Galar, Alola) como itens da loja categoria "other"
-- [ ] Histórico de combates / batalhas entre usuários

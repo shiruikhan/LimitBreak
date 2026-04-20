@@ -1403,3 +1403,303 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
     except Exception as e:
         conn.rollback()
         return False, f"Erro ao evoluir: {e}", {}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Batalhas
+# ──────────────────────────────────────────────────────────────────────────────
+
+_MAX_BATTLES_PER_DAY = 3
+_MAX_TURNS = 50
+_WIN_COINS = 50
+_WIN_XP = 30
+_LOSS_XP = 10
+
+
+def _pokemon_max_hp(stat_hp: int, level: int) -> int:
+    return max(1, stat_hp + level * 2)
+
+
+def _calc_damage(atk_stat: int, def_stat: int, power: int, level: int) -> int:
+    if not power:
+        return 0
+    base = (atk_stat / max(1, def_stat)) * power * (level / 20)
+    return max(1, int(base * random.uniform(0.85, 1.0)))
+
+
+def _best_move(moves: list) -> dict:
+    """Retorna o move com maior power; fallback para Investida se sem moves."""
+    if not moves:
+        return {"name": "Investida", "power": 40, "damage_class": "physical", "id": None}
+    physical = [m for m in moves if m["damage_class"] == "physical" and m["power"]]
+    special  = [m for m in moves if m["damage_class"] == "special"  and m["power"]]
+    pool = physical + special
+    if not pool:
+        return {"name": "Investida", "power": 40, "damage_class": "physical", "id": None}
+    return max(pool, key=lambda m: m["power"])
+
+
+def get_battle_opponents(user_id: str) -> list:
+    """Retorna outros usuários que têm Pokémon no slot 1, com dados do Pokémon."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT up.username, ut.user_id, up2.level, ps.name, ps.sprite_url
+        FROM user_team ut
+        JOIN user_profiles up  ON ut.user_id = up.id
+        JOIN user_pokemon up2  ON ut.user_pokemon_id = up2.id
+        JOIN pokemon_species ps ON up2.species_id = ps.id
+        WHERE ut.slot = 1
+          AND ut.user_id != %s
+        ORDER BY up.username;
+    """, (user_id,))
+    rows = cur.fetchall()
+    cur.close()
+    return [
+        {"username": r[0], "user_id": str(r[1]), "level": r[2],
+         "pokemon_name": r[3], "sprite_url": r[4]}
+        for r in rows
+    ]
+
+
+def get_daily_battle_count(user_id: str) -> int:
+    """Quantidade de batalhas iniciadas hoje (como desafiante)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    today = _today_brt()
+    cur.execute("""
+        SELECT COUNT(*) FROM user_battles
+        WHERE challenger_id = %s
+          AND battled_at AT TIME ZONE 'America/Sao_Paulo' >= %s::date
+          AND battled_at AT TIME ZONE 'America/Sao_Paulo' <  %s::date + INTERVAL '1 day';
+    """, (user_id, today, today))
+    count = cur.fetchone()[0]
+    cur.close()
+    return count
+
+
+def simulate_battle(challenger_id: str, opponent_id: str) -> dict:
+    """
+    Simula batalha offline entre slot-1 dos dois jogadores.
+    Armazena resultado e turno a turno no banco.
+    Concede XP e moedas automaticamente.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        # Limite diário
+        if get_daily_battle_count(challenger_id) >= _MAX_BATTLES_PER_DAY:
+            return {"error": f"Limite de {_MAX_BATTLES_PER_DAY} batalhas por dia atingido."}
+
+        def _load_fighter(uid):
+            cur.execute("""
+                SELECT up.id, up.level,
+                       up.stat_hp, up.stat_attack, up.stat_defense,
+                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
+                       ps.name, ps.sprite_url
+                FROM user_team ut
+                JOIN user_pokemon up  ON ut.user_pokemon_id = up.id
+                JOIN pokemon_species ps ON up.species_id = ps.id
+                WHERE ut.user_id = %s AND ut.slot = 1;
+            """, (uid,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0], "level": row[1],
+                "stat_hp": row[2], "stat_attack": row[3], "stat_defense": row[4],
+                "stat_sp_attack": row[5], "stat_sp_defense": row[6], "stat_speed": row[7],
+                "name": row[8], "sprite_url": row[9],
+            }
+
+        def _load_moves(pokemon_id):
+            cur.execute("""
+                SELECT pm.name, pm.power, pm.damage_class, pm.id
+                FROM user_pokemon_moves upm
+                JOIN pokemon_moves pm ON upm.move_id = pm.id
+                WHERE upm.user_pokemon_id = %s
+                ORDER BY upm.slot;
+            """, (pokemon_id,))
+            return [{"name": r[0], "power": r[1] or 0, "damage_class": r[2], "id": r[3]}
+                    for r in cur.fetchall()]
+
+        ch = _load_fighter(challenger_id)
+        op = _load_fighter(opponent_id)
+        if not ch:
+            return {"error": "Você não tem Pokémon na equipe."}
+        if not op:
+            return {"error": "Oponente não tem Pokémon na equipe."}
+
+        ch_moves = _load_moves(ch["id"])
+        op_moves = _load_moves(op["id"])
+
+        # HP de batalha (não afeta o banco permanentemente)
+        ch_hp = _pokemon_max_hp(ch["stat_hp"], ch["level"])
+        op_hp = _pokemon_max_hp(op["stat_hp"], op["level"])
+        ch_max_hp = ch_hp
+        op_max_hp = op_hp
+
+        # Ordem de turno: maior speed vai primeiro; empate = aleatório
+        ch_first = ch["stat_speed"] > op["stat_speed"] or (
+            ch["stat_speed"] == op["stat_speed"] and random.random() < 0.5
+        )
+
+        turns = []
+        turn_num = 0
+
+        while ch_hp > 0 and op_hp > 0 and turn_num < _MAX_TURNS:
+            turn_num += 1
+            for attacker, defender_hp_ref, is_challenger in (
+                [(ch, "op_hp", True), (op, "ch_hp", False)] if ch_first
+                else [(op, "ch_hp", False), (ch, "op_hp", True)]
+            ):
+                if ch_hp <= 0 or op_hp <= 0:
+                    break
+
+                moves = ch_moves if is_challenger else op_moves
+                move = _best_move(moves)
+
+                if move["damage_class"] == "physical":
+                    atk = attacker["stat_attack"]
+                    def_stat = (op if is_challenger else ch)["stat_defense"]
+                else:
+                    atk = attacker["stat_sp_attack"]
+                    def_stat = (op if is_challenger else ch)["stat_sp_defense"]
+
+                dmg = _calc_damage(atk, def_stat, move["power"], attacker["level"])
+
+                if is_challenger:
+                    op_hp = max(0, op_hp - dmg)
+                else:
+                    ch_hp = max(0, ch_hp - dmg)
+
+                turns.append({
+                    "turn": turn_num,
+                    "attacker_id": attacker["id"],
+                    "move_name": move["name"],
+                    "move_power": move["power"],
+                    "damage": dmg,
+                    "ch_hp": ch_hp,
+                    "op_hp": op_hp,
+                })
+
+        # Resultado
+        if ch_hp > op_hp:
+            result = "challenger_win"
+            winner_id = challenger_id
+        elif op_hp > ch_hp:
+            result = "opponent_win"
+            winner_id = opponent_id
+        else:
+            result = "draw"
+            winner_id = None
+
+        ch_xp = _WIN_XP if result == "challenger_win" else _LOSS_XP
+        op_xp = _WIN_XP if result == "opponent_win" else _LOSS_XP
+        coins = _WIN_COINS if winner_id else 0
+
+        # Persiste batalha
+        cur.execute("""
+            INSERT INTO user_battles
+                (challenger_id, opponent_id, challenger_pokemon_id, opponent_pokemon_id,
+                 winner_id, result, challenger_xp_earned, opponent_xp_earned,
+                 coins_earned, turn_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (challenger_id, opponent_id, ch["id"], op["id"],
+              winner_id, result, ch_xp, op_xp, coins, len(turns)))
+        battle_id = cur.fetchone()[0]
+
+        # Persiste turnos
+        for t in turns:
+            cur.execute("""
+                INSERT INTO user_battle_turns
+                    (battle_id, turn_number, attacker_pokemon_id,
+                     move_name, move_power, damage,
+                     challenger_hp_remaining, opponent_hp_remaining)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+            """, (battle_id, t["turn"], t["attacker_id"],
+                  t["move_name"], t["move_power"], t["damage"],
+                  t["ch_hp"], t["op_hp"]))
+
+        # Moedas para o vencedor
+        if winner_id:
+            cur.execute("""
+                UPDATE user_profiles SET coins = coins + %s WHERE id = %s;
+            """, (coins, winner_id))
+
+        conn.commit()
+
+        # XP (fora da transação principal para não poluir o rollback)
+        ch_xp_result = award_xp(ch["id"], ch_xp, "battle")
+        op_xp_result = award_xp(op["id"], op_xp, "battle")
+
+        return {
+            "battle_id": battle_id,
+            "result": result,
+            "winner_id": winner_id,
+            "challenger": {**ch, "xp_earned": ch_xp, "xp_result": ch_xp_result,
+                           "max_hp": ch_max_hp, "final_hp": ch_hp},
+            "opponent":   {**op, "xp_earned": op_xp, "xp_result": op_xp_result,
+                           "max_hp": op_max_hp, "final_hp": op_hp},
+            "coins_earned": coins,
+            "turn_count": len(turns),
+            "turns": turns,
+        }
+
+    except Exception as e:
+        conn.rollback()
+        return {"error": str(e)}
+    finally:
+        cur.close()
+
+
+def get_battle_history(user_id: str, limit: int = 20) -> list:
+    """Retorna as últimas batalhas em que o usuário participou."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT
+            b.id, b.result, b.winner_id,
+            b.challenger_id, pc.username AS challenger_name,
+            b.opponent_id,  po.username AS opponent_name,
+            ps_ch.name AS ch_pokemon, ps_op.name AS op_pokemon,
+            b.challenger_xp_earned, b.opponent_xp_earned,
+            b.coins_earned, b.turn_count, b.battled_at
+        FROM user_battles b
+        JOIN user_profiles pc  ON b.challenger_id = pc.id
+        JOIN user_profiles po  ON b.opponent_id   = po.id
+        JOIN user_pokemon up_ch ON b.challenger_pokemon_id = up_ch.id
+        JOIN user_pokemon up_op ON b.opponent_pokemon_id   = up_op.id
+        JOIN pokemon_species ps_ch ON up_ch.species_id = ps_ch.id
+        JOIN pokemon_species ps_op ON up_op.species_id = ps_op.id
+        WHERE b.challenger_id = %s OR b.opponent_id = %s
+        ORDER BY b.battled_at DESC
+        LIMIT %s;
+    """, (user_id, user_id, limit))
+    rows = cur.fetchall()
+    cur.close()
+    cols = ["id", "result", "winner_id",
+            "challenger_id", "challenger_name",
+            "opponent_id", "opponent_name",
+            "ch_pokemon", "op_pokemon",
+            "ch_xp", "op_xp", "coins", "turn_count", "battled_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_battle_detail(battle_id: int) -> list:
+    """Retorna todos os turnos de uma batalha."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT turn_number, attacker_pokemon_id, move_name, move_power,
+               damage, challenger_hp_remaining, opponent_hp_remaining
+        FROM user_battle_turns
+        WHERE battle_id = %s
+        ORDER BY turn_number, id;
+    """, (battle_id,))
+    rows = cur.fetchall()
+    cur.close()
+    cols = ["turn", "attacker_id", "move_name", "move_power",
+            "damage", "ch_hp", "op_hp"]
+    return [dict(zip(cols, r)) for r in rows]
