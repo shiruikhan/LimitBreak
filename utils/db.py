@@ -1411,29 +1411,28 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
 
 _MAX_BATTLES_PER_DAY = 3
 _MAX_TURNS = 50
-_WIN_COINS = 50
+_WIN_COINS = 1
 _WIN_XP = 30
 _LOSS_XP = 10
 
 
 def _pokemon_max_hp(stat_hp: int, level: int) -> int:
-    return max(1, stat_hp + level * 2)
+    return max(1, int((2 * stat_hp * level) / 100) + level + 10)
 
 
 def _calc_damage(atk_stat: int, def_stat: int, power: int, level: int) -> int:
+    """Fórmula oficial Pokémon: ((2L/5+2) × Poder × A/D) / 50 + 2) × rand(0.85,1.0)"""
     if not power:
         return 0
-    base = (atk_stat / max(1, def_stat)) * power * (level / 20)
+    base = ((2 * level / 5 + 2) * power * (atk_stat / max(1, def_stat))) / 50 + 2
     return max(1, int(base * random.uniform(0.85, 1.0)))
 
 
 def _best_move(moves: list) -> dict:
-    """Retorna o move com maior power; fallback para Investida se sem moves."""
+    """Oponente usa o move de maior power disponível; fallback para Investida."""
     if not moves:
         return {"name": "Investida", "power": 40, "damage_class": "physical", "id": None}
-    physical = [m for m in moves if m["damage_class"] == "physical" and m["power"]]
-    special  = [m for m in moves if m["damage_class"] == "special"  and m["power"]]
-    pool = physical + special
+    pool = [m for m in moves if m["damage_class"] in ("physical", "special") and m["power"]]
     if not pool:
         return {"name": "Investida", "power": 40, "damage_class": "physical", "id": None}
     return max(pool, key=lambda m: m["power"])
@@ -1478,19 +1477,18 @@ def get_daily_battle_count(user_id: str) -> int:
     return count
 
 
-def simulate_battle(challenger_id: str, opponent_id: str) -> dict:
+def start_battle(challenger_id: str, opponent_id: str) -> dict:
     """
-    Simula batalha offline entre slot-1 dos dois jogadores.
-    Armazena resultado e turno a turno no banco.
-    Concede XP e moedas automaticamente.
+    Inicia batalha interativa: verifica limite diário, carrega pokémon e moves.
+    Retorna estado inicial da batalha para ser mantido em session_state.
+    Não persiste nada no banco — apenas finalize_battle() persiste.
     """
+    if get_daily_battle_count(challenger_id) >= _MAX_BATTLES_PER_DAY:
+        return {"error": f"Limite de {_MAX_BATTLES_PER_DAY} batalhas por dia atingido."}
+
     conn = get_connection()
     cur = conn.cursor()
     try:
-        # Limite diário
-        if get_daily_battle_count(challenger_id) >= _MAX_BATTLES_PER_DAY:
-            return {"error": f"Limite de {_MAX_BATTLES_PER_DAY} batalhas por dia atingido."}
-
         def _load_fighter(uid):
             cur.execute("""
                 SELECT up.id, up.level,
@@ -1526,79 +1524,55 @@ def simulate_battle(challenger_id: str, opponent_id: str) -> dict:
         ch = _load_fighter(challenger_id)
         op = _load_fighter(opponent_id)
         if not ch:
-            return {"error": "Você não tem Pokémon na equipe."}
+            return {"error": "Você não tem Pokémon no slot 1 da equipe."}
         if not op:
             return {"error": "Oponente não tem Pokémon na equipe."}
 
         ch_moves = _load_moves(ch["id"])
         op_moves = _load_moves(op["id"])
+        if not any(m["power"] for m in ch_moves):
+            ch_moves = [{"name": "Investida", "power": 40, "damage_class": "physical", "id": None}]
+        if not any(m["power"] for m in op_moves):
+            op_moves = [{"name": "Investida", "power": 40, "damage_class": "physical", "id": None}]
 
-        # HP de batalha (não afeta o banco permanentemente)
-        ch_hp = _pokemon_max_hp(ch["stat_hp"], ch["level"])
-        op_hp = _pokemon_max_hp(op["stat_hp"], op["level"])
-        ch_max_hp = ch_hp
-        op_max_hp = op_hp
+        ch_max_hp = _pokemon_max_hp(ch["stat_hp"], ch["level"])
+        op_max_hp = _pokemon_max_hp(op["stat_hp"], op["level"])
 
-        # Ordem de turno: maior speed vai primeiro; empate = aleatório
-        ch_first = ch["stat_speed"] > op["stat_speed"] or (
-            ch["stat_speed"] == op["stat_speed"] and random.random() < 0.5
-        )
+        return {
+            "challenger_id": challenger_id,
+            "opponent_id":   opponent_id,
+            "ch":  {**ch, "max_hp": ch_max_hp, "hp": ch_max_hp, "moves": ch_moves},
+            "op":  {**op, "max_hp": op_max_hp, "hp": op_max_hp, "moves": op_moves},
+            "turns":    [],
+            "turn_num": 0,
+            "finished": False,
+            "result":   None,
+            "winner_id": None,
+        }
+    finally:
+        cur.close()
 
-        turns = []
-        turn_num = 0
 
-        while ch_hp > 0 and op_hp > 0 and turn_num < _MAX_TURNS:
-            turn_num += 1
-            for attacker, defender_hp_ref, is_challenger in (
-                [(ch, "op_hp", True), (op, "ch_hp", False)] if ch_first
-                else [(op, "ch_hp", False), (ch, "op_hp", True)]
-            ):
-                if ch_hp <= 0 or op_hp <= 0:
-                    break
+def finalize_battle(state: dict) -> dict:
+    """
+    Persiste batalha concluída no banco e concede XP/moedas.
+    Recebe o state retornado por start_battle (com turns preenchidos).
+    """
+    challenger_id = state["challenger_id"]
+    opponent_id   = state["opponent_id"]
+    ch = state["ch"]
+    op = state["op"]
+    result    = state["result"]
+    winner_id = state["winner_id"]
+    turns     = state["turns"]
 
-                moves = ch_moves if is_challenger else op_moves
-                move = _best_move(moves)
+    ch_xp  = _WIN_XP if result == "challenger_win" else _LOSS_XP
+    op_xp  = _WIN_XP if result == "opponent_win"   else _LOSS_XP
+    coins  = _WIN_COINS if winner_id else 0
 
-                if move["damage_class"] == "physical":
-                    atk = attacker["stat_attack"]
-                    def_stat = (op if is_challenger else ch)["stat_defense"]
-                else:
-                    atk = attacker["stat_sp_attack"]
-                    def_stat = (op if is_challenger else ch)["stat_sp_defense"]
-
-                dmg = _calc_damage(atk, def_stat, move["power"], attacker["level"])
-
-                if is_challenger:
-                    op_hp = max(0, op_hp - dmg)
-                else:
-                    ch_hp = max(0, ch_hp - dmg)
-
-                turns.append({
-                    "turn": turn_num,
-                    "attacker_id": attacker["id"],
-                    "move_name": move["name"],
-                    "move_power": move["power"],
-                    "damage": dmg,
-                    "ch_hp": ch_hp,
-                    "op_hp": op_hp,
-                })
-
-        # Resultado
-        if ch_hp > op_hp:
-            result = "challenger_win"
-            winner_id = challenger_id
-        elif op_hp > ch_hp:
-            result = "opponent_win"
-            winner_id = opponent_id
-        else:
-            result = "draw"
-            winner_id = None
-
-        ch_xp = _WIN_XP if result == "challenger_win" else _LOSS_XP
-        op_xp = _WIN_XP if result == "opponent_win" else _LOSS_XP
-        coins = _WIN_COINS if winner_id else 0
-
-        # Persiste batalha
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
         cur.execute("""
             INSERT INTO user_battles
                 (challenger_id, opponent_id, challenger_pokemon_id, opponent_pokemon_id,
@@ -1610,7 +1584,6 @@ def simulate_battle(challenger_id: str, opponent_id: str) -> dict:
               winner_id, result, ch_xp, op_xp, coins, len(turns)))
         battle_id = cur.fetchone()[0]
 
-        # Persiste turnos
         for t in turns:
             cur.execute("""
                 INSERT INTO user_battle_turns
@@ -1622,36 +1595,32 @@ def simulate_battle(challenger_id: str, opponent_id: str) -> dict:
                   t["move_name"], t["move_power"], t["damage"],
                   t["ch_hp"], t["op_hp"]))
 
-        # Moedas para o vencedor
         if winner_id:
-            cur.execute("""
-                UPDATE user_profiles SET coins = coins + %s WHERE id = %s;
-            """, (coins, winner_id))
+            cur.execute(
+                "UPDATE user_profiles SET coins = coins + %s WHERE id = %s;",
+                (coins, winner_id)
+            )
 
         conn.commit()
-
-        # XP (fora da transação principal para não poluir o rollback)
-        ch_xp_result = award_xp(ch["id"], ch_xp, "battle")
-        op_xp_result = award_xp(op["id"], op_xp, "battle")
-
-        return {
-            "battle_id": battle_id,
-            "result": result,
-            "winner_id": winner_id,
-            "challenger": {**ch, "xp_earned": ch_xp, "xp_result": ch_xp_result,
-                           "max_hp": ch_max_hp, "final_hp": ch_hp},
-            "opponent":   {**op, "xp_earned": op_xp, "xp_result": op_xp_result,
-                           "max_hp": op_max_hp, "final_hp": op_hp},
-            "coins_earned": coins,
-            "turn_count": len(turns),
-            "turns": turns,
-        }
-
     except Exception as e:
         conn.rollback()
         return {"error": str(e)}
     finally:
         cur.close()
+
+    ch_xp_result = award_xp(ch["id"], ch_xp, "battle")
+    op_xp_result = award_xp(op["id"], op_xp, "battle")
+
+    return {
+        "battle_id":    battle_id,
+        "result":       result,
+        "winner_id":    winner_id,
+        "ch_xp_result": ch_xp_result,
+        "op_xp_result": op_xp_result,
+        "coins_earned": coins,
+        "ch_xp":        ch_xp,
+        "op_xp":        op_xp,
+    }
 
 
 def get_battle_history(user_id: str, limit: int = 20) -> list:
