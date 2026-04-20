@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_BRT = datetime.timezone(datetime.timedelta(hours=-3))
+
+def _today_brt() -> datetime.date:
+    return datetime.datetime.now(tz=_BRT).date()
+
 _DB_PARAMS: dict | None = None
 
 
@@ -875,7 +880,7 @@ def get_checkin_streak(user_id: str) -> int:
             if not row:
                 return 0
             last_date, last_streak = row
-            today     = datetime.date.today()
+            today     = _today_brt()
             yesterday = today - datetime.timedelta(days=1)
             if last_date in (today, yesterday):
                 return last_streak
@@ -905,7 +910,7 @@ def do_checkin(user_id: str) -> dict:
         }
     """
     conn    = get_connection()
-    today   = datetime.date.today()
+    today   = _today_brt()
     result  = {
         "success": False, "already_done": False,
         "streak": 0, "coins_earned": 0,

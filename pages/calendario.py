@@ -5,6 +5,7 @@ import streamlit as st
 from utils.db import (
     get_monthly_checkins, get_checkin_streak,
     do_checkin, get_user_profile, get_image_as_base64,
+    _today_brt,
 )
 from utils.type_colors import get_type_color
 
@@ -107,7 +108,7 @@ st.markdown("""
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
-today = datetime.date.today()
+today = _today_brt()
 for k, v in [
     ("cal_year",  today.year),
     ("cal_month", today.month),
