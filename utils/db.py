@@ -1420,21 +1420,83 @@ def _pokemon_max_hp(stat_hp: int, level: int) -> int:
     return max(1, int((2 * stat_hp * level) / 100) + level + 10)
 
 
-def _calc_damage(atk_stat: int, def_stat: int, power: int, level: int) -> int:
-    """Fórmula oficial Pokémon: ((2L/5+2) × Poder × A/D) / 50 + 2) × rand(0.85,1.0)"""
+# Type chart: _TYPE_CHART[move_type_id][defender_type_id] = multiplier (omitidos = 1.0)
+_TYPE_CHART = {
+    1:  {6: 0.5, 8: 0,   9: 0.5},
+    2:  {1: 2,   3: 0.5, 4: 0.5, 6: 2,   7: 0.5, 8: 0,   9: 2,   14: 0.5, 15: 2,  17: 2,  18: 0.5},
+    3:  {2: 2,   6: 0.5, 7: 2,   9: 0.5, 12: 2,  13: 0.5},
+    4:  {4: 0.5, 5: 0.5, 6: 0.5, 8: 0.5, 9: 0,   12: 2,  18: 2},
+    5:  {3: 0,   6: 2,   7: 0.5, 9: 2,   10: 2,  12: 0.5, 13: 0},
+    6:  {2: 0.5, 3: 2,   5: 0.5, 7: 2,   9: 0.5, 10: 2,  15: 2},
+    7:  {2: 0.5, 3: 0.5, 4: 0.5, 8: 0.5, 9: 0.5, 10: 0.5, 12: 2, 14: 2,  17: 2,  18: 0.5},
+    8:  {1: 0,   8: 2,   14: 2,  17: 0.5},
+    9:  {6: 2,   9: 0.5, 10: 0.5, 11: 0.5, 13: 0.5, 15: 2,  18: 2},
+    10: {6: 0.5, 7: 2,   9: 2,   10: 0.5, 11: 0.5, 12: 2,  15: 2,  16: 0.5},
+    11: {5: 2,   6: 2,   10: 2,  11: 0.5, 12: 0.5, 16: 0.5},
+    12: {3: 0.5, 4: 0.5, 5: 2,   6: 2,   7: 0.5,  9: 0.5,  10: 0.5, 11: 2, 12: 0.5, 16: 0.5},
+    13: {3: 2,   5: 0,   9: 0.5, 11: 2,  12: 0.5, 13: 0.5, 16: 0.5},
+    14: {2: 2,   4: 2,   9: 0.5, 14: 0.5, 17: 0},
+    15: {3: 2,   5: 2,   9: 0.5, 10: 0.5, 11: 0.5, 12: 2,  15: 0.5, 16: 2},
+    16: {9: 0.5, 16: 2,  18: 0},
+    17: {2: 0.5, 8: 2,   14: 2,  17: 0.5, 18: 0.5},
+    18: {2: 2,   4: 0.5, 9: 0.5, 10: 0.5, 16: 2,  17: 2},
+}
+
+_CRIT_CHANCE = 1 / 24   # Gen 6+ (~4.2%)
+_CRIT_MULT   = 1.5
+
+
+def _type_effectiveness(move_type_id, defender_types: tuple) -> float:
+    if not move_type_id:
+        return 1.0
+    chart = _TYPE_CHART.get(move_type_id, {})
+    mult = 1.0
+    for dt in defender_types:
+        if dt:
+            mult *= chart.get(dt, 1.0)
+    return mult
+
+
+def _calc_damage(atk_stat: int, def_stat: int, power: int, level: int,
+                 move_type_id=None, attacker_types=(), defender_types=()) -> dict:
+    """
+    Fórmula oficial Pokémon com modificadores:
+      base = ((2L/5+2) × Poder × A/D) / 50 + 2
+      × STAB (1.5 se tipo do move == tipo do atacante)
+      × Efetividade (0.25 / 0.5 / 1 / 2 / 4)
+      × Crítico (1.5, chance 1/24)
+      × Roll aleatório (0.85–1.0)
+    """
     if not power:
-        return 0
+        return {"damage": 0, "critical": False, "effectiveness": 1.0, "stab": False}
+
+    stab = move_type_id in attacker_types if move_type_id else False
+    effectiveness = _type_effectiveness(move_type_id, defender_types)
+    critical = random.random() < _CRIT_CHANCE
+
     base = ((2 * level / 5 + 2) * power * (atk_stat / max(1, def_stat))) / 50 + 2
-    return max(1, int(base * random.uniform(0.85, 1.0)))
+    dmg  = base
+    dmg *= 1.5 if stab else 1.0
+    dmg *= effectiveness
+    dmg *= _CRIT_MULT if critical else 1.0
+    dmg *= random.uniform(0.85, 1.0)
+
+    return {
+        "damage":        max(1, int(dmg)) if effectiveness > 0 else 0,
+        "critical":      critical,
+        "effectiveness": effectiveness,
+        "stab":          stab,
+    }
 
 
 def _best_move(moves: list) -> dict:
     """Oponente usa o move de maior power disponível; fallback para Investida."""
+    _tackle = {"name": "Investida", "power": 40, "damage_class": "physical", "id": None, "type_id": 1}
     if not moves:
-        return {"name": "Investida", "power": 40, "damage_class": "physical", "id": None}
+        return _tackle
     pool = [m for m in moves if m["damage_class"] in ("physical", "special") and m["power"]]
     if not pool:
-        return {"name": "Investida", "power": 40, "damage_class": "physical", "id": None}
+        return _tackle
     return max(pool, key=lambda m: m["power"])
 
 
@@ -1494,7 +1556,7 @@ def start_battle(challenger_id: str, opponent_id: str) -> dict:
                 SELECT up.id, up.level,
                        up.stat_hp, up.stat_attack, up.stat_defense,
                        up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
-                       ps.name, ps.sprite_url
+                       ps.name, ps.sprite_url, ps.type1_id, ps.type2_id
                 FROM user_team ut
                 JOIN user_pokemon up  ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species ps ON up.species_id = ps.id
@@ -1508,17 +1570,19 @@ def start_battle(challenger_id: str, opponent_id: str) -> dict:
                 "stat_hp": row[2], "stat_attack": row[3], "stat_defense": row[4],
                 "stat_sp_attack": row[5], "stat_sp_defense": row[6], "stat_speed": row[7],
                 "name": row[8], "sprite_url": row[9],
+                "type1_id": row[10], "type2_id": row[11],
             }
 
         def _load_moves(pokemon_id):
             cur.execute("""
-                SELECT pm.name, pm.power, pm.damage_class, pm.id
+                SELECT pm.name, pm.power, pm.damage_class, pm.id, pm.type_id
                 FROM user_pokemon_moves upm
                 JOIN pokemon_moves pm ON upm.move_id = pm.id
                 WHERE upm.user_pokemon_id = %s
                 ORDER BY upm.slot;
             """, (pokemon_id,))
-            return [{"name": r[0], "power": r[1] or 0, "damage_class": r[2], "id": r[3]}
+            return [{"name": r[0], "power": r[1] or 0, "damage_class": r[2],
+                     "id": r[3], "type_id": r[4]}
                     for r in cur.fetchall()]
 
         ch = _load_fighter(challenger_id)
@@ -1530,10 +1594,11 @@ def start_battle(challenger_id: str, opponent_id: str) -> dict:
 
         ch_moves = _load_moves(ch["id"])
         op_moves = _load_moves(op["id"])
+        _tackle = {"name": "Investida", "power": 40, "damage_class": "physical", "id": None, "type_id": 1}
         if not any(m["power"] for m in ch_moves):
-            ch_moves = [{"name": "Investida", "power": 40, "damage_class": "physical", "id": None}]
+            ch_moves = [_tackle]
         if not any(m["power"] for m in op_moves):
-            op_moves = [{"name": "Investida", "power": 40, "damage_class": "physical", "id": None}]
+            op_moves = [_tackle]
 
         ch_max_hp = _pokemon_max_hp(ch["stat_hp"], ch["level"])
         op_max_hp = _pokemon_max_hp(op["stat_hp"], op["level"])

@@ -3,6 +3,7 @@ from utils.db import (
     get_battle_opponents, get_daily_battle_count, start_battle, finalize_battle,
     get_battle_history, get_battle_detail, get_user_profile,
     get_image_as_base64, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
+    _type_effectiveness,
 )
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
@@ -120,6 +121,15 @@ def _move_class_badge(dmg_class: str) -> str:
     return "move-type-st", "STA"
 
 
+def _effectiveness_label(mult: float) -> str:
+    if mult == 0:    return "🚫 Não afeta!"
+    if mult >= 4:    return "🔥🔥 É superefeticaz!!"
+    if mult >= 2:    return "🔥 É supereficaz!"
+    if mult <= 0.25: return "❄️ Não é muito eficaz..."
+    if mult <= 0.5:  return "❄️ Não é muito eficaz..."
+    return ""
+
+
 def _resolve_turn(state: dict, ch_move: dict) -> dict:
     """Processa um turno completo: ataque do jogador + resposta do oponente."""
     ch  = state["ch"]
@@ -128,8 +138,6 @@ def _resolve_turn(state: dict, ch_move: dict) -> dict:
     turn = state["turn_num"]
 
     op_move = _best_move(op["moves"])
-
-    # Ordem de ataque por speed
     ch_first = ch["stat_speed"] >= op["stat_speed"]
 
     events = []
@@ -137,7 +145,9 @@ def _resolve_turn(state: dict, ch_move: dict) -> dict:
     def _attack(attacker, defender, move, is_ch):
         if not move["power"]:
             events.append({"attacker_id": attacker["id"], "is_ch": is_ch,
-                           "move_name": move["name"], "move_power": 0, "damage": 0})
+                           "move_name": move["name"], "move_power": 0, "damage": 0,
+                           "critical": False, "effectiveness": 1.0, "stab": False,
+                           "label": ""})
             return
 
         if move["damage_class"] == "physical":
@@ -147,16 +157,31 @@ def _resolve_turn(state: dict, ch_move: dict) -> dict:
             atk  = attacker["stat_sp_attack"]
             defs = defender["stat_sp_defense"]
 
-        dmg = _calc_damage(atk, defs, move["power"], attacker["level"])
+        att_types = (attacker.get("type1_id"), attacker.get("type2_id"))
+        def_types = (defender.get("type1_id"), defender.get("type2_id"))
+
+        result = _calc_damage(atk, defs, move["power"], attacker["level"],
+                              move_type_id=move.get("type_id"),
+                              attacker_types=att_types,
+                              defender_types=def_types)
+        dmg = result["damage"]
 
         if is_ch:
             op["hp"] = max(0, op["hp"] - dmg)
         else:
             ch["hp"] = max(0, ch["hp"] - dmg)
 
+        label = _effectiveness_label(result["effectiveness"])
+        if result["critical"]:
+            label = ("⚡ Acerto crítico! " + label).strip()
+        if result["stab"]:
+            label = (label + " ✨STAB").strip() if label else "✨ STAB"
+
         events.append({
             "attacker_id": attacker["id"], "is_ch": is_ch,
             "move_name": move["name"], "move_power": move["power"], "damage": dmg,
+            "critical": result["critical"], "effectiveness": result["effectiveness"],
+            "stab": result["stab"], "label": label,
         })
 
     first_attacker  = (ch, op, ch_move, True)  if ch_first else (op, ch, op_move, False)
@@ -171,9 +196,9 @@ def _resolve_turn(state: dict, ch_move: dict) -> dict:
             "turn": turn, "attacker_id": ev["attacker_id"],
             "move_name": ev["move_name"], "move_power": ev["move_power"],
             "damage": ev["damage"], "ch_hp": ch["hp"], "op_hp": op["hp"],
+            "label": ev.get("label", ""),
         })
 
-    # Verifica fim de batalha
     if ch["hp"] <= 0 or op["hp"] <= 0 or turn >= _MAX_TURNS:
         state["finished"] = True
         if ch["hp"] > op["hp"]:
@@ -266,7 +291,8 @@ elif not bs["finished"]:
             attacker = ch["name"] if is_ch else op["name"]
             css = "turn-row-ch" if is_ch else "turn-row-op"
             dmg_txt = f" → <strong>-{t['damage']} HP</strong>" if t["damage"] else ""
-            log_html += f'<div class="{css}">T{t["turn"]} {attacker} usou <strong>{t["move_name"]}</strong>{dmg_txt} · 🔵{t["ch_hp"]} 🔴{t["op_hp"]}</div>'
+            lbl = f" <em>{t['label']}</em>" if t.get("label") else ""
+            log_html += f'<div class="{css}">T{t["turn"]} {attacker} usou <strong>{t["move_name"]}</strong>{dmg_txt}{lbl} · 🔵{t["ch_hp"]} 🔴{t["op_hp"]}</div>'
         st.markdown(f'<div class="turn-log">{log_html}</div>', unsafe_allow_html=True)
 
     if st.button("🏳 Render-se"):
