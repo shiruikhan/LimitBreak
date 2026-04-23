@@ -96,13 +96,16 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
 │   └── supabase_client.py       # Supabase client (somente Auth) — lê st.secrets
 └── scripts/
-    ├── seed_types.py            # Popula pokemon_types (executar 1º)
-    ├── seed_pokedex.py          # Popula pokemon_species, pokemon_moves, species_moves (2º)
-    ├── seed_evolutions.py       # Popula pokemon_evolutions (3º)
-    ├── seed_stats.py            # Popula base stats em pokemon_species via PokéAPI (4º)
-    ├── seed_shop_items.py       # Popula/atualiza nomes e descrições de shop_items via PokéAPI
-    ├── update_sprites.py        # Substitui URLs da PokéAPI por caminhos locais
-    └── create_user_tables.sql   # DDL completo das tabelas de usuário — executar no Supabase
+    ├── seed_types.py              # Popula pokemon_types (executar 1º)
+    ├── seed_pokedex.py            # Popula pokemon_species, pokemon_moves, species_moves (2º)
+    ├── seed_evolutions.py         # Popula pokemon_evolutions (3º)
+    ├── seed_stats.py              # Popula base stats em pokemon_species via PokéAPI (4º)
+    ├── seed_shop_items.py         # Popula/atualiza nomes e descrições de shop_items via PokéAPI
+    ├── migrate_regional_forms.sql # DDL para pokemon_regional_forms e user_pokemon_forms
+    ├── seed_regional_forms.py     # Popula shop_items (category='regional_form') + pokemon_regional_forms
+    ├── seed_regional_species.py   # Popula pokemon_species, moves e evoluções para formas regionais
+    ├── update_sprites.py          # Substitui URLs da PokéAPI por caminhos locais
+    └── create_user_tables.sql     # DDL completo das tabelas de usuário — executar no Supabase
 ```
 
 > `src/Pokemon/` é um **submódulo git** apontando para `HybridShivam/Pokemon`. Em produção (Streamlit Cloud) o submódulo não é clonado — `get_image_as_base64()` faz fallback automático para o CDN público do repositório.
@@ -123,14 +126,14 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 #### `pokemon_species`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| id | INT PK | ID Nacional do Pokédex (1–1025) |
+| id | INT PK | ID Nacional do Pokédex (1–1025) para espécies normais; ID PokéAPI da forma (>10000) para formas regionais |
 | name | TEXT | Nome capitalizado |
 | slug | TEXT | Slug da API |
 | type1_id / type2_id | INT FK | FK → pokemon_types (type2 nullable) |
 | base_experience | INT | XP base |
-| sprite_url | TEXT | Caminho local: `src/Pokemon/assets/images/XXXX.png` |
+| sprite_url | TEXT | Caminho local `src/Pokemon/assets/images/XXXX.png` para espécies normais; URL PokéAPI CDN para formas regionais |
 | sprite_shiny_url | TEXT | URL PokéAPI (shiny) |
-| base_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Base stats — populados por `seed_stats.py` |
+| base_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Base stats — populados por `seed_stats.py` (normais) ou `seed_regional_species.py` (regionais) |
 
 #### `pokemon_moves`
 | Coluna | Tipo | Descrição |
@@ -166,14 +169,27 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | SERIAL PK | |
-| slug | TEXT UNIQUE | Identificador canônico (ex: "fire-stone", "hp-up") |
+| slug | TEXT UNIQUE | Identificador canônico (ex: "fire-stone", "hp-up", "form-marowak-alola") |
 | name | TEXT | Nome exibido |
 | description | TEXT | Descrição do efeito |
 | icon | TEXT | Emoji |
-| category | TEXT | "stone", "stat_boost", "other" |
+| category | TEXT | "stone", "stat_boost", "other", "regional_form" |
 | price | INT | Preço em moedas |
 | stat_affected | TEXT | Para stat_boost: 'hp', 'attack', etc. (nullable) |
 | stat_delta | INT | Valor do boost para stat_boost (nullable) |
+
+#### `pokemon_regional_forms`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| shop_item_id | INT FK | FK → shop_items |
+| species_id | INT FK | FK → pokemon_species (espécie base, ex: 105 = Marowak) |
+| region | TEXT | "alola", "galar" ou "hisui" |
+| form_slug | TEXT UNIQUE | Slug da PokéAPI (ex: "marowak-alola") |
+| sprite_url | TEXT | URL CDN PokéAPI do sprite da forma regional |
+| name | TEXT | Nome exibido em português (ex: "Marowak de Alola") |
+
+> 41 formas regionais catalogadas: 16 Alola, 15 Galar, 10 Hisui. Populado por `seed_regional_forms.py`.
 
 ---
 
@@ -328,10 +344,12 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ### Stats e boosts
 | Função | Descrição |
 |---|---|
-| `apply_stat_boost(user_pokemon_id, stat, delta, source_item)` | INSERT em stat_boosts + UPDATE stat_* atomicamente; valida `stat` contra whitelist `_VALID_STATS` |
+| `apply_stat_boost(user_pokemon_id, stat, delta, source_item)` | INSERT em stat_boosts + UPDATE stat_* atomicamente; valida `stat` contra whitelist `_VALID_STATS`; retorna `False` silenciosamente se o cap de `_MAX_STAT_BOOSTS_PER_STAT = 5` for atingido |
 | `get_stat_boosts(user_pokemon_id)` | Histórico completo |
 | `get_stat_boost_summary(user_pokemon_id)` | `{stat: total_delta}` |
 | `_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)` | **Interno.** Recalcula stat_* = new_base_* + soma de vitaminas; chamado após qualquer evolução |
+
+> **Cap de vitaminas:** `_MAX_STAT_BOOSTS_PER_STAT = 5` — máximo 5 usos de vitaminas por stat por Pokémon. `use_stat_item()` retorna mensagem de erro em português se o limite for atingido; `apply_stat_boost()` retorna `False` na mesma condição.
 
 ### XP, XP Share e evolução automática
 | Função | Descrição |

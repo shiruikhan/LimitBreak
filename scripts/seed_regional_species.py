@@ -95,14 +95,19 @@ def seed():
     failed = []
 
     for base_id, region, form_slug in REGIONAL_FORMS:
-        print(f"  [{region}] {form_slug}...", end=" ", flush=True)
-        try:
-            resp = session.get(f"https://pokeapi.co/api/v2/pokemon/{form_slug}/", timeout=15)
-            resp.raise_for_status()
-            d = resp.json()
-            time.sleep(0.35)
-        except Exception as e:
-            print(f"FETCH ERROR: {e}")
+        print(f"  [{region}] {form_slug}...", end="  ", flush=True)
+        d = None
+        for attempt in range(3):
+            try:
+                resp = session.get(f"https://pokeapi.co/api/v2/pokemon/{form_slug}/", timeout=20)
+                resp.raise_for_status()
+                d = resp.json()
+                time.sleep(0.35)
+                break
+            except Exception as e:
+                print(f"  warn: fetch failed for {form_slug} (attempt {attempt+1}): {type(e).__name__}")
+                time.sleep(2)
+        if d is None:
             failed.append(form_slug)
             continue
 
@@ -198,13 +203,13 @@ def seed():
             WHERE form_slug = %s;
         """, (sprite, form_slug))
 
-        print("✅")
+        print("ok")
         ok += 1
 
     conn.commit()
-    print(f"\n✅ {ok} regional species seeded.")
+    print(f"\nDone. {ok} regional species seeded.")
     if failed:
-        print(f"⚠️  Failed: {', '.join(failed)}")
+        print(f"Failed: {', '.join(failed)}")
 
     cur.close()
     conn.close()

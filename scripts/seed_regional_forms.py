@@ -76,36 +76,38 @@ REGION_META = {
 
 def fetch_sprite(session: requests.Session, form_slug: str) -> str | None:
     url = f"https://pokeapi.co/api/v2/pokemon/{form_slug}/"
-    try:
-        resp = session.get(url, timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("sprites", {}).get("front_default")
-    except Exception as e:
-        print(f"  ⚠️  Sprite fetch failed for {form_slug}: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            resp = session.get(url, timeout=20)
+            resp.raise_for_status()
+            return resp.json().get("sprites", {}).get("front_default")
+        except Exception as e:
+            print(f"  warn: sprite fetch failed for {form_slug} (attempt {attempt+1}): {type(e).__name__}")
+            time.sleep(2)
+    return None
 
 
 def seed():
     conn = psycopg2.connect(**DB_PARAMS)
     session = requests.Session()
+    cur = conn.cursor()
+    inserted_forms = 0
+    inserted_items = 0
+
     try:
-        cur = conn.cursor()
-
-        inserted_forms = 0
-        inserted_items = 0
-
         for species_id, region, form_slug, display_name in REGIONAL_FORMS:
             meta = REGION_META[region]
             item_slug = f"form-{form_slug}"
-            description = f"Altera a aparência do seu {display_name.split(' de ')[0]} para a forma regional de {meta['label']}. Efeito visual — stats inalterados."
+            description = (
+                f"Transforma permanentemente o seu {display_name.split(' de ')[0]} "
+                f"na forma regional de {meta['label']}. Tipos e stats sao alterados."
+            )
 
-            # Fetch sprite from PokéAPI
-            print(f"  Fetching {form_slug}...", end=" ")
+            print(f"  Fetching {form_slug}...", end=" ", flush=True)
             sprite_url = fetch_sprite(session, form_slug)
             print("ok" if sprite_url else "no sprite")
             time.sleep(0.3)
 
-            # Upsert shop_item
             cur.execute("""
                 INSERT INTO shop_items (slug, name, description, icon, category, price)
                 VALUES (%s, %s, %s, %s, 'regional_form', %s)
@@ -119,7 +121,6 @@ def seed():
             shop_item_id = cur.fetchone()[0]
             inserted_items += 1
 
-            # Upsert regional form catalog entry
             cur.execute("""
                 INSERT INTO pokemon_regional_forms
                     (shop_item_id, species_id, region, form_slug, sprite_url, name)
@@ -132,10 +133,10 @@ def seed():
             inserted_forms += 1
 
         conn.commit()
-        print(f"\n✅ Seeded {inserted_forms} regional forms and {inserted_items} shop items.")
+        print(f"\nDone. {inserted_forms} forms, {inserted_items} shop items.")
     except Exception as e:
         conn.rollback()
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         raise
     finally:
         cur.close()
