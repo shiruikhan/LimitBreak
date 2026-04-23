@@ -24,8 +24,9 @@ st.markdown("""
 .stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
 
 .cal-title {
-    font-size: 2rem; font-weight: 900; letter-spacing: 3px;
-    background: linear-gradient(90deg, #78C850, #A7DB8D);
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2rem; font-weight: 400; letter-spacing: 3px;
+    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin: 0;
 }
@@ -37,7 +38,7 @@ st.markdown("""
     background: #161b22; border: 1px solid #30363d; border-radius: 12px;
     padding: 14px 20px; flex: 1; min-width: 120px; text-align: center;
 }
-.stat-val  { font-size: 1.8rem; font-weight: 800; color: #78C850; }
+.stat-val  { font-size: 1.8rem; font-weight: 800; color: #B8F82F; }
 .stat-lbl  { font-size: 0.7rem; color: #8b949e; text-transform: uppercase;
              letter-spacing: 1px; margin-top: 2px; }
 
@@ -66,15 +67,15 @@ st.markdown("""
 }
 .cal-day.future  { background: #0d1117; border-color: #161b22; }
 .cal-day.empty   { background: transparent; border-color: transparent; }
-.cal-day.today   { border-color: #78C850; box-shadow: 0 0 0 1px #78C850; }
-.cal-day.checked { background: #1c2d16; border-color: #4E8234; }
+.cal-day.today   { border-color: #B8F82F; box-shadow: 0 0 0 1px #B8F82F; }
+.cal-day.checked { background: #1a472a; border-color: #2f9e44; }
 .cal-day.bonus   { background: #1c1a0a; border-color: #A1871F; }
 .cal-day.spawned { background: #1a1030; border-color: #7038F8; }
-.cal-day.checked.bonus   { background: linear-gradient(135deg,#1c2d16,#1c1a0a); border-color: #A1871F; }
-.cal-day.checked.spawned { background: linear-gradient(135deg,#1c2d16,#1a1030); border-color: #7038F8; }
+.cal-day.checked.bonus   { background: linear-gradient(135deg,#1a472a,#1c1a0a); border-color: #A1871F; }
+.cal-day.checked.spawned { background: linear-gradient(135deg,#1a472a,#1a1030); border-color: #7038F8; }
 
 .day-num   { font-size: 0.78rem; font-weight: 700; color: #8b949e; line-height: 1; }
-.day-num.today-num { color: #78C850; }
+.day-num.today-num { color: #B8F82F; }
 .day-icons { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; margin-top: 2px; }
 .day-icon  { font-size: 0.85rem; line-height: 1; }
 .streak-pip {
@@ -91,7 +92,7 @@ st.markdown("""
     border-radius: 14px; padding: 20px 24px; margin-bottom: 16px;
     border: 1px solid;
 }
-.result-card.success  { background: #1c2d16; border-color: #4E8234; }
+.result-card.success  { background: #1a472a; border-color: #2f9e44; }
 .result-card.spawn    { background: #1a1030; border-color: #7038F8; }
 .result-card.spawned  { background: #1a1030; border-color: #7038F8; }
 .result-card.bonus    { background: #1c1a0a; border-color: #A1871F; }
@@ -438,7 +439,7 @@ st.markdown(grid_html, unsafe_allow_html=True)
 st.markdown("""
 <div style='display:flex;gap:16px;flex-wrap:wrap;margin-top:8px'>
   <div style='display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#8b949e'>
-    <div style='width:12px;height:12px;border-radius:3px;background:#1c2d16;border:1px solid #4E8234'></div> Check-in feito
+    <div style='width:12px;height:12px;border-radius:3px;background:#1a472a;border:1px solid #2f9e44'></div> Check-in feito
   </div>
   <div style='display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#8b949e'>
     <div style='width:12px;height:12px;border-radius:3px;background:#1c1a0a;border:1px solid #A1871F'></div> 🎁 Dia especial (d15 / último dia)

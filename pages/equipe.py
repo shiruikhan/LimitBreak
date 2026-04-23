@@ -82,8 +82,9 @@ st.markdown("""
 [data-testid="stSidebar"] * { color: #e6edf3 !important; }
 
 .page-title {
-    font-size: 2rem; font-weight: 900; letter-spacing: 2px;
-    background: linear-gradient(90deg, #78C850, #A7DB8D);
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2rem; font-weight: 400; letter-spacing: 3px;
+    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin-bottom: 4px;
 }
@@ -95,8 +96,8 @@ st.markdown("""
     padding: 16px 12px; transition: all 0.2s ease; min-height: 200px;
 }
 .team-card.main-slot {
-    border-color: #78C850;
-    box-shadow: 0 0 0 1px #78C850, 0 8px 24px rgba(120,200,80,0.15);
+    border-color: #B8F82F;
+    box-shadow: 0 0 0 1px #B8F82F, 0 8px 24px rgba(184,248,47,0.15);
 }
 .team-card.selected-slot {
     border-color: #58a6ff;
@@ -107,7 +108,7 @@ st.markdown("""
     display: flex; align-items: center; justify-content: center;
 }
 .slot-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #8b949e; margin-bottom: 8px; }
-.main-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 2px; color: #78C850; text-transform: uppercase; }
+.main-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 2px; color: #B8F82F; text-transform: uppercase; }
 .sel-label  { font-size: 0.62rem; font-weight: 700; letter-spacing: 2px; color: #58a6ff; text-transform: uppercase; }
 .poke-card-name { font-size: 0.88rem; font-weight: 700; color: #e6edf3; margin: 4px 0 2px; text-align: center; }
 .type-sm {
@@ -115,7 +116,7 @@ st.markdown("""
     font-size: 0.62rem; font-weight: 700; text-transform: uppercase; margin-right: 3px;
 }
 .xp-track { background: #21262d; border-radius: 4px; height: 5px; margin-top: 8px; overflow: hidden; }
-.xp-fill  { height: 100%; border-radius: 4px; background: linear-gradient(90deg,#4E8234,#78C850); }
+.xp-fill  { height: 100%; border-radius: 4px; background: linear-gradient(90deg,#7AB21A,#B8F82F); }
 .xp-label { font-size: 0.62rem; color: #8b949e; margin-top: 2px; }
 
 /* Stats mini-grid */

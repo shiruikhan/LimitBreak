@@ -121,7 +121,8 @@ def _inject_global_css():
 }
 .poke-number { font-size: 0.85rem; font-weight: 700; letter-spacing: 2px; opacity: 0.6; }
 .poke-name {
-    font-size: 2.8rem; font-weight: 900; letter-spacing: 1px;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2.8rem; font-weight: 400; letter-spacing: 2px;
     line-height: 1; margin: 4px 0 12px;
     text-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
@@ -137,8 +138,8 @@ def _inject_global_css():
     border-radius: 12px; transition: all 0.2s ease;
 }
 .evo-node.active {
-    background: rgba(120,200,80,0.12);
-    box-shadow: 0 0 0 2px #78C850;
+    background: rgba(184,248,47,0.10);
+    box-shadow: 0 0 0 2px #B8F82F;
 }
 .evo-name {
     font-size: 0.78rem; font-weight: 700; margin-top: 6px;
@@ -342,7 +343,7 @@ def _render_pokedex(pid: int):
                     img = _img_tag(b64, 80) if b64 else "❓"
                     active_cls = "active" if p_id == pid else ""
                     p_name = nodes[p_id].upper()
-                    color = "#78C850" if p_id == pid else "#8b949e"
+                    color = "#B8F82F" if p_id == pid else "#8b949e"
                     st.markdown(
                         f"<div class='evo-node {active_cls}'>"
                         f"{img}"

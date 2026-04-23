@@ -40,8 +40,9 @@ st.markdown("""
 <style>
 .stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
 .brand-title {
-    font-size: 3rem; font-weight: 900; letter-spacing: 4px; text-align: center; margin-bottom: 0;
-    background: linear-gradient(90deg, #78C850, #A7DB8D);
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 3rem; font-weight: 400; letter-spacing: 4px; text-align: center; margin-bottom: 0;
+    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .brand-sub { text-align: center; color: #8b949e; font-size: 0.95rem; margin-top: 4px; margin-bottom: 32px; }
@@ -50,7 +51,7 @@ st.markdown("""
     border-radius: 8px !important; color: #e6edf3 !important;
 }
 .stTextInput > div > div > input:focus {
-    border-color: #78C850 !important; box-shadow: 0 0 0 2px rgba(120,200,80,0.25) !important;
+    border-color: #B8F82F !important; box-shadow: 0 0 0 2px rgba(184,248,47,0.20) !important;
 }
 
 /* Easter egg hidden trigger — moved off-screen, never visible to the user */
@@ -175,7 +176,7 @@ for row_start in range(0, len(STARTERS), COLS_PER_ROW):
             b64      = _thumb_b64(pid)
             selected = st.session_state.selected_starter == pid
             is_secret = label.startswith("???")
-            border   = "#78C850" if selected else ("#8b2be2" if is_secret else "#30363d")
+            border   = "#B8F82F" if selected else ("#8b2be2" if is_secret else "#30363d")
             bg       = "#1c2d16" if selected else ("#1a0a2e" if is_secret else "#161b22")
             img_tag  = (
                 f"<img src='data:image/png;base64,{b64}' width='64'>"

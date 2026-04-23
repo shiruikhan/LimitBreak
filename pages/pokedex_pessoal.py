@@ -35,8 +35,9 @@ st.markdown("""
     display: flex; align-items: center; gap: 16px; margin-bottom: 4px;
 }
 .pdex-title {
-    font-size: 2rem; font-weight: 900; letter-spacing: 3px;
-    background: linear-gradient(90deg, #78C850, #A7DB8D);
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2rem; font-weight: 400; letter-spacing: 3px;
+    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin: 0;
 }
@@ -50,7 +51,7 @@ st.markdown("""
     display: flex; justify-content: space-between; align-items: baseline;
     margin-bottom: 8px;
 }
-.progress-count { font-size: 2rem; font-weight: 800; color: #78C850; }
+.progress-count { font-size: 2rem; font-weight: 800; color: #B8F82F; }
 .progress-total { color: #8b949e; font-size: 0.9rem; }
 .progress-pct   { color: #e6edf3; font-size: 1rem; font-weight: 600; }
 .progress-bar-bg {
@@ -58,7 +59,7 @@ st.markdown("""
 }
 .progress-bar-fill {
     height: 100%; border-radius: 8px;
-    background: linear-gradient(90deg, #4E8234, #78C850);
+    background: linear-gradient(90deg, #7AB21A, #B8F82F);
     transition: width 0.4s ease;
 }
 
@@ -121,7 +122,7 @@ st.markdown("""
     background: #161b22; border: 1px solid #30363d; border-radius: 20px;
     padding: 3px 10px; font-size: 0.72rem; color: #8b949e;
 }
-.gen-chip span { color: #78C850; font-weight: 700; }
+.gen-chip span { color: #B8F82F; font-weight: 700; }
 
 .filter-label {
     font-size: 0.75rem; color: #8b949e; font-weight: 600;

@@ -11,9 +11,10 @@ st.set_page_config(
 # Global dark theme override
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 [data-testid="stSidebar"] { background-color: #0d1117 !important; }
 [data-testid="stSidebarNav"] a { color: #e6edf3 !important; }
-[data-testid="stSidebarNav"] a:hover { color: #78C850 !important; }
+[data-testid="stSidebarNav"] a:hover { color: #B8F82F !important; }
 </style>
 """, unsafe_allow_html=True)
 

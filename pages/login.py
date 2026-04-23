@@ -19,9 +19,10 @@ st.markdown("""
 .stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
 
 .brand-title {
-    font-size: 3.5rem; font-weight: 900; letter-spacing: 4px;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 3.5rem; font-weight: 400; letter-spacing: 4px;
     text-align: center; margin-bottom: 0;
-    background: linear-gradient(90deg, #78C850, #A7DB8D);
+    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .brand-sub {
@@ -42,14 +43,14 @@ st.markdown("""
     padding: 10px 14px !important;
 }
 .stTextInput > div > div > input:focus {
-    border-color: #78C850 !important;
-    box-shadow: 0 0 0 2px rgba(120,200,80,0.25) !important;
+    border-color: #B8F82F !important;
+    box-shadow: 0 0 0 2px rgba(184,248,47,0.15) !important;
 }
 /* Buttons */
 .stButton > button {
     width: 100% !important;
-    background: linear-gradient(90deg, #4E8234, #78C850) !important;
-    color: #fff !important; font-weight: 700 !important;
+    background: linear-gradient(90deg, #7AB21A, #B8F82F) !important;
+    color: #0d1117 !important; font-weight: 700 !important;
     border: none !important; border-radius: 8px !important;
     padding: 12px !important; font-size: 1rem !important;
     transition: transform 0.1s ease, opacity 0.2s ease !important;
@@ -64,12 +65,12 @@ st.markdown("""
     text-align: center; cursor: pointer; transition: all 0.2s ease;
     min-width: 90px;
 }
-.starter-card:hover { border-color: #78C850; transform: translateY(-3px); box-shadow: 0 8px 20px rgba(120,200,80,0.2); }
-.starter-card.selected { border-color: #78C850; background: #1c2d16; }
+.starter-card:hover { border-color: #B8F82F; transform: translateY(-3px); box-shadow: 0 8px 20px rgba(184,248,47,0.2); }
+.starter-card.selected { border-color: #B8F82F; background: #1a2208; }
 
 div[data-testid="stTabs"] button { color: #8b949e !important; }
 div[data-testid="stTabs"] button[aria-selected="true"] {
-    color: #78C850 !important; border-bottom-color: #78C850 !important;
+    color: #B8F82F !important; border-bottom-color: #B8F82F !important;
 }
 </style>
 """, unsafe_allow_html=True)

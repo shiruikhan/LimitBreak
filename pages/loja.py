@@ -16,8 +16,9 @@ st.markdown("""
 .stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
 
 .shop-title {
-    font-size: 2rem; font-weight: 900; letter-spacing: 3px;
-    background: linear-gradient(90deg, #F8D030, #FAE078);
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2rem; font-weight: 400; letter-spacing: 3px;
+    background: linear-gradient(90deg, #FFC531, #FFDD7A);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin: 0;
 }
