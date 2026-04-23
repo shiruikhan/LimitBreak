@@ -307,7 +307,13 @@ for slot in range(1, 7):
                 card_cls = "team-card"
                 lbl_html = f"<div class='slot-label'>Slot {slot}</div>"
 
-            b64     = _thumb(member["species_id"])
+            form_url = member.get("form_sprite_url")
+            b64 = (get_image_as_base64(form_url) if form_url else None) or _thumb(member["species_id"])
+            form_badge = (
+                f"<div style='text-align:center;font-size:0.6rem;color:#A78BFA;"
+                f"font-weight:700;margin-bottom:2px'>✦ {member['form_name']}</div>"
+                if member.get("form_name") else ""
+            )
             img_tag = (f"<img src='data:image/png;base64,{b64}' width='72' style='display:block;margin:0 auto'>"
                        if b64 else "<div style='text-align:center;font-size:2.5rem'>❓</div>")
 
@@ -323,7 +329,7 @@ for slot in range(1, 7):
 
             stat_html = _stat_bars(member)
             st.markdown(
-                f"<div class='{card_cls}'>{lbl_html}{img_tag}"
+                f"<div class='{card_cls}'>{lbl_html}{img_tag}{form_badge}"
                 f"<div class='poke-card-name'>#{member['species_id']} {member['name'].upper()}</div>"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
                 f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {member['level']}</div>"

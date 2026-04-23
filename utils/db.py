@@ -276,12 +276,15 @@ def get_user_team(user_id: str) -> list[dict]:
                        up.stat_hp, up.stat_attack, up.stat_defense,
                        up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
                        p.base_hp, p.base_attack, p.base_defense,
-                       p.base_sp_attack, p.base_sp_defense, p.base_speed
+                       p.base_sp_attack, p.base_sp_defense, p.base_speed,
+                       rf.sprite_url AS form_sprite_url, rf.name AS form_name
                 FROM user_team ut
                 JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species p ON up.species_id = p.id
                 LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
                 LEFT JOIN pokemon_types t2 ON p.type2_id = t2.id
+                LEFT JOIN user_pokemon_forms upf ON upf.user_pokemon_id = up.id
+                LEFT JOIN pokemon_regional_forms rf ON rf.id = upf.regional_form_id
                 WHERE ut.user_id = %s
                 ORDER BY ut.slot ASC;
             """, (user_id,))
@@ -295,6 +298,7 @@ def get_user_team(user_id: str) -> list[dict]:
                     "stat_sp_attack": r[12], "stat_sp_defense": r[13], "stat_speed": r[14],
                     "base_hp": r[15], "base_attack": r[16], "base_defense": r[17],
                     "base_sp_attack": r[18], "base_sp_defense": r[19], "base_speed": r[20],
+                    "form_sprite_url": r[21], "form_name": r[22],
                 }
                 for r in rows
             ]
@@ -362,11 +366,14 @@ def get_user_bench(user_id: str) -> list[dict]:
                        up.level, up.xp,
                        t1.name AS type1, t2.name AS type2,
                        up.stat_hp, up.stat_attack, up.stat_defense,
-                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed
+                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
+                       rf.sprite_url AS form_sprite_url, rf.name AS form_name
                 FROM user_pokemon up
                 JOIN pokemon_species p  ON up.species_id = p.id
                 LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
                 LEFT JOIN pokemon_types t2 ON p.type2_id = t2.id
+                LEFT JOIN user_pokemon_forms upf ON upf.user_pokemon_id = up.id
+                LEFT JOIN pokemon_regional_forms rf ON rf.id = upf.regional_form_id
                 WHERE up.user_id = %s
                   AND up.id NOT IN (
                       SELECT user_pokemon_id FROM user_team WHERE user_id = %s
@@ -382,6 +389,7 @@ def get_user_bench(user_id: str) -> list[dict]:
                     "type1": r[6], "type2": r[7],
                     "stat_hp": r[8],  "stat_attack": r[9],  "stat_defense": r[10],
                     "stat_sp_attack": r[11], "stat_sp_defense": r[12], "stat_speed": r[13],
+                    "form_sprite_url": r[14], "form_name": r[15],
                 }
                 for r in rows
             ]
@@ -574,6 +582,7 @@ def unequip_move(user_pokemon_id: int, slot: int) -> bool:
 
 # Stats válidos — usados como whitelist antes de interpolar no nome da coluna
 _VALID_STATS = frozenset({"hp", "attack", "defense", "sp_attack", "sp_defense", "speed"})
+_MAX_STAT_BOOSTS_PER_STAT = 5  # vitaminas por stat por Pokémon
 
 
 def apply_stat_boost(user_pokemon_id: int, stat: str, delta: int, source_item: str) -> bool:
@@ -598,6 +607,14 @@ def apply_stat_boost(user_pokemon_id: int, stat: str, delta: int, source_item: s
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # Limite de vitaminas por stat
+            cur.execute("""
+                SELECT COUNT(*) FROM user_pokemon_stat_boosts
+                WHERE user_pokemon_id = %s AND stat = %s AND delta > 0;
+            """, (user_pokemon_id, stat))
+            if cur.fetchone()[0] >= _MAX_STAT_BOOSTS_PER_STAT:
+                return False
+
             # Registra o boost no histórico auditável
             cur.execute("""
                 INSERT INTO user_pokemon_stat_boosts (user_pokemon_id, stat, delta, source_item)
@@ -664,6 +681,139 @@ def get_stat_boost_summary(user_pokemon_id: int) -> dict:
             return summary
     except Exception:
         return {s: 0 for s in _VALID_STATS}
+
+
+# ── Formas Regionais ──────────────────────────────────────────────────────────
+
+def get_regional_form_items() -> list[dict]:
+    """Catálogo de formas regionais disponíveis na loja (shop_items + pokemon_regional_forms)."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT si.id, si.slug, si.name, si.description, si.icon, si.price,
+                       rf.id AS form_id, rf.species_id, rf.region,
+                       rf.form_slug, rf.sprite_url
+                FROM shop_items si
+                JOIN pokemon_regional_forms rf ON rf.shop_item_id = si.id
+                ORDER BY rf.region, si.name;
+            """)
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r[0], "slug": r[1], "name": r[2], "description": r[3],
+                    "icon": r[4], "price": r[5], "form_id": r[6],
+                    "species_id": r[7], "region": r[8],
+                    "form_slug": r[9], "sprite_url": r[10],
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def get_regional_form_targets(user_id: str, species_id: int) -> list[dict]:
+    """Pokémon do usuário elegíveis para receber uma forma regional."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT up.id, p.name, up.level,
+                       EXISTS(
+                           SELECT 1 FROM user_team ut WHERE ut.user_pokemon_id = up.id
+                       ) AS in_team,
+                       upf.regional_form_id IS NOT NULL AS has_form,
+                       rf.name AS current_form_name
+                FROM user_pokemon up
+                JOIN pokemon_species p ON up.species_id = p.id
+                LEFT JOIN user_pokemon_forms upf ON upf.user_pokemon_id = up.id
+                LEFT JOIN pokemon_regional_forms rf ON rf.id = upf.regional_form_id
+                WHERE up.user_id = %s AND up.species_id = %s
+                ORDER BY in_team DESC, up.level DESC;
+            """, (user_id, species_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "user_pokemon_id": r[0], "name": r[1], "level": r[2],
+                    "in_team": r[3], "has_form": r[4], "current_form_name": r[5],
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def apply_regional_form(user_id: str, item_id: int, user_pokemon_id: int) -> tuple[bool, str]:
+    """Aplica uma forma regional em um Pokémon, consumindo o item do inventário."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT rf.id, rf.name, rf.species_id, si.name AS item_name
+                FROM shop_items si
+                JOIN pokemon_regional_forms rf ON rf.shop_item_id = si.id
+                WHERE si.id = %s;
+            """, (item_id,))
+            form_row = cur.fetchone()
+            if not form_row:
+                return False, "Item de forma regional não encontrado."
+            form_id, form_name, form_species_id, item_name = form_row
+
+            cur.execute(
+                "SELECT species_id FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                (user_pokemon_id, user_id)
+            )
+            poke_row = cur.fetchone()
+            if not poke_row:
+                return False, "Pokémon não encontrado na sua coleção."
+            if poke_row[0] != form_species_id:
+                return False, "Esta forma regional não é compatível com este Pokémon."
+
+            cur.execute("""
+                SELECT quantity FROM user_inventory
+                WHERE user_id = %s AND item_id = %s FOR UPDATE;
+            """, (user_id, item_id))
+            inv = cur.fetchone()
+            if not inv or inv[0] < 1:
+                return False, f"Você não possui {item_name}."
+
+            cur.execute("""
+                UPDATE user_inventory SET quantity = quantity - 1
+                WHERE user_id = %s AND item_id = %s;
+            """, (user_id, item_id))
+            cur.execute("""
+                INSERT INTO user_pokemon_forms (user_pokemon_id, regional_form_id)
+                VALUES (%s, %s)
+                ON CONFLICT (user_pokemon_id) DO UPDATE
+                    SET regional_form_id = EXCLUDED.regional_form_id,
+                        applied_at = NOW();
+            """, (user_pokemon_id, form_id))
+
+        conn.commit()
+        return True, f"✨ Forma {form_name} aplicada com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+
+
+def remove_regional_form(user_id: str, user_pokemon_id: int) -> tuple[bool, str]:
+    """Remove a forma regional ativa de um Pokémon do usuário."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                (user_pokemon_id, user_id)
+            )
+            if not cur.fetchone():
+                return False, "Pokémon não encontrado."
+            cur.execute(
+                "DELETE FROM user_pokemon_forms WHERE user_pokemon_id = %s;",
+                (user_pokemon_id,)
+            )
+        conn.commit()
+        return True, "Forma regional removida."
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
 
 
 # ── Loja ──────────────────────────────────────────────────────────────────────
@@ -790,6 +940,19 @@ def use_stat_item(user_id: str, item_id: int, user_pokemon_id: int) -> tuple[boo
             )
             if not cur.fetchone():
                 return False, "Pokémon não encontrado na sua coleção."
+
+            # Verifica limite de boosts por stat
+            cur.execute("""
+                SELECT COUNT(*) FROM user_pokemon_stat_boosts
+                WHERE user_pokemon_id = %s AND stat = %s AND delta > 0;
+            """, (user_pokemon_id, stat))
+            if cur.fetchone()[0] >= _MAX_STAT_BOOSTS_PER_STAT:
+                stat_label = {
+                    "hp": "HP", "attack": "Ataque", "defense": "Defesa",
+                    "sp_attack": "Atq. Especial", "sp_defense": "Def. Especial",
+                    "speed": "Velocidade",
+                }.get(stat, stat)
+                return False, f"Este Pokémon já atingiu o limite de {_MAX_STAT_BOOSTS_PER_STAT} vitaminas de {stat_label}."
 
             # Verifica inventário (FOR UPDATE trava contra uso duplo)
             cur.execute("""
@@ -1312,9 +1475,14 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 WHERE id = %s;
             """, (level, xp, species_id, user_pokemon_id))
 
-            # ── Recalcula stats se houve evolução ────────────────────────────
+            # ── Recalcula stats e limpa forma regional se houve evolução ────────
             if result["evolutions"]:
                 _recalc_stats_on_evolution(cur, user_pokemon_id, species_id)
+                # Forma regional é cosmética para a espécie original — remove ao evoluir
+                cur.execute(
+                    "DELETE FROM user_pokemon_forms WHERE user_pokemon_id = %s;",
+                    (user_pokemon_id,)
+                )
 
         conn.commit()
         result["new_level"] = level

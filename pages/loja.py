@@ -5,6 +5,8 @@ from utils.db import (
     get_user_team, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
     get_xp_share_status,
+    get_regional_form_items, get_regional_form_targets,
+    apply_regional_form, remove_regional_form,
 )
 
 BASE_DIR = os.getcwd()
@@ -95,9 +97,12 @@ team         = get_user_team(user_id)
 xp_share_st  = get_xp_share_status(user_id)
 
 # Catálogo por categoria
-stones      = [i for i in items if i["category"] == "stone"]
-stat_boosts = [i for i in items if i["category"] == "stat_boost"]
-others      = [i for i in items if i["category"] == "other"]
+stones         = [i for i in items if i["category"] == "stone"]
+stat_boosts    = [i for i in items if i["category"] == "stat_boost"]
+others         = [i for i in items if i["category"] == "other"]
+regional_forms = get_regional_form_items()
+
+REGION_LABELS = {"alola": "🌴 Alola", "galar": "🌹 Galar", "hisui": "❄️ Hisui", "paldea": "🌿 Paldea"}
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
@@ -179,13 +184,13 @@ with tab_shop:
     st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
     st.caption("Efeitos ativados automaticamente na compra — não vão para a mochila.")
 
-    cols = st.columns(4)
+    cols_other = st.columns(4)
     for idx, item in enumerate(others):
         is_xp_share = item["slug"] == "xp-share"
         can_buy     = coins >= item["price"]
         price_cls   = "" if can_buy else "cant-afford"
 
-        with cols[idx % 4]:
+        with cols_other[idx % 4]:
             if is_xp_share and xp_share_st["active"]:
                 days = xp_share_st["days_left"]
                 status_html = (
@@ -221,6 +226,62 @@ with tab_shop:
                 st.session_state.shop_msg      = msg
                 st.session_state.shop_msg_type = "success" if ok else "error"
                 st.rerun()
+
+    # ── Formas Regionais ──────────────────────────────────────────────────────
+    if regional_forms:
+        st.markdown("<div class='section-title'>🌟 Formas Regionais</div>", unsafe_allow_html=True)
+        st.caption("Skins visuais que alteram o sprite do seu Pokémon. Stats não são modificados.")
+
+        # Group by region
+        from itertools import groupby
+        for region, group in groupby(regional_forms, key=lambda x: x["region"]):
+            region_items = list(group)
+            region_label = REGION_LABELS.get(region, region.capitalize())
+            st.markdown(
+                f"<div style='font-size:0.72rem;font-weight:700;color:#8b949e;"
+                f"letter-spacing:1.5px;text-transform:uppercase;margin:12px 0 8px'>"
+                f"{region_label}</div>",
+                unsafe_allow_html=True,
+            )
+            rows_rf = [region_items[i:i+5] for i in range(0, len(region_items), 5)]
+            for row_rf in rows_rf:
+                rf_cols = st.columns(5)
+                for col_rf, form_item in zip(rf_cols, row_rf):
+                    with col_rf:
+                        can_buy   = coins >= form_item["price"]
+                        price_cls = "" if can_buy else "cant-afford"
+                        qty_owned = inventory.get(form_item["id"], 0)
+                        owned_txt = f" · você tem {qty_owned}" if qty_owned > 0 else ""
+
+                        sprite_html = ""
+                        if form_item["sprite_url"]:
+                            b64_form = get_image_as_base64(form_item["sprite_url"])
+                            if b64_form:
+                                sprite_html = (
+                                    f"<img src='data:image/png;base64,{b64_form}' "
+                                    f"width='56' style='image-rendering:pixelated;margin-bottom:4px'>"
+                                )
+
+                        st.markdown(
+                            f"<div class='item-card'>"
+                            f"<div style='text-align:center'>{sprite_html}</div>"
+                            f"<div class='item-name'>{form_item['name']}</div>"
+                            f"<div class='item-desc'>{form_item['description']}</div>"
+                            f"<div class='item-price {price_cls}'>🪙 {form_item['price']:,}{owned_txt}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.write("")
+                        if st.button(
+                            "Comprar" if can_buy else "💸 Sem moedas",
+                            key=f"buy_rf_{form_item['id']}",
+                            disabled=not can_buy,
+                            use_container_width=True,
+                        ):
+                            ok, msg = buy_item(user_id, form_item["id"])
+                            st.session_state.shop_msg      = msg
+                            st.session_state.shop_msg_type = "success" if ok else "error"
+                            st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -354,10 +415,10 @@ with tab_bag:
         # ── Outros ────────────────────────────────────────────────────────────
         if inv_others:
             st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
-            cols = st.columns(4)
+            cols_inv_oth = st.columns(4)
             for idx, (iid, qty) in enumerate(inv_others):
                 item = item_map[iid]
-                with cols[idx % 4]:
+                with cols_inv_oth[idx % 4]:
                     st.markdown(
                         f"<div class='inv-card' style='flex-direction:column;text-align:center'>"
                         f"<div class='inv-icon'>{item['icon']}</div>"
@@ -367,3 +428,77 @@ with tab_bag:
                         unsafe_allow_html=True,
                     )
                     st.markdown("<div class='soon-badge' style='display:block;text-align:center;margin-top:4px'>Em breve</div>", unsafe_allow_html=True)
+
+        # ── Formas Regionais ──────────────────────────────────────────────────
+        inv_rf = [
+            (iid, qty) for iid, qty in inventory.items()
+            if item_map.get(iid, {}).get("category") == "regional_form"
+        ]
+        # Build a quick lookup: shop_item_id → regional_form catalog data
+        rf_by_item_id = {rf["id"]: rf for rf in regional_forms}
+
+        if inv_rf:
+            st.markdown("<div class='section-title'>🌟 Formas Regionais</div>", unsafe_allow_html=True)
+
+            for iid, qty in inv_rf:
+                rf_data = rf_by_item_id.get(iid)
+                if not rf_data:
+                    continue
+
+                targets = get_regional_form_targets(user_id, rf_data["species_id"])
+                region_label = REGION_LABELS.get(rf_data["region"], rf_data["region"].capitalize())
+
+                with st.expander(
+                    f"{rf_data['icon']} {rf_data['name']}  ·  {region_label}  ·  Qtd: {qty}",
+                    expanded=bool(targets),
+                ):
+                    # Sprite preview of the regional form
+                    if rf_data["sprite_url"]:
+                        b64_rf = get_image_as_base64(rf_data["sprite_url"])
+                        if b64_rf:
+                            st.markdown(
+                                f"<img src='data:image/png;base64,{b64_rf}' "
+                                f"style='width:80px;image-rendering:pixelated'>",
+                                unsafe_allow_html=True,
+                            )
+
+                    if not targets:
+                        poke_name = rf_data["name"].split(" de ")[0]
+                        st.info(f"Você não possui nenhum {poke_name} para aplicar esta forma.", icon="ℹ️")
+                    else:
+                        options = {}
+                        for t in targets:
+                            suffix = " · equipe" if t["in_team"] else ""
+                            form_tag = f" [forma: {t['current_form_name']}]" if t["has_form"] else ""
+                            label = f"{t['name']} (Lv.{t['level']}{suffix}){form_tag}"
+                            options[label] = t
+
+                        chosen_label = st.selectbox(
+                            "Aplicar em qual Pokémon?",
+                            list(options.keys()),
+                            key=f"rf_target_{iid}",
+                        )
+                        chosen = options[chosen_label]
+
+                        col_apply, col_remove = st.columns(2)
+                        with col_apply:
+                            if st.button(
+                                f"✨ Aplicar forma",
+                                key=f"apply_rf_{iid}_{chosen['user_pokemon_id']}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                ok, msg = apply_regional_form(user_id, iid, chosen["user_pokemon_id"])
+                                st.session_state.shop_msg      = msg
+                                st.session_state.shop_msg_type = "success" if ok else "error"
+                                st.rerun()
+                        with col_remove:
+                            if chosen["has_form"] and st.button(
+                                "🗑 Remover forma",
+                                key=f"rm_rf_{iid}_{chosen['user_pokemon_id']}",
+                                use_container_width=True,
+                            ):
+                                ok, msg = remove_regional_form(user_id, chosen["user_pokemon_id"])
+                                st.session_state.shop_msg      = msg
+                                st.session_state.shop_msg_type = "success" if ok else "error"
+                                st.rerun()
