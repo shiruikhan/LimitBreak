@@ -29,7 +29,7 @@ Aplicativo web (com futura conversão para Android) de acompanhamento de treinos
 
 ### Dependências (`requirements.txt`)
 ```
-streamlit>=1.36.0
+streamlit>=1.44.0
 psycopg2-binary>=2.9.0
 python-dotenv>=1.0.0
 requests>=2.31.0
@@ -186,6 +186,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | username | TEXT | Nome do treinador |
 | coins | INT | Moedas acumuladas |
 | starter_pokemon_id | INT FK | Pokémon inicial escolhido |
+| xp_share_expires_at | TIMESTAMPTZ | Data/hora de expiração do XP Share ativo (nullable) |
 
 #### `user_pokemon`
 | Coluna | Tipo | Descrição |
@@ -239,16 +240,44 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 
 > PK: `(user_id, item_id)`.
 
-#### `user_daily_checkins`
+#### `user_checkins`
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | SERIAL PK | |
 | user_id | UUID FK | |
-| checked_at | DATE | Data do check-in (UNIQUE por usuário) |
+| checked_date | DATE | Data do check-in (UNIQUE por usuário) |
 | streak | INT | Streak consecutivo no momento do check-in |
 | coins_earned | INT | Moedas ganhas (normalmente 1) |
-| bonus_item | TEXT | Slug do item bônus ("xp-share" nos dias 15 e último do mês), nullable |
+| bonus_item_id | INT FK | FK → shop_items (nullable) — item bônus nos dias 15 e último do mês |
 | spawned_species_id | INT FK | Pokémon que apareceu neste check-in (nullable) |
+
+> **Atenção:** nome da tabela é `user_checkins` (não `user_daily_checkins`) e a coluna de data é `checked_date` (não `checked_at`). O item bônus é FK para `shop_items` (int), não slug texto.
+
+#### `user_battles`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| challenger_id | UUID FK | Usuário que iniciou a batalha |
+| opponent_id | UUID FK | Usuário desafiado |
+| challenger_pokemon_id | INT FK | user_pokemon do desafiante (slot 1 no momento) |
+| opponent_pokemon_id | INT FK | user_pokemon do oponente (slot 1 no momento) |
+| winner_id | UUID FK | nullable — NULL = empate |
+| result | TEXT | 'challenger_win', 'opponent_win', 'draw' |
+| challenger_xp_earned / opponent_xp_earned | INT | XP ganho por cada lado |
+| coins_earned | INT | Moedas ganhas pelo vencedor |
+| turn_count | INT | Número de turnos da batalha |
+| battled_at | TIMESTAMPTZ | |
+
+#### `user_battle_turns`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| battle_id | INT FK | CASCADE DELETE |
+| turn_number | INT | |
+| attacker_pokemon_id | INT FK | user_pokemon que atacou |
+| move_name / move_power | TEXT/INT | Move usado |
+| damage | INT | Dano causado |
+| challenger_hp_remaining / opponent_hp_remaining | INT | HP após o turno |
 
 ---
 
@@ -304,12 +333,34 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `get_stat_boost_summary(user_pokemon_id)` | `{stat: total_delta}` |
 | `_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)` | **Interno.** Recalcula stat_* = new_base_* + soma de vitaminas; chamado após qualquer evolução |
 
-### XP e evolução automática
+### XP, XP Share e evolução automática
 | Função | Descrição |
 |---|---|
-| `award_xp(user_pokemon_id, amount, source)` | **Ponto de integração com o módulo de treinos.** Concede XP, processa loop de level-up (fórmula: `level × 100`), detecta evoluções por nível (até 3 por chamada), recalcula stats. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}` |
+| `award_xp(user_pokemon_id, amount, source, _distributing=False)` | **Ponto de integração com o módulo de treinos.** Concede XP, processa loop de level-up (fórmula: `level × 100`), detecta evoluções por nível (até 3 por chamada), recalcula stats. Se XP Share ativo e `_distributing=False`, distribui 30% do XP para os demais Pokémon da equipe via `_distribute_xp_share()`. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}` |
+| `get_xp_share_status(user_id)` | Retorna `{"active": bool, "expires_at": datetime \| None, "days_left": int}` — consultado por equipe.py e loja.py |
+| `_extend_xp_share(cur, user_id)` | **Interno.** Estende `xp_share_expires_at` em +15 dias (GREATEST para não perder tempo restante); chamado por `do_checkin()` nos dias bônus |
+| `_distribute_xp_share(user_id, main_pokemon_id, amount, source)` | **Interno.** Distribui 30% do XP para todos os Pokémon da equipe exceto o principal; usa `_distributing=True` para evitar recursão |
 | `get_stone_targets(user_id, stone_slug)` | Pokémon do usuário elegíveis para evoluir com a pedra; inclui flag `in_team` |
 | `evolve_with_stone(user_id, item_id, user_pokemon_id)` | Valida posse do item e do Pokémon, executa evolução, debita inventário, recalcula stats. Retorna `(bool, msg, evo_data)` |
+
+### Batalhas PvP
+| Função | Descrição |
+|---|---|
+| `get_battle_opponents(user_id)` | Lista outros usuários com slot 1 preenchido: `[{username, user_id, level, pokemon_name, sprite_url}]` |
+| `get_daily_battle_count(user_id)` | Contagem de batalhas como desafiante hoje (máx `_MAX_BATTLES_PER_DAY = 3`) |
+| `simulate_battle(challenger_id, opponent_id)` | Simula batalha offline slot-1 vs slot-1, persiste turnos no banco, concede XP e moedas. Retorna dict completo com `turns`, `result`, `challenger`, `opponent`, `coins_earned` |
+| `get_battle_history(user_id, limit=20)` | Últimas batalhas em que o usuário participou (desafiante ou oponente) |
+| `get_battle_detail(battle_id)` | Todos os turnos de uma batalha específica |
+
+**Constantes de batalha:**
+- `_MAX_BATTLES_PER_DAY = 3`
+- HP de batalha = `stat_hp + level * 2` (não afeta banco permanentemente)
+- Ordem: maior `stat_speed` ataca primeiro; empate = aleatório
+- Dano: `(atk / def) * power * random(0.85, 1.0) * (level / 20)`, mínimo 1
+- Moves físicos usam `attack/defense`; especiais usam `sp_attack/sp_defense`; status = pulado
+- Sem move equipado: usa "Investida" (power 40, físico)
+- Máx 50 turnos — depois empate
+- Vitória: +50 moedas, +30 XP; Derrota: +10 XP
 
 ### Loja e inventário
 | Função | Descrição |
@@ -322,9 +373,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ### Calendário e check-in
 | Função | Descrição |
 |---|---|
-| `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item, spawned_species_id}}` |
+| `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item_id, spawned_species_id}}` |
 | `get_checkin_streak(user_id)` | Streak atual de dias consecutivos |
-| `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + XP Share nos dias 15/último + spawn 25% em streaks múltiplos de 3. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna dict completo com `xp_result` |
+| `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
 
 ---
 
@@ -379,14 +430,16 @@ def _resolve_asset(local_path: str) -> str:
 
 ### Ordem na navegação (primeira = página inicial)
 1. `pages/equipe.py` — Minha Equipe ⚔️
-2. `pages/pokedex.py` — Pokédex 📖
-3. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
-4. `pages/loja.py` — Loja 🛒
-5. `pages/calendario.py` — Calendário 📅
+2. `pages/batalha.py` — Arena 🥊
+3. `pages/pokedex.py` — Pokédex 📖
+4. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
+5. `pages/loja.py` — Loja 🛒
+6. `pages/calendario.py` — Calendário 📅
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
 - Cores canônicas: HP=#FF5959, ATK=#F5AC78, DEF=#FAE078, SP.ATK=#9DB7F5, SP.DEF=#A7DB8D, SPD=#FA92B2; barra proporcional ao máximo 255
+- **Badge de XP Share:** exibe status do XP Share no topo da página — se ativo, mostra dias restantes (`get_xp_share_status()`)
 - Ações por slot: ⚔ Golpes (abre painel) / ↑ Promover para slot 1 / 🗑 Remover (vai para banco)
 - **Banco de Pokémon:** seção abaixo da equipe com todos os `user_pokemon` fora de `user_team`; botão "→ Equipe" (desabilitado se equipe cheia 6/6)
 - Painel de movimentos: 4 slots ativos (desquipar) + lista de disponíveis com botão equipar/trocar
@@ -408,12 +461,19 @@ def _resolve_asset(local_path: str) -> str:
 - Barra de progresso global + chips de progresso por geração
 - **Atenção:** sem backslash em f-strings — usar variáveis intermediárias antes de interpolar dicts
 
+### `pages/batalha.py`
+- Header com título + contador diário colorido (verde/laranja/vermelho conforme uso)
+- Selectbox de oponentes com seu Pokémon slot 1 + botão "⚔️ Batalhar" (desabilitado se limite atingido)
+- Resultado: card de vitória/derrota/empate + cards dos dois lutadores com HP bar + log de turnos expansível
+- Histórico: últimas batalhas como expanders com log de turnos dentro
+
 ### `pages/loja.py`
 - Tab **Loja**: grade de itens por categoria (Pedras / Vitaminas / Outros) com preço e indicador de estoque
+  - **XP Share tem fluxo especial de compra:** botão "▶ Ativar" quando inativo; botão "✚ +15 dias" quando ativo (mostrando dias restantes via `get_xp_share_status()`)
 - Tab **Mochila**:
   - *Vitaminas:* selectbox de Pokémon da equipe + botão "Usar" → `use_stat_item()`
   - *Pedras de evolução:* expander por pedra → selectbox de Pokémon elegíveis → preview sprite → botão "✨ Usar" → `evolve_with_stone()`; após evolução define `st.session_state.team_evo_notice`
-  - *Outros:* badge "Em breve"
+  - *Outros (XP Share):* exibe status de ativação com dias restantes
 
 ### `pages/calendario.py`
 - Grade mensal HTML (7 colunas) com estados: normal / checado (verde) / bônus (dourado) / spawn (roxo)
@@ -436,14 +496,17 @@ def _resolve_asset(local_path: str) -> str:
 
 **Fórmula:** `level × 100` XP necessário para subir de nível (Lv.1→2 = 100 XP, Lv.50→51 = 5.000 XP).
 
-**`award_xp(user_pokemon_id, amount, source)`:**
+**`award_xp(user_pokemon_id, amount, source, _distributing=False)`:**
 1. `FOR UPDATE` no `user_pokemon` para consistência
 2. Loop: enquanto `xp >= level * 100` → subtrai, incrementa nível, verifica evolução por nível
 3. Para cada nível atingido: busca em `pokemon_evolutions` WHERE `trigger='level-up' AND min_level <= level`
 4. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
 5. Persiste `level`, `xp`, `species_id` de uma vez
 6. Se houve evoluções: `_recalc_stats_on_evolution()` preserva boosts de vitaminas
-7. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}`
+7. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe
+8. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}`
+
+> O parâmetro `_distributing=True` é interno — evita recursão infinita quando `_distribute_xp_share()` chama `award_xp()` para os outros Pokémon.
 
 **Ponto de integração com treinos:** quando o módulo de exercícios estiver pronto, basta chamar:
 ```python
@@ -465,7 +528,7 @@ Preserva todos os boosts permanentes de vitaminas na forma evoluída.
 |---|---|---|
 | `stone` | 10 pedras de evolução (fire, water, thunder, leaf, moon, sun, shiny, dusk, dawn, ice) | Evolução por item via `evolve_with_stone()` |
 | `stat_boost` | hp-up, protein, iron, calcium, zinc, carbos | Boost permanente de stat via `use_stat_item()` → `apply_stat_boost()` |
-| `other` | xp-share | Ganho de XP para Pokémons não em batalha (a implementar) |
+| `other` | xp-share | Ativa/estende XP Share por 15 dias — distribui 30% do XP recebido pelo slot 1 para os demais Pokémon da equipe |
 
 ---
 
@@ -474,9 +537,9 @@ Preserva todos os boosts permanentes de vitaminas na forma evoluída.
 | Condição | Recompensa |
 |---|---|
 | Todo check-in | +1 moeda |
-| Dia 15 do mês | +1 XP Share |
-| Último dia do mês | +1 XP Share |
-| Streak múltiplo de 3 | 25% de chance de spawn de Pokémon aleatório não capturado |
+| Dia 15 do mês | Extensão do XP Share em +15 dias |
+| Último dia do mês | Extensão do XP Share em +15 dias |
+| Streak múltiplo de 3 | 25% de chance de spawn de Pokémon nível 5 aleatório não capturado |
 | Todo check-in | +10 XP para o Pokémon do slot 1 (via `award_xp`) |
 
 ---
@@ -535,18 +598,18 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Equipe: 6 slots, moveset equipável (4 por Pokémon), modo substituição, stats visíveis
 - Banco de Pokémon: Pokémon fora da equipe ficam no banco; seção na página de equipe com botão para trazer à equipe
 - Stats individuais: copiados na captura, atualizados por vitaminas e evoluções
-- Sistema de XP e evolução automática: `award_xp()` pronto para receber eventos de treinos
+- Sistema de XP e evolução automática: `award_xp()` com distribuição via XP Share
 - Evolução por pedra: `evolve_with_stone()` com recálculo de stats e preservação de boosts
-- Loja: pedras de evolução (10), vitaminas (6), XP Share; mochila funcional
-- Calendário: check-in diário, streak, spawns em streak ×3, bônus dias 15/fim-de-mês
+- Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; mochila funcional
+- XP Share: distribui 30% do XP do slot 1 para os demais membros da equipe; ativado por check-in ou comprado na loja; badge de status em equipe.py e loja.py
+- Calendário: check-in diário, streak, spawns nível 5 em streak ×3, extensão de XP Share nos dias 15/fim-de-mês
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
 - Deploy em produção: Streamlit Cloud com CDN fallback para imagens
+- Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
 
 ### Aguardando integração com módulo de treinos
 - `award_xp(user_pokemon_id, amount, "exercise")` — função pronta, aguarda chamador
 - Spawn de Pokémon vinculado ao tipo de exercício (ex: treino de peito → tipo Fighting/Normal)
 
 ### A implementar
-- [ ] XP Share: distribuir XP para Pokémon fora da equipe ativa
 - [ ] Skins regionais (Galar, Alola) como itens da loja categoria "other"
-- [ ] Histórico de combates / batalhas entre usuários
