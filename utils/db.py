@@ -1222,9 +1222,11 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 level += 1
                 result["levels_gained"] += 1
 
-                # Verifica evolução por nível (limite de 3 por chamada)
-                # Evoluções por troca disparam no nível 36 (bypass do sistema de trade)
-                _TRADE_BYPASS_LEVEL = 36
+                # Verifica evolução por nível (limite de 3 por chamada).
+                # Triggers não-padrão (trade, spin, three-critical-hits, take-damage,
+                # agile/strong-style-move, recoil-damage, tower-*, other) disparam
+                # no nível 36 como bypass. 'use-item' e 'shed' são tratados à parte.
+                _BYPASS_LEVEL = 36
                 if len(result["evolutions"]) < 3:
                     cur.execute("""
                         SELECT e.to_species_id, p2.name, p2.sprite_url,
@@ -1235,11 +1237,12 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                         WHERE e.from_species_id = %s
                           AND (
                               (e.trigger_name = 'level-up' AND e.min_level <= %s)
-                              OR (e.trigger_name = 'trade' AND %s >= %s)
+                              OR (e.trigger_name NOT IN ('level-up', 'use-item', 'shed')
+                                  AND %s >= %s)
                           )
                         ORDER BY e.min_level DESC NULLS LAST
                         LIMIT 1;
-                    """, (species_id, level, level, _TRADE_BYPASS_LEVEL))
+                    """, (species_id, level, level, _BYPASS_LEVEL))
                     evo = cur.fetchone()
                     if evo:
                         to_id, to_name, to_sprite, from_name = evo
@@ -1249,6 +1252,57 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                             "to_id":      to_id,
                             "sprite_url": to_sprite,
                         })
+
+                        # Shed mechanic: se a pré-evolução tem uma entrada 'shed',
+                        # spawna o Pokémon companheiro se a equipe tiver slot livre.
+                        cur.execute("""
+                            SELECT e2.to_species_id, p2.name, p2.sprite_url
+                            FROM pokemon_evolutions e2
+                            JOIN pokemon_species p2 ON e2.to_species_id = p2.id
+                            WHERE e2.from_species_id = %s AND e2.trigger_name = 'shed';
+                        """, (species_id,))
+                        shed_row = cur.fetchone()
+                        if shed_row and user_id:
+                            shed_id, shed_name, shed_sprite = shed_row
+                            cur.execute(
+                                "SELECT COUNT(*) FROM user_team WHERE user_id = %s;",
+                                (user_id,)
+                            )
+                            if cur.fetchone()[0] < 6:
+                                cur.execute("""
+                                    INSERT INTO user_pokemon (
+                                        user_id, species_id, level, xp,
+                                        stat_hp, stat_attack, stat_defense,
+                                        stat_sp_attack, stat_sp_defense, stat_speed
+                                    )
+                                    SELECT %s, %s, %s, 0,
+                                           base_hp, base_attack, base_defense,
+                                           base_sp_attack, base_sp_defense, base_speed
+                                    FROM pokemon_species WHERE id = %s
+                                    RETURNING id;
+                                """, (user_id, shed_id, level, shed_id))
+                                shed_up_id = cur.fetchone()[0]
+                                cur.execute(
+                                    "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
+                                    (user_id,)
+                                )
+                                used_slots = {r[0] for r in cur.fetchall()}
+                                free_slot = next(
+                                    (s for s in range(1, 7) if s not in used_slots), None
+                                )
+                                if free_slot:
+                                    cur.execute("""
+                                        INSERT INTO user_team (user_id, slot, user_pokemon_id)
+                                        VALUES (%s, %s, %s);
+                                    """, (user_id, free_slot, shed_up_id))
+                                result["evolutions"].append({
+                                    "from_name":  from_name,
+                                    "to_name":    shed_name,
+                                    "to_id":      shed_id,
+                                    "sprite_url": shed_sprite,
+                                    "shed":       True,
+                                })
+
                         species_id = to_id  # próxima iteração usa a nova espécie
 
             # ── Persiste level, xp e espécie ─────────────────────────────────
