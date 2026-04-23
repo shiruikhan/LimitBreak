@@ -4,9 +4,7 @@ from utils.db import (
     get_shop_items, get_user_inventory, get_user_profile,
     get_user_team, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
-    get_xp_share_status,
-    get_regional_form_items, get_regional_form_targets,
-    apply_regional_form, remove_regional_form,
+    get_xp_share_status, get_regional_form_items,
 )
 
 BASE_DIR = os.getcwd()
@@ -300,7 +298,7 @@ with tab_bag:
         inv_stat   = [(iid, qty) for iid, qty in inventory.items()
                       if item_map.get(iid, {}).get("category") == "stat_boost"]
         inv_stones = [(iid, qty) for iid, qty in inventory.items()
-                      if item_map.get(iid, {}).get("category") == "stone"]
+                      if item_map.get(iid, {}).get("category") in ("stone", "regional_form")]
         inv_others = [(iid, qty) for iid, qty in inventory.items()
                       if item_map.get(iid, {}).get("category") == "other"]
 
@@ -429,76 +427,3 @@ with tab_bag:
                     )
                     st.markdown("<div class='soon-badge' style='display:block;text-align:center;margin-top:4px'>Em breve</div>", unsafe_allow_html=True)
 
-        # ── Formas Regionais ──────────────────────────────────────────────────
-        inv_rf = [
-            (iid, qty) for iid, qty in inventory.items()
-            if item_map.get(iid, {}).get("category") == "regional_form"
-        ]
-        # Build a quick lookup: shop_item_id → regional_form catalog data
-        rf_by_item_id = {rf["id"]: rf for rf in regional_forms}
-
-        if inv_rf:
-            st.markdown("<div class='section-title'>🌟 Formas Regionais</div>", unsafe_allow_html=True)
-
-            for iid, qty in inv_rf:
-                rf_data = rf_by_item_id.get(iid)
-                if not rf_data:
-                    continue
-
-                targets = get_regional_form_targets(user_id, rf_data["species_id"])
-                region_label = REGION_LABELS.get(rf_data["region"], rf_data["region"].capitalize())
-
-                with st.expander(
-                    f"{rf_data['icon']} {rf_data['name']}  ·  {region_label}  ·  Qtd: {qty}",
-                    expanded=bool(targets),
-                ):
-                    # Sprite preview of the regional form
-                    if rf_data["sprite_url"]:
-                        b64_rf = get_image_as_base64(rf_data["sprite_url"])
-                        if b64_rf:
-                            st.markdown(
-                                f"<img src='data:image/png;base64,{b64_rf}' "
-                                f"style='width:80px;image-rendering:pixelated'>",
-                                unsafe_allow_html=True,
-                            )
-
-                    if not targets:
-                        poke_name = rf_data["name"].split(" de ")[0]
-                        st.info(f"Você não possui nenhum {poke_name} para aplicar esta forma.", icon="ℹ️")
-                    else:
-                        options = {}
-                        for t in targets:
-                            suffix = " · equipe" if t["in_team"] else ""
-                            form_tag = f" [forma: {t['current_form_name']}]" if t["has_form"] else ""
-                            label = f"{t['name']} (Lv.{t['level']}{suffix}){form_tag}"
-                            options[label] = t
-
-                        chosen_label = st.selectbox(
-                            "Aplicar em qual Pokémon?",
-                            list(options.keys()),
-                            key=f"rf_target_{iid}",
-                        )
-                        chosen = options[chosen_label]
-
-                        col_apply, col_remove = st.columns(2)
-                        with col_apply:
-                            if st.button(
-                                f"✨ Aplicar forma",
-                                key=f"apply_rf_{iid}_{chosen['user_pokemon_id']}",
-                                type="primary",
-                                use_container_width=True,
-                            ):
-                                ok, msg = apply_regional_form(user_id, iid, chosen["user_pokemon_id"])
-                                st.session_state.shop_msg      = msg
-                                st.session_state.shop_msg_type = "success" if ok else "error"
-                                st.rerun()
-                        with col_remove:
-                            if chosen["has_form"] and st.button(
-                                "🗑 Remover forma",
-                                key=f"rm_rf_{iid}_{chosen['user_pokemon_id']}",
-                                use_container_width=True,
-                            ):
-                                ok, msg = remove_regional_form(user_id, chosen["user_pokemon_id"])
-                                st.session_state.shop_msg      = msg
-                                st.session_state.shop_msg_type = "success" if ok else "error"
-                                st.rerun()
