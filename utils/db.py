@@ -1223,6 +1223,8 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 result["levels_gained"] += 1
 
                 # Verifica evolução por nível (limite de 3 por chamada)
+                # Evoluções por troca disparam no nível 36 (bypass do sistema de trade)
+                _TRADE_BYPASS_LEVEL = 36
                 if len(result["evolutions"]) < 3:
                     cur.execute("""
                         SELECT e.to_species_id, p2.name, p2.sprite_url,
@@ -1231,11 +1233,13 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                         JOIN pokemon_species p2 ON e.to_species_id = p2.id
                         JOIN pokemon_species p1 ON e.from_species_id = p1.id
                         WHERE e.from_species_id = %s
-                          AND e.trigger_name    = 'level-up'
-                          AND e.min_level       <= %s
-                        ORDER BY e.min_level DESC
+                          AND (
+                              (e.trigger_name = 'level-up' AND e.min_level <= %s)
+                              OR (e.trigger_name = 'trade' AND %s >= %s)
+                          )
+                        ORDER BY e.min_level DESC NULLS LAST
                         LIMIT 1;
-                    """, (species_id, level))
+                    """, (species_id, level, level, _TRADE_BYPASS_LEVEL))
                     evo = cur.fetchone()
                     if evo:
                         to_id, to_name, to_sprite, from_name = evo
