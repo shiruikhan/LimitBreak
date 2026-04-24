@@ -11,43 +11,66 @@ st.markdown("""
 <style>
 .battle-header {
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;
+    border-radius: 20px; padding: 20px 24px; margin-bottom: 20px;
     border: 1px solid #e94560;
 }
-.battle-title  { font-size: 28px; font-weight: 800; color: #e94560; margin: 0; }
-.battle-sub    { font-size: 14px; color: #8892b0; margin: 4px 0 0 0; }
-.counter-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-weight: 700; font-size: 15px; }
-.counter-ok    { background: #1a472a; color: #69db7c; border: 1px solid #2f9e44; }
-.counter-warn  { background: #5c2d0a; color: #ffa94d; border: 1px solid #e8590c; }
-.counter-full  { background: #3b1219; color: #ff6b6b; border: 1px solid #c92a2a; }
+.battle-title {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
+    background: linear-gradient(90deg, #e94560, #ff8099);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin: 0; text-transform: uppercase;
+}
+.battle-sub    { font-size: 0.85rem; color: #8b949e; margin: 4px 0 0 0; }
+.counter-badge {
+    display: inline-flex; align-items: center;
+    padding: 6px 14px; border-radius: 9999px; font-weight: 700; font-size: 0.78rem;
+    letter-spacing: 0.5px; text-transform: uppercase;
+}
+.counter-ok    { background: rgba(47,158,68,0.15); color: #69db7c; border: 1px solid rgba(47,158,68,0.5); }
+.counter-warn  { background: rgba(232,89,12,0.15); color: #ffa94d; border: 1px solid rgba(232,89,12,0.5); }
+.counter-full  { background: rgba(233,69,96,0.15); color: #ff8099; border: 1px solid rgba(233,69,96,0.4); }
 .fighter-card  {
-    background: #161b27; border-radius: 10px; padding: 14px;
-    border: 2px solid #2d3748; text-align: center;
+    background: #161b22; border-radius: 16px; padding: 16px;
+    border: 1px solid #30363d; text-align: center;
+    transition: all 0.2s ease;
 }
-.fighter-name  { font-size: 16px; font-weight: 700; color: #e2e8f0; margin: 6px 0 2px 0; }
-.fighter-level { font-size: 12px; color: #8892b0; }
-.hp-bar-bg     { background: #2d3748; border-radius: 4px; height: 10px; margin: 8px 0; }
-.hp-bar-fill   { height: 10px; border-radius: 4px; }
-.vs-badge      { font-size: 32px; font-weight: 900; color: #e94560; text-align: center; padding-top: 30px; }
+.fighter-name  { font-size: 1rem; font-weight: 700; color: #e6edf3; margin: 6px 0 2px 0; }
+.fighter-level { font-size: 0.75rem; color: #8b949e; font-family: "JetBrains Mono", monospace; }
+.hp-bar-bg     {
+    background: #21262d; border-radius: 9999px; height: 8px; margin: 8px 0;
+    border: 1px solid #30363d; overflow: hidden;
+}
+.hp-bar-fill   { height: 8px; border-radius: 9999px; transition: width 0.4s ease; }
+.vs-badge      {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
+    color: #e94560; text-align: center; padding-top: 30px;
+}
 .turn-log      {
-    background: #0d1117; border-radius: 8px; padding: 10px 14px;
+    background: #0d1117; border-radius: 16px; padding: 12px 16px;
     max-height: 200px; overflow-y: auto; margin-top: 12px;
-    border: 1px solid #2d3748; font-size: 13px;
+    border: 1px solid #21262d;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.72rem; color: #D4FC6B;
 }
-.turn-row-ch   { color: #63b3ed; margin: 3px 0; }
-.turn-row-op   { color: #fc8181; margin: 3px 0; }
-.result-win    { background: linear-gradient(135deg,#1a472a,#2d6a3f); border: 2px solid #2f9e44; border-radius: 12px; padding: 20px; text-align: center; }
-.result-loss   { background: linear-gradient(135deg,#3b1219,#6b2131); border: 2px solid #c92a2a; border-radius: 12px; padding: 20px; text-align: center; }
-.result-draw   { background: linear-gradient(135deg,#1a1f35,#2a3050); border: 2px solid #4a5568; border-radius: 12px; padding: 20px; text-align: center; }
-.result-title  { font-size: 26px; font-weight: 900; margin: 0; }
-.reward-chip   { display: inline-block; margin: 4px; padding: 4px 12px; border-radius: 14px; font-size: 13px; font-weight: 600; }
-.move-type-ph  { background: #3a2000; color: #ffa94d; border: 1px solid #e8590c; }
-.move-type-sp  { background: #1a1a4a; color: #74c0fc; border: 1px solid #339af0; }
-.move-type-st  { background: #1a2a1a; color: #69db7c; border: 1px solid #2f9e44; }
-.history-card  { background: #161b27; border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; border: 1px solid #2d3748; }
+.turn-row-ch   { color: #58A6FF; margin: 4px 0; }
+.turn-row-op   { color: #e94560; margin: 4px 0; }
+.result-win    { background: linear-gradient(135deg,#1a472a,#2d6a3f); border: 1px solid #2f9e44; border-radius: 16px; padding: 24px; text-align: center; }
+.result-loss   { background: linear-gradient(135deg,#3b1219,#6b2131); border: 1px solid #e94560; border-radius: 16px; padding: 24px; text-align: center; }
+.result-draw   { background: linear-gradient(135deg,#161b22,#1a1f35); border: 1px solid #484f58; border-radius: 16px; padding: 24px; text-align: center; }
+.result-title  {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px; margin: 0;
+}
+.reward-chip   { display: inline-block; margin: 4px; padding: 5px 14px; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; }
+.move-type-ph  { background: rgba(245,172,120,0.15); color: #F5AC78; border: 1px solid rgba(245,172,120,0.4); }
+.move-type-sp  { background: rgba(157,183,245,0.15); color: #9DB7F5; border: 1px solid rgba(157,183,245,0.4); }
+.move-type-st  { background: rgba(167,219,141,0.15); color: #A7DB8D; border: 1px solid rgba(167,219,141,0.4); }
+.history-card  { background: #161b22; border-radius: 16px; padding: 14px 18px; margin-bottom: 10px; border: 1px solid #30363d; }
 .history-win   { border-left: 4px solid #2f9e44; }
-.history-loss  { border-left: 4px solid #c92a2a; }
-.history-draw  { border-left: 4px solid #4a5568; }
+.history-loss  { border-left: 4px solid #e94560; }
+.history-draw  { border-left: 4px solid #484f58; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,14 +91,14 @@ else:
 
 st.markdown(f"""
 <div class="battle-header">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
     <div>
-      <p class="battle-title">⚔️ Arena de Batalhas</p>
+      <p class="battle-title">🥊 ARENA</p>
       <p class="battle-sub">Slot 1 vs slot 1 · você escolhe os golpes · oponente usa melhor golpe</p>
     </div>
-    <div>
+    <div style="display:flex;align-items:center;gap:12px;">
       <span class="counter-badge {ctr_cls}">{ctr_txt}</span>
-      <span style="margin-left:12px;color:#ffd700;font-weight:700;">🪙 {coins}</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#FFC531,#B38200);border-radius:9999px;padding:6px 14px;font-size:0.85rem;font-weight:800;color:#0d1117;">🪙 {coins:,}</span>
     </div>
   </div>
 </div>
@@ -87,26 +110,31 @@ st.markdown(f"""
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _hp_color(pct: int) -> str:
-    if pct > 50: return "#2f9e44"
-    if pct > 20: return "#e8590c"
-    return "#c92a2a"
+    if pct > 50: return "#B8F82F"
+    if pct > 20: return "#FFC531"
+    return "#e94560"
 
 
 def _fighter_card(poke: dict, label: str, is_winner: bool):
     pct    = int(poke["hp"] / max(1, poke["max_hp"]) * 100)
-    border = "2px solid #ffd700" if is_winner else "2px solid #2d3748"
+    border = "2px solid #FFC531" if is_winner else "1px solid #30363d"
+    glow   = "box-shadow:0 0 0 1px #FFC531,0 8px 24px rgba(255,197,49,0.25);" if is_winner else ""
     img    = get_image_as_base64(poke["sprite_url"])
-    img_tag = f'<img src="data:image/png;base64,{img}" width="80">' if img else "🔴"
+    img_tag = (
+        f'<img src="data:image/png;base64,{img}" width="80" '
+        f'style="image-rendering:pixelated;margin:8px 0">'
+        if img else "<div style='font-size:3rem;margin:8px 0'>❓</div>"
+    )
     col    = _hp_color(pct)
     return f"""
-    <div class="fighter-card" style="border:{border};">
-      <div style="font-size:11px;color:#8892b0;text-transform:uppercase;letter-spacing:1px;">{label}</div>
+    <div class="fighter-card" style="border:{border};{glow}">
+      <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:2px;font-weight:700;">{label}</div>
       {img_tag}
       <p class="fighter-name">{poke['name']}</p>
       <p class="fighter-level">Lv.{poke['level']}</p>
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;">
-        <span style="color:#8892b0;">HP</span>
-        <span style="color:{col};font-weight:700;">{poke['hp']}/{poke['max_hp']}</span>
+      <div style="display:flex;justify-content:space-between;font-size:0.62rem;margin-top:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+        <span style="color:#8b949e;">HP</span>
+        <span style="color:{col};font-family:'JetBrains Mono',monospace;">{poke['hp']}/{poke['max_hp']}</span>
       </div>
       <div class="hp-bar-bg">
         <div class="hp-bar-fill" style="width:{pct}%;background:{col};"></div>
@@ -327,17 +355,17 @@ else:
     coins_earned = saved.get("coins_earned", 0) if winner_id == user_id else 0
     lvl_up = saved.get("ch_xp_result", {}).get("levels_gained", 0) if "ch_xp_result" in saved else 0
 
-    rewards_html = f'<span class="reward-chip" style="background:#1a3a1a;color:#69db7c;">+{ch_xp} XP</span>'
+    rewards_html = f'<span class="reward-chip" style="background:rgba(184,248,47,0.12);color:#B8F82F;border:1px solid rgba(184,248,47,0.4);">+{ch_xp} XP</span>'
     if coins_earned:
-        rewards_html += f'<span class="reward-chip" style="background:#3a2f00;color:#ffd700;">+{coins_earned} 🪙</span>'
+        rewards_html += f'<span class="reward-chip" style="background:rgba(255,197,49,0.12);color:#FFC531;border:1px solid rgba(255,197,49,0.4);">+{coins_earned} 🪙</span>'
     if lvl_up:
-        rewards_html += f'<span class="reward-chip" style="background:#2a1a4a;color:#b39ddb;">+{lvl_up} nível!</span>'
+        rewards_html += f'<span class="reward-chip" style="background:rgba(188,140,255,0.12);color:#BC8CFF;border:1px solid rgba(188,140,255,0.4);">+{lvl_up} nível!</span>'
 
     st.markdown(f"""
     <div class="{res_cls}" style="margin-bottom:20px;">
       <p class="result-title">{res_icon} {res_txt}</p>
-      <p style="color:#a0aec0;margin:6px 0;">{bs['turn_num']} turnos · {ch['name']} vs {op['name']}</p>
-      <div style="margin-top:10px;">{rewards_html}</div>
+      <p style="color:#8b949e;margin:6px 0;font-size:0.85rem;">{bs['turn_num']} turnos · {ch['name']} vs {op['name']}</p>
+      <div style="margin-top:12px;">{rewards_html}</div>
     </div>
     """, unsafe_allow_html=True)
 

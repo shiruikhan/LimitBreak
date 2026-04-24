@@ -41,7 +41,7 @@ st.markdown("""
 .stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
 .brand-title {
     font-family: "Bebas Neue", sans-serif;
-    font-size: 3rem; font-weight: 400; letter-spacing: 4px; text-align: center; margin-bottom: 0;
+    font-size: 3.5rem; font-weight: 400; letter-spacing: 4px; text-align: center; margin-bottom: 0;
     background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }

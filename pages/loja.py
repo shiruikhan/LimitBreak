@@ -17,41 +17,42 @@ st.markdown("""
 
 .shop-title {
     font-family: "Bebas Neue", sans-serif;
-    font-size: 2rem; font-weight: 400; letter-spacing: 3px;
-    background: linear-gradient(90deg, #FFC531, #FFDD7A);
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
+    background: linear-gradient(90deg, #FFDD7A, #FFC531);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0;
+    margin: 0; text-transform: uppercase;
 }
 .shop-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; }
 
 .coins-badge {
     display: inline-flex; align-items: center; gap: 6px;
-    background: #1c1a0a; border: 1px solid #A1871F;
-    border-radius: 20px; padding: 6px 16px;
-    font-size: 1.1rem; font-weight: 800; color: #F8D030;
+    background: linear-gradient(135deg, #FFC531, #B38200);
+    border-radius: 9999px; padding: 6px 16px;
+    font-size: 0.95rem; font-weight: 800; color: #0d1117;
 }
 
 .section-title {
-    font-size: 0.7rem; font-weight: 700; letter-spacing: 2px;
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 2px;
     text-transform: uppercase; color: #8b949e;
-    border-bottom: 1px solid #21262d; padding-bottom: 6px; margin: 16px 0 10px;
+    border-bottom: 1px solid #21262d; padding-bottom: 6px; margin: 20px 0 12px;
 }
 
 /* Cards de item */
 .item-card {
     background: #161b22; border: 1px solid #30363d;
-    border-radius: 12px; padding: 16px 14px 12px;
+    border-radius: 16px; padding: 16px 14px 12px;
     text-align: center; height: 100%;
     display: flex; flex-direction: column; gap: 6px;
+    transition: border-color 0.2s ease;
 }
 .item-icon  { font-size: 2.2rem; line-height: 1; }
 .item-name  { font-weight: 700; color: #e6edf3; font-size: 0.88rem; }
 .item-desc  { color: #8b949e; font-size: 0.72rem; line-height: 1.4; flex: 1; }
 .item-price {
-    font-weight: 800; color: #F8D030; font-size: 0.95rem;
-    margin-top: 4px;
+    font-weight: 800; color: #FFC531; font-size: 0.9rem;
+    margin-top: 4px; font-family: "JetBrains Mono", monospace;
 }
-.item-price.cant-afford { color: #6e7681; }
+.item-price.cant-afford { color: #484f58; }
 
 /* Badge "em breve" */
 .soon-badge {
@@ -63,9 +64,11 @@ st.markdown("""
 
 /* Cards do inventário */
 .inv-card {
-    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
-    padding: 12px; display: flex; align-items: center; gap: 10px;
+    background: #161b22; border: 1px solid #30363d; border-radius: 16px;
+    padding: 14px; display: flex; align-items: center; gap: 10px;
+    transition: border-color 0.2s ease;
 }
+.inv-card:hover { border-color: #484f58; }
 .inv-icon  { font-size: 1.8rem; flex-shrink: 0; }
 .inv-info  { flex: 1; min-width: 0; }
 .inv-name  { font-weight: 700; color: #e6edf3; font-size: 0.85rem; }

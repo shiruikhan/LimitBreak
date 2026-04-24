@@ -36,15 +36,15 @@ st.markdown("""
 }
 .pdex-title {
     font-family: "Bebas Neue", sans-serif;
-    font-size: 2rem; font-weight: 400; letter-spacing: 3px;
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
     background: linear-gradient(90deg, #D4FC6B, #B8F82F);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0;
+    margin: 0; text-transform: uppercase;
 }
 .pdex-subtitle { color: #8b949e; font-size: 0.85rem; margin: 0; }
 
 .progress-wrap {
-    background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    background: #161b22; border: 1px solid #30363d; border-radius: 16px;
     padding: 16px 20px; margin-bottom: 20px;
 }
 .progress-row {
@@ -109,9 +109,9 @@ st.markdown("""
 .pdex-name.unknown { color: #30363d; }
 
 .type-pip {
-    display: inline-block; border-radius: 4px;
+    display: inline-block; border-radius: 9999px;
     font-size: 0.5rem; font-weight: 700; letter-spacing: 0.5px;
-    padding: 1px 5px; margin: 2px 1px 0; text-transform: uppercase;
+    padding: 2px 6px; margin: 2px 1px 0; text-transform: uppercase;
 }
 
 /* Contadores de geração */
@@ -119,10 +119,10 @@ st.markdown("""
     display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;
 }
 .gen-chip {
-    background: #161b22; border: 1px solid #30363d; border-radius: 20px;
-    padding: 3px 10px; font-size: 0.72rem; color: #8b949e;
+    background: #161b22; border: 1px solid #30363d; border-radius: 9999px;
+    padding: 3px 12px; font-size: 0.7rem; color: #8b949e;
 }
-.gen-chip span { color: #B8F82F; font-weight: 700; }
+.gen-chip span { color: #B8F82F; font-weight: 700; font-family: "JetBrains Mono", monospace; }
 
 .filter-label {
     font-size: 0.75rem; color: #8b949e; font-weight: 600;

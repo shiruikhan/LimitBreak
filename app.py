@@ -12,9 +12,78 @@ st.set_page_config(
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
-[data-testid="stSidebar"] { background-color: #0d1117 !important; }
+
+/* ── Global base ─────────────────────────────────────────────────────────── */
+html, body, [data-testid="stAppViewContainer"], .stApp {
+    font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: #0d1117 !important;
+    border-right: 1px solid #21262d;
+}
 [data-testid="stSidebarNav"] a { color: #e6edf3 !important; }
 [data-testid="stSidebarNav"] a:hover { color: #B8F82F !important; }
+[data-testid="stSidebar"] * { color: #e6edf3 !important; }
+
+/* ── Global buttons ──────────────────────────────────────────────────────── */
+.stButton > button {
+    font-family: "Space Grotesk", sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 0.85rem !important;
+    letter-spacing: 0.5px !important;
+    border-radius: 8px !important;
+    transition: opacity 0.15s ease, transform 0.1s ease !important;
+}
+.stButton > button:hover {
+    opacity: 0.9 !important;
+    transform: translateY(-1px) !important;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #B8F82F, #7AB21A) !important;
+    color: #0d1117 !important;
+    border: none !important;
+    box-shadow: 0 4px 12px rgba(184,248,47,0.3) !important;
+}
+.stButton > button[kind="secondary"] {
+    background: #21262d !important;
+    color: #e6edf3 !important;
+    border: 1px solid #30363d !important;
+}
+
+/* ── Global tabs ─────────────────────────────────────────────────────────── */
+div[data-testid="stTabs"] button {
+    font-family: "Space Grotesk", sans-serif !important;
+    color: #8b949e !important;
+    font-weight: 600 !important;
+}
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #B8F82F !important;
+    border-bottom-color: #B8F82F !important;
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────────────── */
+.stTextInput > div > div > input,
+.stSelectbox > div > div,
+.stMultiselect > div > div {
+    background-color: #161b22 !important;
+    border-color: #30363d !important;
+    color: #e6edf3 !important;
+    font-family: "Space Grotesk", sans-serif !important;
+}
+.stTextInput > div > div > input:focus {
+    border-color: #B8F82F !important;
+    box-shadow: 0 0 0 2px rgba(184,248,47,0.15) !important;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
 </style>
 """, unsafe_allow_html=True)
 

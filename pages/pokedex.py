@@ -67,15 +67,15 @@ def _inject_global_css():
 
 /* Section labels */
 .section-label {
-    font-size: 0.7rem; font-weight: 700; letter-spacing: 2px;
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 2px;
     text-transform: uppercase; color: #8b949e; margin-bottom: 10px;
 }
 
 /* Type badge */
 .type-badge {
     display: inline-flex; align-items: center; gap: 5px;
-    padding: 4px 12px; border-radius: 20px;
-    font-size: 0.78rem; font-weight: 700; letter-spacing: 1px;
+    padding: 4px 12px; border-radius: 9999px;
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.5px;
     text-transform: uppercase; margin-right: 6px;
 }
 
@@ -84,20 +84,24 @@ def _inject_global_css():
     display: flex; align-items: center; gap: 10px;
     background: #161b22; border-radius: 10px;
     padding: 8px 14px; margin-bottom: 8px;
-    border-left: 4px solid #30363d;
-    transition: all 0.18s ease;
+    border-left: 3px solid #30363d;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .move-card:hover {
-    transform: translateX(4px);
+    transform: translateX(4px) scale(1.02);
     box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 .move-lv {
-    font-size: 0.7rem; font-weight: 700; color: #8b949e;
+    font-size: 0.65rem; font-weight: 700; color: #8b949e;
     min-width: 36px; text-align: right;
+    font-family: "JetBrains Mono", monospace;
 }
-.move-name { flex: 1; font-weight: 600; font-size: 0.92rem; color: #e6edf3; }
-.move-stat { font-size: 0.72rem; color: #8b949e; text-align: center; min-width: 32px; }
-.move-stat span { display: block; font-size: 0.62rem; text-transform: uppercase; }
+.move-name { flex: 1; font-weight: 700; font-size: 0.88rem; color: #e6edf3; }
+.move-stat {
+    font-size: 0.65rem; color: #8b949e; text-align: center; min-width: 32px;
+    font-family: "JetBrains Mono", monospace;
+}
+.move-stat span { display: block; font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* Moves scroll container */
 .moves-wrap {
@@ -134,7 +138,7 @@ def _inject_global_css():
 
 /* Evolution chain */
 .evo-container {
-    background: #161b22; border: 1px solid #21262d;
+    background: #161b22; border: 1px solid #30363d;
     border-radius: 16px; padding: 24px 20px; margin-top: 16px;
 }
 .evo-node {
