@@ -1176,20 +1176,29 @@ def _extend_xp_share(cur, user_id: str) -> None:
     """, (user_id,))
 
 
-def _distribute_xp_share(user_id: str, main_pokemon_id: int, amount: int, source: str) -> None:
-    """Distribui XP (30%) para os demais membros da equipe via XP Share."""
+def _distribute_xp_share(user_id: str, main_pokemon_id: int, amount: int, source: str) -> list:
+    """Distribui XP (30%) para os demais membros da equipe via XP Share.
+
+    Retorna lista de {name, xp, user_pokemon_id} para exibição no log.
+    """
+    distributed = []
     try:
         with get_connection().cursor() as cur:
             cur.execute("""
-                SELECT user_pokemon_id FROM user_team
-                WHERE user_id = %s AND user_pokemon_id != %s
-                ORDER BY slot;
+                SELECT ut.user_pokemon_id, ps.name
+                FROM user_team ut
+                JOIN user_pokemon up ON ut.user_pokemon_id = up.id
+                JOIN pokemon_species ps ON up.species_id = ps.id
+                WHERE ut.user_id = %s AND ut.user_pokemon_id != %s
+                ORDER BY ut.slot;
             """, (user_id, main_pokemon_id))
-            others = [r[0] for r in cur.fetchall()]
-        for pid in others:
+            others = [(r[0], r[1]) for r in cur.fetchall()]
+        for pid, name in others:
             award_xp(pid, amount, source, _distributing=True)
+            distributed.append({"name": name, "xp": amount, "user_pokemon_id": pid})
     except Exception:
         pass
+    return distributed
 
 
 def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
@@ -1224,6 +1233,7 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
         "new_level": 0,
         "new_xp": 0,
         "evolutions": [],
+        "xp_share_distributed": [],
         "error": None,
     }
     if amount <= 0:
@@ -1357,7 +1367,9 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
             status = get_xp_share_status(user_id)
             if status["active"]:
                 share_amount = max(1, int(amount * 0.30))
-                _distribute_xp_share(user_id, user_pokemon_id, share_amount, source)
+                result["xp_share_distributed"] = _distribute_xp_share(
+                    user_id, user_pokemon_id, share_amount, source
+                )
 
         return result
 

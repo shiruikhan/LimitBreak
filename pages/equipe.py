@@ -230,7 +230,13 @@ with st.sidebar:
         st.rerun()
 
 # ── Session state defaults ─────────────────────────────────────────────────────
-for k, v in [("sel_team_slot", None), ("replacing_move_id", None), ("team_evo_notice", None)]:
+for k, v in [
+    ("sel_team_slot", None),
+    ("replacing_move_id", None),
+    ("team_evo_notice", None),
+    ("team_shed_notice", None),
+    ("xp_share_log", None),
+]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -266,6 +272,60 @@ if evo_notice:
         unsafe_allow_html=True,
     )
     st.session_state.team_evo_notice = None
+
+# ── Shedinja capture banner ────────────────────────────────────────────────────
+shed_notice = st.session_state.team_shed_notice
+if shed_notice:
+    _shed_b64    = None
+    _shed_sprite = shed_notice.get("sprite_url", "")
+    if _shed_sprite:
+        _shed_full = os.path.join(BASE_DIR, _shed_sprite.lstrip("/\\"))
+        _shed_hq   = _shed_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
+        _shed_b64  = get_image_as_base64(_shed_hq) or get_image_as_base64(_shed_full)
+
+    _shed_img = (
+        f"<img src='data:image/png;base64,{_shed_b64}' "
+        f"style='width:72px;image-rendering:pixelated;filter:drop-shadow(0 0 10px #2ea043)'>"
+        if _shed_b64 else "<div style='font-size:2.5rem'>👻</div>"
+    )
+    st.markdown(
+        f"<div style='background:rgba(22,60,24,0.6);border:1px solid rgba(46,160,67,0.6);"
+        f"border-radius:14px;padding:16px 20px;margin-bottom:16px;"
+        f"display:flex;align-items:center;gap:16px'>"
+        f"<div>{_shed_img}</div>"
+        f"<div>"
+        f"<div style='font-weight:800;color:#e6edf3;font-size:1rem'>👻 Shedinja capturado!</div>"
+        f"<div style='margin-top:4px'>"
+        f"<span style='color:#2ea043;font-size:1.05rem;font-weight:800'>"
+        f"{shed_notice.get('name', 'Shedinja')}</span>"
+        f"</div>"
+        f"<div style='color:#8b949e;font-size:0.8rem;margin-top:4px'>"
+        f"A muda de {shed_notice.get('from_name', 'Nincada')} ganhou vida e foi adicionada à equipe!"
+        f"</div>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.session_state.team_shed_notice = None
+
+# ── XP Share distribution log ──────────────────────────────────────────────────
+xp_share_log = st.session_state.xp_share_log
+if xp_share_log:
+    chips = "".join(
+        f"<span style='background:#0f2030;border:1px solid #30363d;border-radius:8px;"
+        f"padding:3px 10px;font-size:0.75rem;color:#e6edf3;font-weight:600'>"
+        f"{entry['name']} <span style='color:#58A6FF'>+{entry['xp']} XP</span></span>"
+        for entry in xp_share_log
+    )
+    st.markdown(
+        f"<div style='background:#0f2030;border:1px solid #1c3a52;border-radius:12px;"
+        f"padding:12px 16px;margin-bottom:16px'>"
+        f"<div style='font-size:0.65rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;"
+        f"color:#58A6FF;margin-bottom:8px'>📡 Última distribuição XP Share</div>"
+        f"<div style='display:flex;gap:6px;flex-wrap:wrap'>{chips}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.session_state.xp_share_log = None
 
 # ── Data ───────────────────────────────────────────────────────────────────────
 user_id = st.session_state.get("user_id")

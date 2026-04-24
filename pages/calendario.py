@@ -312,22 +312,53 @@ if res:
                     f"style='width:90px;image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)'>"
                     if evo_b64 else "<div style='font-size:3rem'>🌟</div>"
                 )
-                st.markdown(
-                    f"<div class='result-card evolution' "
-                    f"style='display:flex;align-items:center;gap:20px'>"
-                    f"<div>{evo_img}</div>"
-                    f"<div>"
-                    f"<div class='result-title'>🌟 Seu Pokémon evoluiu!</div>"
-                    f"<div style='margin-top:6px'>"
-                    f"<span class='evo-name-from'>{evo['from_name']}</span>"
-                    f"<span class='evo-arrow'>→</span>"
-                    f"<span class='evo-name-to'>{evo['to_name']}</span>"
-                    f"</div>"
-                    f"<div class='result-body' style='margin-top:6px'>"
-                    f"Stats recalculados para a nova forma!</div>"
-                    f"</div></div>",
-                    unsafe_allow_html=True,
-                )
+
+                if evo.get("shed"):
+                    shed_img = (
+                        f"<img src='data:image/png;base64,{evo_b64}' "
+                        f"style='width:90px;image-rendering:pixelated;filter:drop-shadow(0 0 12px #2ea043)'>"
+                        if evo_b64 else "<div style='font-size:3rem'>👻</div>"
+                    )
+                    st.markdown(
+                        f"<div class='result-card' style='background:rgba(46,160,67,0.1);"
+                        f"border-color:rgba(46,160,67,0.6);display:flex;align-items:center;gap:20px'>"
+                        f"<div>{shed_img}</div>"
+                        f"<div>"
+                        f"<div class='result-title'>👻 Shedinja capturado!</div>"
+                        f"<div style='color:#2ea043;font-size:1.05rem;font-weight:800;margin-top:4px'>"
+                        f"{evo['to_name']}</div>"
+                        f"<div class='result-body' style='margin-top:6px'>"
+                        f"A muda de {evo['from_name']} ganhou vida — adicionado à equipe!</div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.session_state.team_shed_notice = {
+                        "name":       evo["to_name"],
+                        "from_name":  evo["from_name"],
+                        "sprite_url": evo.get("sprite_url", ""),
+                    }
+                else:
+                    st.markdown(
+                        f"<div class='result-card evolution' "
+                        f"style='display:flex;align-items:center;gap:20px'>"
+                        f"<div>{evo_img}</div>"
+                        f"<div>"
+                        f"<div class='result-title'>🌟 Seu Pokémon evoluiu!</div>"
+                        f"<div style='margin-top:6px'>"
+                        f"<span class='evo-name-from'>{evo['from_name']}</span>"
+                        f"<span class='evo-arrow'>→</span>"
+                        f"<span class='evo-name-to'>{evo['to_name']}</span>"
+                        f"</div>"
+                        f"<div class='result-body' style='margin-top:6px'>"
+                        f"Stats recalculados para a nova forma!</div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+            # XP Share distribution log
+            xp_shared = xp_res.get("xp_share_distributed", [])
+            if xp_shared:
+                st.session_state.xp_share_log = xp_shared
 
     st.session_state.checkin_result = None
 
