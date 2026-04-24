@@ -468,13 +468,20 @@ def swap_team_slots(user_id: str, slot_a: int, slot_b: int) -> bool:
             cur.execute("SELECT user_pokemon_id FROM user_team WHERE user_id=%s AND slot=%s;", (user_id, slot_b))
             row_b = cur.fetchone()
 
-            if not row_a or not row_b:
+            if not row_b:
                 return False
 
-            # Swap via temp slot 99
-            cur.execute("UPDATE user_team SET slot=99 WHERE user_id=%s AND slot=%s;", (user_id, slot_a))
-            cur.execute("UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=%s;", (slot_a, user_id, slot_b))
-            cur.execute("UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=99;", (slot_b, user_id))
+            if not row_a:
+                # slot_a is empty — just move slot_b into it
+                cur.execute(
+                    "UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=%s;",
+                    (slot_a, user_id, slot_b)
+                )
+            else:
+                # Swap via temp slot 99
+                cur.execute("UPDATE user_team SET slot=99 WHERE user_id=%s AND slot=%s;", (user_id, slot_a))
+                cur.execute("UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=%s;", (slot_a, user_id, slot_b))
+                cur.execute("UPDATE user_team SET slot=%s WHERE user_id=%s AND slot=99;", (slot_b, user_id))
 
         conn.commit()
         return True
