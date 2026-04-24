@@ -675,34 +675,6 @@ def get_stat_boost_summary(user_pokemon_id: int) -> dict:
         return {s: 0 for s in _VALID_STATS}
 
 
-# ── Formas Regionais ──────────────────────────────────────────────────────────
-
-def get_regional_form_items() -> list[dict]:
-    """Catálogo de formas regionais disponíveis na loja (shop_items + pokemon_regional_forms)."""
-    try:
-        with get_connection().cursor() as cur:
-            cur.execute("""
-                SELECT si.id, si.slug, si.name, si.description, si.icon, si.price,
-                       rf.id AS form_id, rf.species_id, rf.region,
-                       rf.form_slug, rf.sprite_url
-                FROM shop_items si
-                JOIN pokemon_regional_forms rf ON rf.shop_item_id = si.id
-                ORDER BY rf.region, si.name;
-            """)
-            rows = cur.fetchall()
-            return [
-                {
-                    "id": r[0], "slug": r[1], "name": r[2], "description": r[3],
-                    "icon": r[4], "price": r[5], "form_id": r[6],
-                    "species_id": r[7], "region": r[8],
-                    "form_slug": r[9], "sprite_url": r[10],
-                }
-                for r in rows
-            ]
-    except Exception:
-        return []
-
-
 
 
 # ── Loja ──────────────────────────────────────────────────────────────────────
@@ -1364,14 +1336,9 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 WHERE id = %s;
             """, (level, xp, species_id, user_pokemon_id))
 
-            # ── Recalcula stats e limpa forma regional se houve evolução ────────
+            # ── Recalcula stats se houve evolução ────────────────────────────
             if result["evolutions"]:
                 _recalc_stats_on_evolution(cur, user_pokemon_id, species_id)
-                # Forma regional é cosmética para a espécie original — remove ao evoluir
-                cur.execute(
-                    "DELETE FROM user_pokemon_forms WHERE user_pokemon_id = %s;",
-                    (user_pokemon_id,)
-                )
 
         conn.commit()
         result["new_level"] = level
@@ -1447,14 +1414,14 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            # Dados do item (pedra de evolução ou forma regional)
+            # Dados do item (pedra de evolução)
             cur.execute(
-                "SELECT slug, name FROM shop_items WHERE id = %s AND category IN ('stone', 'regional_form');",
+                "SELECT slug, name FROM shop_items WHERE id = %s AND category = 'stone';",
                 (item_id,)
             )
             item_row = cur.fetchone()
             if not item_row:
-                return False, "Item não encontrado ou não é um item de evolução.", {}
+                return False, "Item não encontrado ou não é uma pedra de evolução.", {}
             stone_slug, stone_name = item_row
 
             # Verifica ownership e inventário

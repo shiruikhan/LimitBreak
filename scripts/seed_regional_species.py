@@ -4,10 +4,8 @@ For each regional variant, this script:
   1. Fetches data from PokéAPI (/pokemon/{form_slug}/)
   2. Upserts into pokemon_species (types, base stats, sprites)
   3. Upserts level-up moves into pokemon_moves + pokemon_species_moves
-  4. Inserts a pokemon_evolutions entry with trigger='use-item' and
-     item_name matching the shop item slug ('form-{form_slug}')
 
-Run AFTER migrate_regional_forms.sql and seed_regional_forms.py.
+Regional forms are standard Pokémon entities acquired via existing capture/spawn logic.
 Idempotent — safe to re-run.
 """
 
@@ -115,7 +113,13 @@ def seed():
         name      = form_slug.replace("-", " ").title()
         slug      = d["name"]
         base_exp  = d.get("base_experience") or 0
-        sprite    = (d.get("sprites") or {}).get("front_default") or ""
+        # Prefer HybridShivam high-res sprite; fall back to PokeAPI CDN if missing
+        hybrid_sprite = (
+            f"https://raw.githubusercontent.com/HybridShivam/Pokemon"
+            f"/master/assets/images/{base_id:04d}-{region.capitalize()}.png"
+        )
+        pokeapi_sprite = (d.get("sprites") or {}).get("front_default") or ""
+        sprite    = hybrid_sprite
         shiny     = (d.get("sprites") or {}).get("front_shiny")   or ""
 
         types     = d.get("types", [])
@@ -183,25 +187,6 @@ def seed():
                 ON CONFLICT DO NOTHING;
             """, (form_id, move_id, level_at))
 
-        # ── Upsert evolution entry ──────────────────────────────────────────────
-        # id formula consistent with seed_evolutions.py: (from * 1000) + to
-        evo_id    = base_id * 1000 + form_id
-        item_name = f"form-{form_slug}"   # matches shop_items.slug from seed_regional_forms.py
-        cur.execute("""
-            INSERT INTO pokemon_evolutions
-                (id, from_species_id, to_species_id, min_level, trigger_name, item_name)
-            VALUES (%s, %s, %s, NULL, 'use-item', %s)
-            ON CONFLICT (id) DO UPDATE SET
-                trigger_name = EXCLUDED.trigger_name,
-                item_name    = EXCLUDED.item_name;
-        """, (evo_id, base_id, form_id, item_name))
-
-        # ── Update pokemon_regional_forms sprite_url with the definitive one ────
-        cur.execute("""
-            UPDATE pokemon_regional_forms
-            SET sprite_url = %s
-            WHERE form_slug = %s;
-        """, (sprite, form_slug))
 
         print("ok")
         ok += 1

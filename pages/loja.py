@@ -4,7 +4,7 @@ from utils.db import (
     get_shop_items, get_user_inventory, get_user_profile,
     get_user_team, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
-    get_xp_share_status, get_regional_form_items,
+    get_xp_share_status,
 )
 
 BASE_DIR = os.getcwd()
@@ -95,12 +95,9 @@ team         = get_user_team(user_id)
 xp_share_st  = get_xp_share_status(user_id)
 
 # Catálogo por categoria
-stones         = [i for i in items if i["category"] == "stone"]
-stat_boosts    = [i for i in items if i["category"] == "stat_boost"]
-others         = [i for i in items if i["category"] == "other"]
-regional_forms = get_regional_form_items()
-
-REGION_LABELS = {"alola": "🌴 Alola", "galar": "🌹 Galar", "hisui": "❄️ Hisui", "paldea": "🌿 Paldea"}
+stones      = [i for i in items if i["category"] == "stone"]
+stat_boosts = [i for i in items if i["category"] == "stat_boost"]
+others      = [i for i in items if i["category"] == "other"]
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
@@ -225,62 +222,6 @@ with tab_shop:
                 st.session_state.shop_msg_type = "success" if ok else "error"
                 st.rerun()
 
-    # ── Formas Regionais ──────────────────────────────────────────────────────
-    if regional_forms:
-        st.markdown("<div class='section-title'>🌟 Formas Regionais</div>", unsafe_allow_html=True)
-        st.caption("Skins visuais que alteram o sprite do seu Pokémon. Stats não são modificados.")
-
-        # Group by region
-        from itertools import groupby
-        for region, group in groupby(regional_forms, key=lambda x: x["region"]):
-            region_items = list(group)
-            region_label = REGION_LABELS.get(region, region.capitalize())
-            st.markdown(
-                f"<div style='font-size:0.72rem;font-weight:700;color:#8b949e;"
-                f"letter-spacing:1.5px;text-transform:uppercase;margin:12px 0 8px'>"
-                f"{region_label}</div>",
-                unsafe_allow_html=True,
-            )
-            rows_rf = [region_items[i:i+5] for i in range(0, len(region_items), 5)]
-            for row_rf in rows_rf:
-                rf_cols = st.columns(5)
-                for col_rf, form_item in zip(rf_cols, row_rf):
-                    with col_rf:
-                        can_buy   = coins >= form_item["price"]
-                        price_cls = "" if can_buy else "cant-afford"
-                        qty_owned = inventory.get(form_item["id"], 0)
-                        owned_txt = f" · você tem {qty_owned}" if qty_owned > 0 else ""
-
-                        sprite_html = ""
-                        if form_item["sprite_url"]:
-                            b64_form = get_image_as_base64(form_item["sprite_url"])
-                            if b64_form:
-                                sprite_html = (
-                                    f"<img src='data:image/png;base64,{b64_form}' "
-                                    f"width='56' style='image-rendering:pixelated;margin-bottom:4px'>"
-                                )
-
-                        st.markdown(
-                            f"<div class='item-card'>"
-                            f"<div style='text-align:center'>{sprite_html}</div>"
-                            f"<div class='item-name'>{form_item['name']}</div>"
-                            f"<div class='item-desc'>{form_item['description']}</div>"
-                            f"<div class='item-price {price_cls}'>🪙 {form_item['price']:,}{owned_txt}</div>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.write("")
-                        if st.button(
-                            "Comprar" if can_buy else "💸 Sem moedas",
-                            key=f"buy_rf_{form_item['id']}",
-                            disabled=not can_buy,
-                            use_container_width=True,
-                        ):
-                            ok, msg = buy_item(user_id, form_item["id"])
-                            st.session_state.shop_msg      = msg
-                            st.session_state.shop_msg_type = "success" if ok else "error"
-                            st.rerun()
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB — MOCHILA
@@ -298,7 +239,7 @@ with tab_bag:
         inv_stat   = [(iid, qty) for iid, qty in inventory.items()
                       if item_map.get(iid, {}).get("category") == "stat_boost"]
         inv_stones = [(iid, qty) for iid, qty in inventory.items()
-                      if item_map.get(iid, {}).get("category") in ("stone", "regional_form")]
+                      if item_map.get(iid, {}).get("category") == "stone"]
         inv_others = [(iid, qty) for iid, qty in inventory.items()
                       if item_map.get(iid, {}).get("category") == "other"]
 

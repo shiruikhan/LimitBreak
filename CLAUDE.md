@@ -100,12 +100,11 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── seed_pokedex.py            # Popula pokemon_species, pokemon_moves, species_moves (2º)
     ├── seed_evolutions.py         # Popula pokemon_evolutions (3º)
     ├── seed_stats.py              # Popula base stats em pokemon_species via PokéAPI (4º)
-    ├── seed_shop_items.py         # Popula/atualiza nomes e descrições de shop_items via PokéAPI
-    ├── migrate_regional_forms.sql # DDL para pokemon_regional_forms e user_pokemon_forms
-    ├── seed_regional_forms.py     # Popula shop_items (category='regional_form') + pokemon_regional_forms
-    ├── seed_regional_species.py   # Popula pokemon_species, moves e evoluções para formas regionais
-    ├── update_sprites.py          # Substitui URLs da PokéAPI por caminhos locais
-    └── create_user_tables.sql     # DDL completo das tabelas de usuário — executar no Supabase
+    ├── seed_shop_items.py                    # Popula/atualiza nomes e descrições de shop_items via PokéAPI
+    ├── seed_regional_species.py              # Popula pokemon_species + moves para as 41 formas regionais
+    ├── migrate_drop_regional_catalog.sql     # Remove pokemon_regional_forms e user_pokemon_forms (executar no Supabase)
+    ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais
+    └── create_user_tables.sql                # DDL completo das tabelas de usuário — executar no Supabase
 ```
 
 > `src/Pokemon/` é um **submódulo git** apontando para `HybridShivam/Pokemon`. Em produção (Streamlit Cloud) o submódulo não é clonado — `get_image_as_base64()` faz fallback automático para o CDN público do repositório.
@@ -131,9 +130,11 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | slug | TEXT | Slug da API |
 | type1_id / type2_id | INT FK | FK → pokemon_types (type2 nullable) |
 | base_experience | INT | XP base |
-| sprite_url | TEXT | Caminho local `src/Pokemon/assets/images/XXXX.png` para espécies normais; URL PokéAPI CDN para formas regionais |
+| sprite_url | TEXT | Caminho local `src/Pokemon/assets/images/XXXX.png` para espécies normais (id ≤ 1025); URL HybridShivam CDN `assets/images/{NNNN}-{Region}.png` para formas regionais (id > 10000) |
 | sprite_shiny_url | TEXT | URL PokéAPI (shiny) |
 | base_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Base stats — populados por `seed_stats.py` (normais) ou `seed_regional_species.py` (regionais) |
+
+> **Formas regionais (id > 10000):** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1 extra) registradas como espécies plenas. Sprites: HybridShivam CDN — `assets/images/{NNNN}-{Region}.png` (ex: `0026-Alola.png`). Adquiridas pelas mesmas mecânicas de qualquer Pokémon: spawn em check-in, captura via Pokédex. Não há item de loja nem evolução por item para formas regionais.
 
 #### `pokemon_moves`
 | Coluna | Tipo | Descrição |
@@ -169,27 +170,14 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | SERIAL PK | |
-| slug | TEXT UNIQUE | Identificador canônico (ex: "fire-stone", "hp-up", "form-marowak-alola") |
+| slug | TEXT UNIQUE | Identificador canônico (ex: "fire-stone", "hp-up") |
 | name | TEXT | Nome exibido |
 | description | TEXT | Descrição do efeito |
 | icon | TEXT | Emoji |
-| category | TEXT | "stone", "stat_boost", "other", "regional_form" |
+| category | TEXT | "stone", "stat_boost", "other" |
 | price | INT | Preço em moedas |
 | stat_affected | TEXT | Para stat_boost: 'hp', 'attack', etc. (nullable) |
 | stat_delta | INT | Valor do boost para stat_boost (nullable) |
-
-#### `pokemon_regional_forms`
-| Coluna | Tipo | Descrição |
-|---|---|---|
-| id | SERIAL PK | |
-| shop_item_id | INT FK | FK → shop_items |
-| species_id | INT FK | FK → pokemon_species (espécie base, ex: 105 = Marowak) |
-| region | TEXT | "alola", "galar" ou "hisui" |
-| form_slug | TEXT UNIQUE | Slug da PokéAPI (ex: "marowak-alola") |
-| sprite_url | TEXT | URL CDN PokéAPI do sprite da forma regional |
-| name | TEXT | Nome exibido em português (ex: "Marowak de Alola") |
-
-> 41 formas regionais catalogadas: 16 Alola, 15 Galar, 10 Hisui. Populado por `seed_regional_forms.py`.
 
 ---
 
@@ -359,7 +347,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `_extend_xp_share(cur, user_id)` | **Interno.** Estende `xp_share_expires_at` em +15 dias (GREATEST para não perder tempo restante); chamado por `do_checkin()` nos dias bônus |
 | `_distribute_xp_share(user_id, main_pokemon_id, amount, source)` | **Interno.** Distribui 30% do XP para todos os Pokémon da equipe exceto o principal; usa `_distributing=True` para evitar recursão |
 | `get_stone_targets(user_id, stone_slug)` | Pokémon do usuário elegíveis para evoluir com a pedra; inclui flag `in_team` |
-| `evolve_with_stone(user_id, item_id, user_pokemon_id)` | Valida posse do item e do Pokémon, executa evolução, debita inventário, recalcula stats. Retorna `(bool, msg, evo_data)` |
+| `evolve_with_stone(user_id, item_id, user_pokemon_id)` | Valida posse da pedra (categoria `stone`) e do Pokémon, executa evolução permanente, debita inventário, recalcula stats. Retorna `(bool, msg, evo_data)` |
 
 ### Batalhas PvP
 | Função | Descrição |
@@ -490,7 +478,7 @@ def _resolve_asset(local_path: str) -> str:
   - **XP Share tem fluxo especial de compra:** botão "▶ Ativar" quando inativo; botão "✚ +15 dias" quando ativo (mostrando dias restantes via `get_xp_share_status()`)
 - Tab **Mochila**:
   - *Vitaminas:* selectbox de Pokémon da equipe + botão "Usar" → `use_stat_item()`
-  - *Pedras de evolução:* expander por pedra → selectbox de Pokémon elegíveis → preview sprite → botão "✨ Usar" → `evolve_with_stone()`; após evolução define `st.session_state.team_evo_notice`
+  - *Pedras:* expander por item → selectbox de Pokémon elegíveis → preview sprite → botão "✨ Usar" → `evolve_with_stone()`; após evolução define `st.session_state.team_evo_notice`
   - *Outros (XP Share):* exibe status de ativação com dias restantes
 
 ### `pages/calendario.py`
@@ -518,11 +506,13 @@ def _resolve_asset(local_path: str) -> str:
 1. `FOR UPDATE` no `user_pokemon` para consistência
 2. Loop: enquanto `xp >= level * 100` → subtrai, incrementa nível, verifica evolução por nível
 3. Para cada nível atingido: busca em `pokemon_evolutions` WHERE `trigger='level-up' AND min_level <= level`
-4. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
-5. Persiste `level`, `xp`, `species_id` de uma vez
-6. Se houve evoluções: `_recalc_stats_on_evolution()` preserva boosts de vitaminas
-7. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe
-8. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}`
+4. **Bypass de triggers não-padrão** (`_BYPASS_LEVEL = 36`): evoluções com `trigger NOT IN ('level-up', 'use-item', 'shed')` — como troca, amizade, etc. — disparam automaticamente no nível 36 como alternativa ao requisito original
+5. **Mecânica Shed:** se `trigger='shed'` (Nincada→Shedinja), verifica se a equipe tem espaço livre; se sim, captura um Shedinja diretamente para o próximo slot disponível; o dict de evolução retornado inclui `"shed": True`
+6. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
+7. Persiste `level`, `xp`, `species_id` de uma vez
+8. Se houve evoluções: `_recalc_stats_on_evolution()` preserva boosts de vitaminas
+9. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe
+10. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}`
 
 > O parâmetro `_distributing=True` é interno — evita recursão infinita quando `_distribute_xp_share()` chama `award_xp()` para os outros Pokémon.
 
@@ -544,8 +534,8 @@ Preserva todos os boosts permanentes de vitaminas na forma evoluída.
 
 | Categoria (`category`) | Itens | Efeito |
 |---|---|---|
-| `stone` | 10 pedras de evolução (fire, water, thunder, leaf, moon, sun, shiny, dusk, dawn, ice) | Evolução por item via `evolve_with_stone()` |
-| `stat_boost` | hp-up, protein, iron, calcium, zinc, carbos | Boost permanente de stat via `use_stat_item()` → `apply_stat_boost()` |
+| `stone` | 10 pedras de evolução (fire, water, thunder, leaf, moon, sun, shiny, dusk, dawn, ice) | Evolução permanente de espécie via `evolve_with_stone()` |
+| `stat_boost` | hp-up, protein, iron, calcium, zinc, carbos | Boost permanente de stat via `use_stat_item()` → `apply_stat_boost()`; cap de 5 usos por stat por Pokémon |
 | `other` | xp-share | Ativa/estende XP Share por 15 dias — distribui 30% do XP recebido pelo slot 1 para os demais Pokémon da equipe |
 
 ---
@@ -564,8 +554,9 @@ Preserva todos os boosts permanentes de vitaminas na forma evoluída.
 
 ## Convenções de Código
 
-- Nomes de arquivo de sprite: `XXXX.png` zero-padded 4 dígitos (`0001.png`, `0025.png`)
-- `sprite_url` no banco: `src/Pokemon/assets/images/XXXX.png` (caminho relativo à raiz)
+- Nomes de arquivo de sprite: `XXXX.png` zero-padded 4 dígitos (`0001.png`, `0025.png`) — apenas para espécies normais (id ≤ 1025)
+- `sprite_url` no banco: `src/Pokemon/assets/images/XXXX.png` para espécies normais; URL direta do CDN PokéAPI para formas regionais (id > 10000)
+- Renderização de sprite regional: `_thumb()` retorna `None` para IDs > 10000 (sem arquivo local); fallback: `get_image_as_base64(member["sprite_url"])` que faz HTTP GET no CDN HybridShivam
 - Imagens HQ: trocar `/images/` por `/imagesHQ/` no caminho; usar `_resolve_asset()` para garantir fallback CDN
 - Queries SQL com parâmetros: sempre `%s` (psycopg2) — **nunca f-strings com valores do usuário**
 - Cores de tipo: `utils/type_colors.py` → `get_type_color(slug)` retorna `{bg, light, dark, text}`
@@ -591,16 +582,20 @@ Deploys automáticos a cada push no branch `master`.
 ## Scripts de Seed — Ordem de Execução
 
 ```bash
-python scripts/seed_types.py       # 1. pokemon_types
-python scripts/seed_pokedex.py     # 2. pokemon_moves + pokemon_species + species_moves
-python scripts/seed_evolutions.py  # 3. pokemon_evolutions
-python scripts/seed_stats.py       # 4. base_hp/attack/... em pokemon_species (~5 min, processa só NULL)
+python scripts/seed_types.py          # 1. pokemon_types
+python scripts/seed_pokedex.py        # 2. pokemon_moves + pokemon_species + species_moves
+python scripts/seed_evolutions.py     # 3. pokemon_evolutions
+python scripts/seed_stats.py          # 4. base_hp/attack/... em pokemon_species (~5 min, processa só NULL)
 # seed_shop_items.py: executar após popular shop_items com SQL inicial
-python scripts/seed_shop_items.py  # Atualiza name/description via PokéAPI (idempotente)
+python scripts/seed_shop_items.py     # Atualiza name/description via PokéAPI (idempotente)
 # update_sprites.py: opcional — substitui URLs PokéAPI por caminhos locais no banco
+
+# ── Formas regionais (executar após os passos acima) ───────────────────────
+python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 formas regionais (~10 min)
 ```
 
 `create_user_tables.sql`: executar uma única vez no SQL Editor do Supabase antes de usar o app.
+`migrate_drop_regional_catalog.sql`: executar para remover tabelas obsoletas `pokemon_regional_forms` e `user_pokemon_forms`.
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
@@ -617,8 +612,12 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Banco de Pokémon: Pokémon fora da equipe ficam no banco; seção na página de equipe com botão para trazer à equipe
 - Stats individuais: copiados na captura, atualizados por vitaminas e evoluções
 - Sistema de XP e evolução automática: `award_xp()` com distribuição via XP Share
+  - **Bypass de triggers não-padrão:** evoluções por troca, amizade, etc. disparam automaticamente no nível 36
+  - **Mecânica Shed (Nincada):** ao evoluir para Ninjask, captura Shedinja automaticamente se houver slot livre
 - Evolução por pedra: `evolve_with_stone()` com recálculo de stats e preservação de boosts
+- Cap de vitaminas: máximo 5 usos por stat por Pokémon (`_MAX_STAT_BOOSTS_PER_STAT = 5`)
 - Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; mochila funcional
+- **Formas regionais:** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1) como entidades padrão em `pokemon_species` (id > 10000); adquiridas pelas mesmas mecânicas de qualquer Pokémon (spawn, captura); sprites do CDN PokéAPI
 - XP Share: distribui 30% do XP do slot 1 para os demais membros da equipe; ativado por check-in ou comprado na loja; badge de status em equipe.py e loja.py
 - Calendário: check-in diário, streak, spawns nível 5 em streak ×3, extensão de XP Share nos dias 15/fim-de-mês
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
@@ -630,4 +629,4 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Spawn de Pokémon vinculado ao tipo de exercício (ex: treino de peito → tipo Fighting/Normal)
 
 ### A implementar
-- [ ] Skins regionais (Galar, Alola) como itens da loja categoria "other"
+- [ ] Formas de Paldea (futuro — popular com `seed_regional_species.py`)
