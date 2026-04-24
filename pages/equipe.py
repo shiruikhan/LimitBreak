@@ -347,6 +347,7 @@ for slot in range(1, 7):
                         swap_team_slots(user_id, 1, slot)
                         if st.session_state.sel_team_slot == slot:
                             st.session_state.sel_team_slot = 1
+                        st.session_state.replacing_move_id = None
                         st.rerun()
             with b3:
                 if st.button("🗑", key=f"remove_{slot}", use_container_width=True):
