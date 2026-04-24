@@ -103,7 +103,12 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── seed_shop_items.py                    # Popula/atualiza nomes e descrições de shop_items via PokéAPI
     ├── seed_regional_species.py              # Popula pokemon_species + moves para as 41 formas regionais
     ├── migrate_drop_regional_catalog.sql     # Remove pokemon_regional_forms e user_pokemon_forms (executar no Supabase)
-    ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais
+    ├── migrate_battles.sql                   # Cria user_battles e user_battle_turns (executar no Supabase)
+    ├── migrate_regional_forms.sql            # Migração auxiliar de formas regionais (executar no Supabase)
+    ├── migrate_v2.sql                        # Migrações v2 diversas (executar no Supabase)
+    ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
+    ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais (espécies normais)
+    ├── update_regional_sprites.py            # Substitui URLs de sprites para formas regionais via CDN HybridShivam
     └── create_user_tables.sql                # DDL completo das tabelas de usuário — executar no Supabase
 ```
 
@@ -176,8 +181,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | icon | TEXT | Emoji |
 | category | TEXT | "stone", "stat_boost", "other" |
 | price | INT | Preço em moedas |
-| stat_affected | TEXT | Para stat_boost: 'hp', 'attack', etc. (nullable) |
-| stat_delta | INT | Valor do boost para stat_boost (nullable) |
+| effect_stat | TEXT | Para stat_boost: 'hp', 'attack', etc. (nullable) |
+| effect_value | INT | Valor do boost para stat_boost (nullable) |
 
 ---
 
@@ -354,7 +359,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 |---|---|
 | `get_battle_opponents(user_id)` | Lista outros usuários com slot 1 preenchido: `[{username, user_id, level, pokemon_name, sprite_url}]` |
 | `get_daily_battle_count(user_id)` | Contagem de batalhas como desafiante hoje (máx `_MAX_BATTLES_PER_DAY = 3`) |
-| `simulate_battle(challenger_id, opponent_id)` | Simula batalha offline slot-1 vs slot-1, persiste turnos no banco, concede XP e moedas. Retorna dict completo com `turns`, `result`, `challenger`, `opponent`, `coins_earned` |
+| `start_battle(challenger_id, opponent_id)` | Verifica limite diário, carrega Pokémon slot-1 de ambos e retorna estado inicial `{ch, op, turns, finished, result, winner_id, ...}` — **não persiste nada no banco** |
+| `finalize_battle(state)` | Recebe o state de `start_battle` (com turns preenchidos), persiste batalha e turnos no banco, concede XP e moedas. Retorna dict com `turns`, `result`, `challenger`, `opponent`, `coins_earned` |
 | `get_battle_history(user_id, limit=20)` | Últimas batalhas em que o usuário participou (desafiante ou oponente) |
 | `get_battle_detail(battle_id)` | Todos os turnos de uma batalha específica |
 
@@ -595,6 +601,9 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 ```
 
 `create_user_tables.sql`: executar uma única vez no SQL Editor do Supabase antes de usar o app.
+`migrate_battles.sql`: executar para criar as tabelas `user_battles` e `user_battle_turns`.
+`migrate_regional_forms.sql`: migração auxiliar de formas regionais — executar se necessário.
+`migrate_v2.sql`: migrações v2 diversas — executar no Supabase quando necessário.
 `migrate_drop_regional_catalog.sql`: executar para remover tabelas obsoletas `pokemon_regional_forms` e `user_pokemon_forms`.
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
