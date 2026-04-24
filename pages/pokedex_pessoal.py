@@ -177,6 +177,12 @@ for label, (lo, hi) in GENERATIONS.items():
         f"<div class='gen-chip'>{short} "
         f"<span>{gen_captured}/{gen_total}</span></div>"
     )
+reg_total    = sum(1 for p in all_pokemon if p["id"] > 10000)
+reg_captured = sum(1 for p in all_pokemon if p["id"] > 10000 and p["id"] in captured_ids)
+gen_chips_html += (
+    f"<div class='gen-chip'>Regionais "
+    f"<span>{reg_captured}/{reg_total}</span></div>"
+)
 gen_chips_html += "</div>"
 st.markdown(gen_chips_html, unsafe_allow_html=True)
 
@@ -232,7 +238,9 @@ elif status == "❌ Não capturados":
 
 # ── Grade ──────────────────────────────────────────────────────────────────────────
 
-def _thumb_b64(pokemon_id: int) -> str | None:
+def _thumb_b64(pokemon_id: int, sprite_url: str | None = None) -> str | None:
+    if pokemon_id > 10000 and sprite_url and sprite_url.startswith("http"):
+        return get_image_as_base64(sprite_url)
     path = os.path.join(
         BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
         f"{str(pokemon_id).zfill(4)}.png",
@@ -272,7 +280,7 @@ else:
         t2_pip     = _type_pip(p["type2"], p["type2_slug"])
 
         if is_captured:
-            b64      = _thumb_b64(pid)
+            b64      = _thumb_b64(pid, p.get("sprite_url"))
             pname    = p["name"]
             if b64:
                 img_html = (

@@ -25,11 +25,15 @@ def _resolve_asset(local_path: str) -> str:
 
 def _hq_path(sprite_url: str) -> str:
     """Caminho/URL para a imagem HQ (official artwork)."""
+    if sprite_url.startswith("http"):
+        return sprite_url.replace("/images/", "/imagesHQ/")
     local = os.path.join(BASE_DIR, sprite_url.replace("/images/", "/imagesHQ/").lstrip("/\\"))
     return _resolve_asset(local)
 
-def _thumb_path(pokemon_id: int) -> str:
-    """Caminho/URL para o thumbnail de um Pokémon."""
+def _thumb_for(pokemon_id: int, sprite_url: str | None = None) -> str:
+    """Caminho/URL para o thumbnail. Usa CDN direto para formas regionais (id > 10000)."""
+    if pokemon_id > 10000 and sprite_url and sprite_url.startswith("http"):
+        return sprite_url.replace("/images/", "/thumbnails/")
     local = os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
                          f"{str(pokemon_id).zfill(4)}.png")
     return _resolve_asset(local)
@@ -238,8 +242,9 @@ def _render_pokedex(pid: int):
 
     # Left: Info
     with col_info:
+        num_display = f"#{pk_id} — Regional" if pk_id > 10000 else f"#{str(pk_id).zfill(3)} / {TOTAL_POKEMON}"
         st.markdown(
-            f"<div class='poke-number'>#{str(pk_id).zfill(3)} / {TOTAL_POKEMON}</div>"
+            f"<div class='poke-number'>{num_display}</div>"
             f"<div class='poke-name'>{name.upper()}</div>",
             unsafe_allow_html=True,
         )
@@ -308,9 +313,9 @@ def _render_pokedex(pid: int):
                     unsafe_allow_html=True)
         st.markdown("<div class='evo-container'>", unsafe_allow_html=True)
 
-        # Build stage tree
-        nodes = {e[0]: e[1] for e in evolutions}
-        nodes.update({e[2]: e[3] for e in evolutions})
+        # Build stage tree — nodes: {id: (name, sprite_url)}
+        nodes = {e[0]: (e[1], e[7]) for e in evolutions}
+        nodes.update({e[2]: (e[3], e[8]) for e in evolutions})
         to_ids = {e[2] for e in evolutions}
         root_id = next((i for i in nodes if i not in to_ids), list(nodes.keys())[0])
 
@@ -339,10 +344,11 @@ def _render_pokedex(pid: int):
         for i, stage in enumerate(stages):
             with evo_cols[i * 2]:
                 for p_id in stage:
-                    b64 = get_image_as_base64(_thumb_path(p_id))
+                    p_name, p_sprite = nodes[p_id]
+                    b64 = get_image_as_base64(_thumb_for(p_id, p_sprite))
                     img = _img_tag(b64, 80) if b64 else "❓"
                     active_cls = "active" if p_id == pid else ""
-                    p_name = nodes[p_id].upper()
+                    p_name = p_name.upper()
                     color = "#B8F82F" if p_id == pid else "#8b949e"
                     st.markdown(
                         f"<div class='evo-node {active_cls}'>"

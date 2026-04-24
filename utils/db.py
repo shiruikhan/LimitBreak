@@ -203,7 +203,8 @@ def get_full_evolution_chain(pokemon_id: int) -> list[tuple]:
             )
             SELECT fc.from_species_id, p1.name,
                    fc.to_species_id, p2.name,
-                   fc.min_level, fc.trigger_name, fc.item_name
+                   fc.min_level, fc.trigger_name, fc.item_name,
+                   p1.sprite_url, p2.sprite_url
             FROM full_chain fc
             JOIN pokemon_species p1 ON fc.from_species_id = p1.id
             JOIN pokemon_species p2 ON fc.to_species_id = p2.id;
