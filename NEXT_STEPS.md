@@ -13,9 +13,9 @@
 - [ ] Confirm `do_checkin` is idempotent under fast double-submission (Streamlit re-runs)
 
 ### 1.2 Pokédex Pessoal — Formas Regionais
-- [ ] Include the 42 regional forms (id > 10000) in the personal Pokédex grid
-- [ ] Add a "Regional Forms" generation chip to the progress bar section
-- [ ] Display region label (Alola / Galar / Hisui) on captured regional form cards
+- [x] Include the 42 regional forms (id > 10000) in the personal Pokédex grid
+- [x] Add a "Regional Forms" generation chip to the progress bar section
+- [x] Display region label (Alola / Galar / Hisui) on captured regional form cards
 
 ### 1.3 Equipe — Visual Improvements
 - [x] Show Shedinja capture banner (shed mechanic) in `equipe.py` alongside the standard evolution notice

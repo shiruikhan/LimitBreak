@@ -1,4 +1,5 @@
 import os
+import re
 import streamlit as st
 from utils.db import get_all_pokemon_with_types, get_user_pokemon_ids, get_image_as_base64
 from utils.type_colors import TYPE_COLORS, get_type_color
@@ -128,6 +129,13 @@ st.markdown("""
     font-size: 0.75rem; color: #8b949e; font-weight: 600;
     text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;
 }
+
+.region-badge {
+    display: inline-block; border-radius: 9999px;
+    font-size: 0.48rem; font-weight: 700; letter-spacing: 0.5px;
+    padding: 1px 5px; margin-top: 2px; text-transform: uppercase;
+    background: #30363d; color: #c9d1d9;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -238,6 +246,28 @@ elif status == "❌ Não capturados":
 
 # ── Grade ──────────────────────────────────────────────────────────────────────────
 
+_REGION_COLORS = {
+    "Alola":  ("#FF9B00", "#000"),
+    "Galar":  ("#9B59B6", "#fff"),
+    "Hisui":  ("#2E86AB", "#fff"),
+}
+
+def _region_from_sprite(pokemon_id: int, sprite_url: str | None) -> str:
+    """Return region name ('Alola', 'Galar', 'Hisui') for regional forms, else ''."""
+    if pokemon_id <= 10000 or not sprite_url:
+        return ""
+    m = re.search(r'/(\d{4})-(Alola|Galar|Hisui)\.png', sprite_url)
+    return m.group(2) if m else ""
+
+
+def _num_str(pokemon_id: int, sprite_url: str | None) -> str:
+    """For regional forms show the national dex # extracted from sprite filename."""
+    if pokemon_id <= 10000:
+        return f"#{str(pokemon_id).zfill(4)}"
+    m = re.search(r'/(\d{4})-\w+\.png', sprite_url or "")
+    return f"#{m.group(1)}" if m else f"#{pokemon_id}"
+
+
 def _thumb_b64(pokemon_id: int, sprite_url: str | None = None) -> str | None:
     if pokemon_id > 10000 and sprite_url and sprite_url.startswith("http"):
         return get_image_as_base64(sprite_url)
@@ -273,15 +303,17 @@ else:
     cards_html = "<div class='pdex-grid'>"
 
     for p in filtered:
-        pid        = p["id"]
+        pid         = p["id"]
+        sprite_url  = p.get("sprite_url")
         is_captured = pid in captured_ids
-        num_str    = f"#{str(pid).zfill(4)}"
-        t1_pip     = _type_pip(p["type1"], p["type1_slug"])
-        t2_pip     = _type_pip(p["type2"], p["type2_slug"])
+        pnum_str    = _num_str(pid, sprite_url)
+        t1_pip      = _type_pip(p["type1"], p["type1_slug"])
+        t2_pip      = _type_pip(p["type2"], p["type2_slug"])
+        region      = _region_from_sprite(pid, sprite_url)
 
         if is_captured:
-            b64      = _thumb_b64(pid, p.get("sprite_url"))
-            pname    = p["name"]
+            b64   = _thumb_b64(pid, sprite_url)
+            pname = p["name"]
             if b64:
                 img_html = (
                     f"<div class='pdex-img-wrap'>"
@@ -291,23 +323,31 @@ else:
             else:
                 img_html = "<div class='pdex-img-wrap' style='font-size:1.8rem'>❓</div>"
 
-            # Borda colorida pelo tipo primário
+            region_html = ""
+            if region:
+                rbg, rfg = _REGION_COLORS.get(region, ("#30363d", "#c9d1d9"))
+                region_html = (
+                    f"<div><span class='region-badge' "
+                    f"style='background:{rbg};color:{rfg}'>{region}</span></div>"
+                )
+
             c      = get_type_color(p["type1_slug"])
             border = c["bg"]
             card   = (
                 f"<div class='pdex-card captured' "
                 f"style='border-color:{border};background:linear-gradient("
                 f"180deg,{border}22 0%,#161b22 40%)'>"
-                f"<div class='pdex-num'>{num_str}</div>"
+                f"<div class='pdex-num'>{pnum_str}</div>"
                 f"{img_html}"
                 f"<div class='pdex-name'>{pname}</div>"
                 f"<div>{t1_pip}{t2_pip}</div>"
+                f"{region_html}"
                 f"</div>"
             )
         else:
             card = (
                 f"<div class='pdex-card'>"
-                f"<div class='pdex-num'>{num_str}</div>"
+                f"<div class='pdex-num'>{pnum_str}</div>"
                 f"<div class='pdex-silhouette'>?</div>"
                 f"<div class='pdex-name unknown'>???</div>"
                 f"<div style='height:14px'></div>"
