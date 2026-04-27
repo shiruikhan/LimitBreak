@@ -2141,7 +2141,7 @@ def do_exercise_event(
     """Registra uma sessão de treino e concede XP ao Pokémon do slot 1.
 
     Args:
-        user_id:   UUID do usuário (deve existir em auth.users e profiles).
+        user_id:   UUID do usuário (deve existir em auth.users / user_profiles).
         exercises: [{"exercise_id": int,
                      "sets_data":   [{"reps": int, "weight": float}],
                      "notes":       str | None}]
@@ -2184,12 +2184,6 @@ def do_exercise_event(
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            # Garante linha em profiles (FK de workout_logs) sem sobrescrever dados
-            cur.execute("""
-                INSERT INTO profiles (id, role) VALUES (%s, 'user')
-                ON CONFLICT (id) DO NOTHING;
-            """, (user_id,))
-
             # Busca body_parts dos exercícios para determinar tipo de spawn
             ex_ids = [ex["exercise_id"] for ex in exercises]
             cur.execute(

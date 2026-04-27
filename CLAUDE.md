@@ -87,7 +87,10 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── pokedex.py               # Pokédex nacional completo
 │   ├── pokedex_pessoal.py       # Pokédex pessoal — capturados vs não capturados
 │   ├── loja.py                  # Loja de itens + mochila com uso de itens
-│   └── calendario.py            # Check-in diário + calendário mensal
+│   ├── calendario.py            # Check-in diário + calendário mensal
+│   ├── biblioteca.py            # Biblioteca de exercícios — catálogo Pokédex-style (152 exercícios)
+│   ├── rotinas.py               # Workout Builder — criar/editar fichas e dias de treino
+│   └── treino.py                # Routine Log — registro de sessão com Import Default
 ├── utils/
 │   ├── __init__.py
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
@@ -104,6 +107,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── migrate_battles.sql                   # Cria user_battles e user_battle_turns (executar no Supabase)
     ├── migrate_regional_forms.sql            # Migração auxiliar de formas regionais (executar no Supabase)
     ├── migrate_v2.sql                        # Migrações v2 diversas (executar no Supabase)
+    ├── migrate_consolidate_profiles.sql      # Retarget workout_logs FK → user_profiles; remove tabela profiles legada
     ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
     ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais (espécies normais)
     ├── update_regional_sprites.py            # Substitui URLs de sprites para formas regionais via CDN HybridShivam
@@ -181,6 +185,46 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | price | INT | Preço em moedas |
 | effect_stat | TEXT | Para stat_boost: 'hp', 'attack', etc. (nullable) |
 | effect_value | INT | Valor do boost para stat_boost (nullable) |
+
+#### `muscle_groups`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | INT PK | |
+| name | TEXT | Nome do grupo muscular |
+
+#### `exercises`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | INT PK | |
+| name | TEXT | Nome em inglês |
+| name_pt | TEXT | Nome em português |
+| target_muscles | TEXT[] | Músculos alvo |
+| body_parts | TEXT[] | Partes do corpo (usadas para mapeamento de tipo Pokémon) |
+| equipments | TEXT[] | Equipamentos necessários |
+| gif_url | TEXT | URL do GIF demonstrativo |
+
+#### `workout_sheets`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | UUID PK | |
+| user_id | UUID FK | FK → user_profiles.id |
+| name | TEXT | Nome do plano |
+
+#### `workout_days`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | UUID PK | |
+| workout_sheet_id | UUID FK | |
+| name | TEXT | Nome do dia (ex: "Peito e Tríceps") |
+
+#### `workout_day_exercises`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | UUID PK | |
+| workout_day_id | UUID FK | |
+| exercise_id | INT FK | |
+| sets | INT | |
+| reps | INT | |
 
 ---
 
@@ -285,6 +329,25 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | move_name / move_power | TEXT/INT | Move usado |
 | damage | INT | Dano causado |
 | challenger_hp_remaining / opponent_hp_remaining | INT | HP após o turno |
+
+#### `workout_logs`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_id | UUID FK | FK → user_profiles.id (ON DELETE CASCADE) |
+| day_id | UUID FK | FK → workout_days (nullable — NULL = treino livre) |
+| xp_earned | INT | XP concedido ao Pokémon do slot 1 nesta sessão |
+| spawned_species_id | INT FK | Pokémon spawnado nesta sessão (nullable) |
+| logged_at | TIMESTAMPTZ | |
+
+#### `exercise_logs`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| workout_log_id | INT FK | CASCADE DELETE |
+| exercise_id | INT FK | |
+| sets_data | JSONB | `[{"reps": int, "weight": float}]` |
+| notes | TEXT | Anotação livre (nullable) |
 
 ---
 
@@ -445,6 +508,9 @@ def _resolve_asset(local_path: str) -> str:
 4. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
 5. `pages/loja.py` — Loja 🛒
 6. `pages/calendario.py` — Calendário 📅
+7. `pages/biblioteca.py` — Biblioteca 📚 *(Phase 2)*
+8. `pages/rotinas.py` — Rotinas 📋 *(Phase 2)*
+9. `pages/treino.py` — Treino 🏋️ *(Phase 2)*
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -493,6 +559,33 @@ def _resolve_asset(local_path: str) -> str:
 - Streak stats: streak atual, check-ins do mês, moedas totais, dias para próximo spawn
 - Resultado do check-in exibe cards encadeados: base (moeda + streak) → XP Share (se dia bônus) → spawn (se rolou) → **XP ganho** → **Level Up** (se subiu) → **Evolução** (se evoluiu)
 
+### `pages/biblioteca.py` *(Phase 2 — não implementado)*
+- Grade 4 colunas de todos os exercícios do catálogo (`get_exercises()`)
+- Card: GIF thumbnail via `gif_url`, `name_pt`, tags de `body_parts`, badge de tipo Pokémon colorido
+- Filtros no topo: busca por nome, multiselect de grupo muscular (de `get_muscle_groups()`), body part (de `get_distinct_body_parts()`), equipamento
+- Expander de detalhes: GIF em tamanho completo, músculos alvo completos, explicação da afinidade de tipo (ex.: "Exercícios de peito invocam Pokémon do tipo Lutador")
+- Página somente leitura — sem escrita no banco
+
+### `pages/rotinas.py` *(Phase 2 — não implementado)*
+- Árvore expansível: Rotina (`workout_sheets`) → Dia (`workout_days`) → Exercícios prescritos (`workout_day_exercises`)
+- "Nova Rotina": input de nome → `create_workout_sheet()` → expande automaticamente
+- "Adicionar Dia": input de nome dentro da rotina → `create_workout_day()`
+- "Adicionar Exercício": selectbox com busca na biblioteca + number inputs de sets/reps → `add_exercise_to_day()`
+- Edição inline de sets/reps → `update_day_exercise()`
+- Deletar exercício/dia/rotina com confirmação (cascata via FK no banco) → funções `delete_*` e `remove_exercise_from_day()`
+- Sets/reps aqui são **prescrição padrão** para o Import Default; não são valores de log real
+
+### `pages/treino.py` *(Phase 2 — não implementado)*
+- Date picker (padrão = hoje) + seleção de Rotina e Dia (via `get_workout_days()`)
+- Botão "⬇ Importar Padrão": chama `get_day_exercises(day_id)` e popula tabela editável
+- Tabela de exercícios editável: cada linha tem nome, sets, reps, peso (kg); botão de remoção por linha; botão de adição de linha nova
+- Sessão livre: quando sem rotina selecionada, exibe apenas a tabela vazia para preenchimento manual
+- "✅ Registrar Treino": chama `do_exercise_event(user_id, exercises, day_id)`, exibe card de resultado (XP ganho, cap indicator, spawn se rolou, level-up se subiu)
+- Progress bar de cap diário: XP hoje / 300 — laranja > 200 XP, vermelho quando capped
+- Streak de treino no topo (independente do streak de check-in), via `get_workout_streak()`
+- Histórico: últimos 7 dias em tabela (`get_workout_history()`)
+- Após resultado: define `st.session_state.team_evo_notice` / `st.session_state.xp_share_log` se aplicável
+
 ### `pages/login.py`
 - Tabs "Entrar" / "Criar conta"
 - Após login: `_save_session(session)` persiste `lb_refresh_token` em cookie 30 dias
@@ -525,8 +618,12 @@ def _resolve_asset(local_path: str) -> str:
 **Integração com treinos via `do_exercise_event()`:** o módulo de exercícios chama `award_xp()` internamente. A entry point pública é:
 ```python
 from utils.db import do_exercise_event
-result = do_exercise_event(user_id, exercise_id, sets, reps, weight_kg)
-# result: {xp_earned, capped, spawn_rolled, spawned, xp_result}
+result = do_exercise_event(
+    user_id,
+    exercises=[{"exercise_id": int, "sets_data": [{"reps": int, "weight": float}], "notes": str | None}],
+    day_id=None,   # UUID do workout_day prescrito; None = treino livre
+)
+# result: {xp_earned, capped, spawn_rolled, spawned, xp_result, error}
 ```
 
 **`_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)`:**
@@ -606,6 +703,7 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `migrate_regional_forms.sql`: migração auxiliar de formas regionais — executar se necessário.
 `migrate_v2.sql`: migrações v2 diversas — executar no Supabase quando necessário.
 `migrate_drop_regional_catalog.sql`: executar para remover tabelas obsoletas `pokemon_regional_forms` e `user_pokemon_forms`.
+`migrate_consolidate_profiles.sql`: executar para migrar FK de `workout_logs` para `user_profiles` e remover a tabela `profiles` legada.
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
@@ -636,8 +734,29 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
 
 ### A implementar (Phase 2)
-- [ ] `scripts/migrate_exercises.sql` — tabelas `exercise_categories`, `exercises`, `user_workout_logs`
-- [ ] `do_exercise_event(user_id, exercise_id, sets, reps, weight_kg)` em `db.py` — XP formula + daily cap + type-spawn
-- [ ] `pages/treino.py` — log de treino com seletor de exercício, histórico e resultado
-- [ ] `_roll_spawn_typed(user_id, type_slug=None)` — refatorar spawn de `do_checkin()` para suportar filtro de tipo
-- [ ] Formas de Paldea (opcional — popular com `seed_regional_species.py`)
+
+**Workout Library (`pages/biblioteca.py`)**
+- [ ] Catálogo Pokédex-style de 152 exercícios em grade 4 colunas
+- [ ] Cards: GIF thumbnail, `name_pt`, body part tags, badge de tipo Pokémon (cor de `type_colors.py`)
+- [ ] Filtros: busca por nome, multiselect de grupo muscular, body part e equipamento
+- [ ] Expander de detalhes: GIF completo, músculos alvo, explicação da afinidade de tipo
+
+**Workout Builder (`pages/rotinas.py`)**
+- [ ] Implementar write helpers em `db.py`: `get_workout_sheets()`, `create_workout_sheet()`, `delete_workout_sheet()`, `create_workout_day()`, `delete_workout_day()`, `add_exercise_to_day()`, `update_day_exercise()`, `remove_exercise_from_day()`
+- [ ] Árvore expansível: Rotina → Dia → Exercícios prescritos (sets/reps editáveis inline)
+- [ ] Fluxos: Nova Rotina, Adicionar Dia, Adicionar Exercício (busca na Biblioteca), Editar, Deletar com confirmação
+
+**Routine Log (`pages/treino.py`)**
+- [ ] Date picker (padrão = hoje), seleção de Rotina + Dia
+- [ ] Botão "⬇ Importar Padrão" → `get_day_exercises()` popula tabela editável de séries/reps/peso
+- [ ] Tabela de exercícios editável: adicionar linha, deletar linha, editar sets/reps/peso
+- [ ] "✅ Registrar Treino" → `do_exercise_event()` → card de resultado (XP, spawn, level-up)
+- [ ] Progress bar de cap diário (XP hoje / 300), streak de treino no topo
+- [ ] Histórico dos últimos 7 dias em tabela
+
+**Infraestrutura comum**
+- [ ] Adicionar "Biblioteca 📚", "Rotinas 📋", "Treino 🏋️" à ordem de navegação em `app.py`
+- [ ] Atualizar `equipe.py` para exibir banner de spawn com `source="exercise"` (reutilizar lógica existente)
+
+**Opcional**
+- [ ] Formas de Paldea — popular com `seed_regional_species.py`
