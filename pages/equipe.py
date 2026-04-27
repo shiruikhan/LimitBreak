@@ -333,10 +333,11 @@ if not user_id:
     st.error("Sessão expirada. Faça login novamente.")
     st.stop()
 
-profile      = get_user_profile(user_id)
-team         = get_user_team(user_id)
-team_by_slot = {m["slot"]: m for m in team}
-xp_share     = get_xp_share_status(user_id)
+with st.spinner("Carregando equipe..."):
+    profile      = get_user_profile(user_id)
+    team         = get_user_team(user_id)
+    team_by_slot = {m["slot"]: m for m in team}
+    xp_share     = get_xp_share_status(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 col_title, col_coins = st.columns([3, 1])
@@ -580,7 +581,8 @@ if sel_slot and sel_slot in team_by_slot:
                                 st.rerun()
 
 # ── Banco de Pokémon ───────────────────────────────────────────────────────────
-bench     = get_user_bench(user_id)
+with st.spinner("Carregando banco..."):
+    bench = get_user_bench(user_id)
 team_full = len(team) >= 6
 
 st.markdown("<div class='bench-title'>📦 Banco de Pokémon</div>", unsafe_allow_html=True)

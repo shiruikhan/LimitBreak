@@ -1,7 +1,7 @@
 import streamlit as st
 from utils.db import (
     get_battle_opponents, get_daily_battle_count, start_battle, finalize_battle,
-    get_battle_history, get_battle_detail, get_user_profile,
+    get_battle_history, get_battle_detail, get_user_profile, get_user_team,
     get_image_as_base64, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
     _type_effectiveness,
 )
@@ -253,6 +253,11 @@ if bs is None:
     if remaining == 0:
         st.warning("Você usou todas as batalhas de hoje. Volte amanhã!")
     else:
+        _team = get_user_team(user_id)
+        if not any(m["slot"] == 1 for m in _team):
+            st.warning("Você precisa ter um Pokémon no slot 1 da equipe para batalhar.")
+            st.stop()
+
         st.subheader("Desafiar oponente")
         opponents = get_battle_opponents(user_id)
 

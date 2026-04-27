@@ -7,10 +7,10 @@
 ## Phase 1 — Core Stability & Polish (Short-term)
 
 ### 1.1 Bug Fixes & UX Gaps
-- [ ] Ensure `batalha.py` handles edge case where a user has no Pokémon in slot 1 (empty team guard)
-- [ ] Add loading spinners or skeleton states to heavy pages (`pokedex_pessoal.py`, `equipe.py`)
-- [ ] Validate that `swap_team_slots` handles concurrent requests safely (double-click race condition)
-- [ ] Confirm `do_checkin` is idempotent under fast double-submission (Streamlit re-runs)
+- [x] Ensure `batalha.py` handles edge case where a user has no Pokémon in slot 1 (empty team guard)
+- [x] Add loading spinners or skeleton states to heavy pages (`pokedex_pessoal.py`, `equipe.py`)
+- [x] Validate that `swap_team_slots` handles concurrent requests safely (double-click race condition)
+- [x] Confirm `do_checkin` is idempotent under fast double-submission (Streamlit re-runs)
 
 ### 1.2 Pokédex Pessoal — Formas Regionais
 - [x] Include the 42 regional forms (id > 10000) in the personal Pokédex grid

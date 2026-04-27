@@ -141,8 +141,9 @@ st.markdown("""
 
 # ── Dados ────────────────────────────────────────────────────────────────────────
 
-all_pokemon  = get_all_pokemon_with_types()
-captured_ids = get_user_pokemon_ids(st.session_state.user_id)
+with st.spinner("Carregando Pokédex..."):
+    all_pokemon  = get_all_pokemon_with_types()
+    captured_ids = get_user_pokemon_ids(st.session_state.user_id)
 total        = len(all_pokemon)
 captured_n   = sum(1 for p in all_pokemon if p["id"] in captured_ids)
 pct          = (captured_n / total * 100) if total else 0

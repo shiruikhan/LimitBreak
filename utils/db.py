@@ -463,9 +463,15 @@ def swap_team_slots(user_id: str, slot_a: int, slot_b: int) -> bool:
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT user_pokemon_id FROM user_team WHERE user_id=%s AND slot=%s;", (user_id, slot_a))
+            cur.execute(
+                "SELECT user_pokemon_id FROM user_team WHERE user_id=%s AND slot=%s FOR UPDATE;",
+                (user_id, slot_a)
+            )
             row_a = cur.fetchone()
-            cur.execute("SELECT user_pokemon_id FROM user_team WHERE user_id=%s AND slot=%s;", (user_id, slot_b))
+            cur.execute(
+                "SELECT user_pokemon_id FROM user_team WHERE user_id=%s AND slot=%s FOR UPDATE;",
+                (user_id, slot_b)
+            )
             row_b = cur.fetchone()
 
             if not row_b:
