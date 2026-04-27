@@ -457,6 +457,8 @@ def _resolve_asset(local_path: str) -> str:
 - Painel de movimentos: 4 slots ativos (desquipar) + lista de disponíveis com botão equipar/trocar
 - Modo substituição: quando 4 slots cheios, clicar em novo move entra em modo replace (borda amarela)
 - Banner de evolução: se `st.session_state.team_evo_notice` estiver definido, exibe banner roxo com sprite e nome da evolução (limpo após exibição)
+- Banner de Shedinja: se `st.session_state.team_shed_notice` estiver definido, exibe banner verde ("👻 Shedinja capturado!") com sprite e texto "A muda de Nincada ganhou vida" (limpo após exibição); set em `calendario.py` quando mecânica shed dispara no check-in
+- Log de XP Share: se `st.session_state.xp_share_log` estiver definido, exibe chips azuis com nome e XP recebido por cada Pokémon da equipe na última distribuição (limpo após exibição); set em `calendario.py` via `xp_result["xp_share_distributed"]`
 - Logout: sidebar → botão "Sair" (deleta cookie + limpa session_state)
 
 ### `pages/pokedex.py`
@@ -517,10 +519,10 @@ def _resolve_asset(local_path: str) -> str:
 6. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
 7. Persiste `level`, `xp`, `species_id` de uma vez
 8. Se houve evoluções: `_recalc_stats_on_evolution()` preserva boosts de vitaminas
-9. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe
-10. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, error}`
+9. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe; resultado armazenado em `xp_share_distributed`
+10. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, xp_share_distributed, error}`
 
-> O parâmetro `_distributing=True` é interno — evita recursão infinita quando `_distribute_xp_share()` chama `award_xp()` para os outros Pokémon.
+> O parâmetro `_distributing=True` é interno — evita recursão infinita quando `_distribute_xp_share()` chama `award_xp()` para os outros Pokémon. Nesse caso `xp_share_distributed` é sempre `[]`.
 
 **Ponto de integração com treinos:** quando o módulo de exercícios estiver pronto, basta chamar:
 ```python
@@ -610,7 +612,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ---
 
-## Estado Atual do Projeto (abril 2026)
+## Estado Atual do Projeto (maio 2026)
 
 ### Implementado ✅
 - Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática)
@@ -622,7 +624,8 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Stats individuais: copiados na captura, atualizados por vitaminas e evoluções
 - Sistema de XP e evolução automática: `award_xp()` com distribuição via XP Share
   - **Bypass de triggers não-padrão:** evoluções por troca, amizade, etc. disparam automaticamente no nível 36
-  - **Mecânica Shed (Nincada):** ao evoluir para Ninjask, captura Shedinja automaticamente se houver slot livre
+  - **Mecânica Shed (Nincada):** ao evoluir para Ninjask, captura Shedinja automaticamente se houver slot livre; exibe banner verde em `equipe.py` e card verde em `calendario.py`
+  - **`xp_share_distributed`** em `award_xp` return: lista `[{name, xp, user_pokemon_id}]` com o que cada Pokémon da equipe recebeu; exibido como chips azuis em `equipe.py`
 - Evolução por pedra: `evolve_with_stone()` com recálculo de stats e preservação de boosts
 - Cap de vitaminas: máximo 5 usos por stat por Pokémon (`_MAX_STAT_BOOSTS_PER_STAT = 5`)
 - Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; mochila funcional
