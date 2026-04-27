@@ -11,9 +11,7 @@ Aplicativo web (com futura conversão para Android) de acompanhamento de treinos
 | Área | Responsável |
 |---|---|
 | Sistema de gamificação (Pokémon, XP, capturas, loja, Pokédex) | **Silvio (este repositório)** |
-| Banco de exercícios, planos de treino, biomecânica, GIFs | Outro desenvolvedor |
-
-**Importante:** Não implementar lógica de exercícios/musculação neste repositório. O contrato é via banco de dados — o sistema de treino grava eventos (exercício realizado, check-in) e o sistema de gamificação os consome via `award_xp()`.
+| Módulo de exercícios (tabelas, lógica, `pages/treino.py`) | **Silvio (este repositório)** |
 
 ---
 
@@ -524,10 +522,11 @@ def _resolve_asset(local_path: str) -> str:
 
 > O parâmetro `_distributing=True` é interno — evita recursão infinita quando `_distribute_xp_share()` chama `award_xp()` para os outros Pokémon. Nesse caso `xp_share_distributed` é sempre `[]`.
 
-**Ponto de integração com treinos:** quando o módulo de exercícios estiver pronto, basta chamar:
+**Integração com treinos via `do_exercise_event()`:** o módulo de exercícios chama `award_xp()` internamente. A entry point pública é:
 ```python
-from utils.db import award_xp
-xp_result = award_xp(user_pokemon_id, xp_amount, "exercise")
+from utils.db import do_exercise_event
+result = do_exercise_event(user_id, exercise_id, sets, reps, weight_kg)
+# result: {xp_earned, capped, spawn_rolled, spawned, xp_result}
 ```
 
 **`_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)`:**
@@ -636,9 +635,9 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Deploy em produção: Streamlit Cloud com CDN fallback para imagens
 - Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
 
-### Aguardando integração com módulo de treinos
-- `award_xp(user_pokemon_id, amount, "exercise")` — função pronta, aguarda chamador
-- Spawn de Pokémon vinculado ao tipo de exercício (ex: treino de peito → tipo Fighting/Normal)
-
-### A implementar
-- [ ] Formas de Paldea (futuro — popular com `seed_regional_species.py`)
+### A implementar (Phase 2)
+- [ ] `scripts/migrate_exercises.sql` — tabelas `exercise_categories`, `exercises`, `user_workout_logs`
+- [ ] `do_exercise_event(user_id, exercise_id, sets, reps, weight_kg)` em `db.py` — XP formula + daily cap + type-spawn
+- [ ] `pages/treino.py` — log de treino com seletor de exercício, histórico e resultado
+- [ ] `_roll_spawn_typed(user_id, type_slug=None)` — refatorar spawn de `do_checkin()` para suportar filtro de tipo
+- [ ] Formas de Paldea (opcional — popular com `seed_regional_species.py`)

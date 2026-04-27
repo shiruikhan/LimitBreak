@@ -1845,3 +1845,413 @@ def get_battle_detail(battle_id: int) -> list:
     cols = ["turn", "attacker_id", "move_name", "move_power",
             "damage", "ch_hp", "op_hp"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+# ── Exercícios e treino ────────────────────────────────────────────────────────
+
+_EXERCISE_XP_DAILY_CAP = 300
+
+# body_parts (campo de exercises) → slug de tipo Pokémon para spawn temático
+_BODY_PART_TYPE: dict[str, str] = {
+    "chest":      "fighting",
+    "upper arms": "fighting",
+    "lower arms": "normal",
+    "back":       "dark",
+    "shoulders":  "flying",
+    "upper legs": "ground",
+    "lower legs": "ground",
+    "waist":      "steel",
+    "neck":       "rock",
+    "cardio":     "water",
+}
+
+
+@st.cache_data(ttl=3600)
+def get_muscle_groups() -> list[dict]:
+    """Grupos musculares com imagem anatômica."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("SELECT id, name, image_url FROM muscle_groups ORDER BY name;")
+            return [{"id": r[0], "name": r[1], "image_url": r[2]} for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=3600)
+def get_exercises(body_part: str | None = None) -> list[dict]:
+    """Catálogo de exercícios, opcionalmente filtrado por body_part."""
+    try:
+        with get_connection().cursor() as cur:
+            if body_part:
+                cur.execute("""
+                    SELECT id, name, name_pt, target_muscles, body_parts, equipments, gif_url
+                    FROM exercises
+                    WHERE %s = ANY(body_parts)
+                    ORDER BY COALESCE(name_pt, name);
+                """, (body_part,))
+            else:
+                cur.execute("""
+                    SELECT id, name, name_pt, target_muscles, body_parts, equipments, gif_url
+                    FROM exercises
+                    ORDER BY COALESCE(name_pt, name);
+                """)
+            return [
+                {
+                    "id": r[0], "name": r[1], "name_pt": r[2],
+                    "target_muscles": r[3], "body_parts": r[4],
+                    "equipments": r[5], "gif_url": r[6],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=3600)
+def get_distinct_body_parts() -> list[str]:
+    """Lista de body_parts distintos presentes nos exercícios."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT unnest(body_parts) AS bp
+                FROM exercises
+                ORDER BY bp;
+            """)
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_workout_days(user_id: str) -> list[dict]:
+    """Dias do plano de treino ativo do usuário com contagem de exercícios."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT wd.id, wd.name, wd.day_order,
+                       ws.name AS sheet_name,
+                       COUNT(wde.id) AS exercise_count
+                FROM workout_sheets ws
+                JOIN workout_days wd ON wd.sheet_id = ws.id
+                LEFT JOIN workout_day_exercises wde ON wde.day_id = wd.id
+                WHERE ws.user_id = %s AND ws.is_active = TRUE
+                GROUP BY wd.id, wd.name, wd.day_order, ws.name
+                ORDER BY wd.day_order;
+            """, (user_id,))
+            return [
+                {
+                    "id": str(r[0]), "name": r[1], "day_order": r[2],
+                    "sheet_name": r[3], "exercise_count": r[4],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+def get_day_exercises(day_id: str) -> list[dict]:
+    """Exercícios prescritos para um dia do plano de treino."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT e.id, COALESCE(e.name_pt, e.name) AS display_name,
+                       e.target_muscles, e.body_parts, e.gif_url,
+                       wde.sets, wde.reps, wde.rest_seconds, wde.notes,
+                       wde.exercise_order
+                FROM workout_day_exercises wde
+                JOIN exercises e ON e.id = wde.exercise_id
+                WHERE wde.day_id = %s
+                ORDER BY wde.exercise_order;
+            """, (day_id,))
+            return [
+                {
+                    "id": r[0], "name": r[1],
+                    "target_muscles": r[2], "body_parts": r[3], "gif_url": r[4],
+                    "prescribed_sets": r[5], "prescribed_reps": r[6],
+                    "rest_seconds": r[7], "notes": r[8], "order": r[9],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+def get_daily_xp_from_exercise(user_id: str) -> int:
+    """XP ganho por exercício hoje (usado para verificar o cap diário)."""
+    today = _today_brt()
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(xp_earned), 0)
+                FROM workout_logs
+                WHERE user_id = %s
+                  AND completed_at AT TIME ZONE 'America/Sao_Paulo' >= %s::date
+                  AND completed_at AT TIME ZONE 'America/Sao_Paulo' <  %s::date + INTERVAL '1 day';
+            """, (user_id, today, today))
+            return cur.fetchone()[0]
+    except Exception:
+        return 0
+
+
+def get_workout_streak(user_id: str) -> int:
+    """Dias consecutivos com pelo menos um treino registrado."""
+    today = _today_brt()
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT
+                    (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d
+                FROM workout_logs
+                WHERE user_id = %s
+                ORDER BY d DESC;
+            """, (user_id,))
+            days = [r[0] for r in cur.fetchall()]
+        if not days:
+            return 0
+        streak = 0
+        check = today
+        for d in days:
+            if d == check:
+                streak += 1
+                check -= datetime.timedelta(days=1)
+            elif d < check:
+                break
+        return streak
+    except Exception:
+        return 0
+
+
+def get_workout_history(user_id: str, limit: int = 10) -> list[dict]:
+    """Últimas sessões de treino com contagem de exercícios e XP ganho."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT wl.id, wl.completed_at, wl.xp_earned,
+                       wl.spawned_species_id, wl.duration_minutes,
+                       wd.name AS day_name,
+                       COUNT(el.id) AS exercise_count
+                FROM workout_logs wl
+                LEFT JOIN workout_days wd ON wl.day_id = wd.id
+                LEFT JOIN exercise_logs el ON el.workout_log_id = wl.id
+                WHERE wl.user_id = %s
+                GROUP BY wl.id, wl.completed_at, wl.xp_earned,
+                         wl.spawned_species_id, wl.duration_minutes, wd.name
+                ORDER BY wl.completed_at DESC
+                LIMIT %s;
+            """, (user_id, limit))
+            return [
+                {
+                    "id": str(r[0]), "completed_at": r[1], "xp_earned": r[2],
+                    "spawned_species_id": r[3], "duration_minutes": r[4],
+                    "day_name": r[5], "exercise_count": r[6],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+def _calc_exercise_xp(exercises: list[dict]) -> int:
+    """XP bruto de uma sessão: sets × reps × 2 + FLOOR(weight_kg / 10) × sets."""
+    total = 0
+    for ex in exercises:
+        for s in ex.get("sets_data", []):
+            reps   = int(s.get("reps") or 0)
+            weight = float(s.get("weight") or 0)
+            total += reps * 2 + int(weight / 10)
+    return max(0, total)
+
+
+def _spawn_typed(cur, user_id: str, type_slug: str | None = None):
+    """Captura um Pokémon não capturado (tipo opcional) dentro de uma transação aberta.
+
+    Tenta primeiro com filtro de tipo; se não encontrar, usa qualquer espécie.
+    Retorna (species_id, {id, name, sprite_url, type1}) ou (None, None).
+    """
+    def _query_species(with_type: bool):
+        if with_type:
+            cur.execute("""
+                SELECT ps.id
+                FROM pokemon_species ps
+                JOIN pokemon_types pt1 ON ps.type1_id = pt1.id
+                WHERE ps.id NOT IN (
+                    SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
+                )
+                AND (pt1.slug = %s
+                     OR EXISTS (
+                         SELECT 1 FROM pokemon_types pt2
+                         WHERE pt2.id = ps.type2_id AND pt2.slug = %s
+                     ))
+                ORDER BY RANDOM() LIMIT 1;
+            """, (user_id, type_slug, type_slug))
+        else:
+            cur.execute("""
+                SELECT id FROM pokemon_species
+                WHERE id NOT IN (
+                    SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
+                )
+                ORDER BY RANDOM() LIMIT 1;
+            """, (user_id,))
+        return cur.fetchone()
+
+    row = _query_species(with_type=bool(type_slug))
+    if not row and type_slug:
+        row = _query_species(with_type=False)
+    if not row:
+        return None, None
+
+    species_id = row[0]
+    cur.execute("""
+        INSERT INTO user_pokemon (
+            user_id, species_id, level, xp,
+            stat_hp, stat_attack, stat_defense,
+            stat_sp_attack, stat_sp_defense, stat_speed
+        )
+        SELECT %s, %s, 5, 0,
+               base_hp, base_attack, base_defense,
+               base_sp_attack, base_sp_defense, base_speed
+        FROM pokemon_species WHERE id = %s
+        RETURNING id;
+    """, (user_id, species_id, species_id))
+    up_id = cur.fetchone()[0]
+
+    cur.execute("SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;", (user_id,))
+    used = {r[0] for r in cur.fetchall()}
+    free = next((s for s in range(1, 7) if s not in used), None)
+    if free:
+        cur.execute(
+            "INSERT INTO user_team (user_id, slot, user_pokemon_id) VALUES (%s, %s, %s);",
+            (user_id, free, up_id)
+        )
+
+    cur.execute("""
+        SELECT p.id, p.name, p.sprite_url, t.name AS type1
+        FROM pokemon_species p
+        LEFT JOIN pokemon_types t ON p.type1_id = t.id
+        WHERE p.id = %s;
+    """, (species_id,))
+    pdata = cur.fetchone()
+    return species_id, {"id": pdata[0], "name": pdata[1], "sprite_url": pdata[2], "type1": pdata[3]}
+
+
+def do_exercise_event(
+    user_id: str,
+    exercises: list[dict],
+    day_id: str | None = None,
+) -> dict:
+    """Registra uma sessão de treino e concede XP ao Pokémon do slot 1.
+
+    Args:
+        user_id:   UUID do usuário (deve existir em auth.users e profiles).
+        exercises: [{"exercise_id": int,
+                     "sets_data":   [{"reps": int, "weight": float}],
+                     "notes":       str | None}]
+        day_id:    UUID do workout_day prescrito (None = treino livre).
+
+    Returns:
+        {xp_earned, capped, spawn_rolled, spawned, xp_result, error}
+    """
+    import json as _json
+
+    result = {
+        "xp_earned":    0,
+        "capped":       False,
+        "spawn_rolled": False,
+        "spawned":      None,
+        "xp_result":    None,
+        "error":        None,
+    }
+
+    if not exercises:
+        result["error"] = "Nenhum exercício informado."
+        return result
+
+    raw_xp = _calc_exercise_xp(exercises)
+    if raw_xp <= 0:
+        result["error"] = "Nenhuma série registrada."
+        return result
+
+    already_today = get_daily_xp_from_exercise(user_id)
+    remaining     = max(0, _EXERCISE_XP_DAILY_CAP - already_today)
+    xp_to_award   = min(raw_xp, remaining)
+
+    if xp_to_award == 0:
+        result["capped"] = True
+        result["error"]  = f"Limite diário de {_EXERCISE_XP_DAILY_CAP} XP por exercício já atingido."
+        return result
+    if xp_to_award < raw_xp:
+        result["capped"] = True
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Garante linha em profiles (FK de workout_logs) sem sobrescrever dados
+            cur.execute("""
+                INSERT INTO profiles (id, role) VALUES (%s, 'user')
+                ON CONFLICT (id) DO NOTHING;
+            """, (user_id,))
+
+            # Busca body_parts dos exercícios para determinar tipo de spawn
+            ex_ids = [ex["exercise_id"] for ex in exercises]
+            cur.execute(
+                "SELECT id, body_parts FROM exercises WHERE id = ANY(%s);",
+                (ex_ids,)
+            )
+            bp_map = {r[0]: (r[1] or []) for r in cur.fetchall()}
+
+            bp_counts: dict[str, int] = {}
+            for ex in exercises:
+                for bp in bp_map.get(ex["exercise_id"], []):
+                    bp_counts[bp] = bp_counts.get(bp, 0) + 1
+            dominant_bp = max(bp_counts, key=lambda k: bp_counts[k]) if bp_counts else None
+            type_slug   = _BODY_PART_TYPE.get(dominant_bp) if dominant_bp else None
+
+            # Insere sessão
+            cur.execute("""
+                INSERT INTO workout_logs (user_id, day_id, xp_earned)
+                VALUES (%s, %s, %s)
+                RETURNING id;
+            """, (user_id, day_id, xp_to_award))
+            wl_id = cur.fetchone()[0]
+
+            # Insere logs por exercício
+            for ex in exercises:
+                cur.execute("""
+                    INSERT INTO exercise_logs (workout_log_id, exercise_id, sets_data, notes)
+                    VALUES (%s, %s, %s::jsonb, %s);
+                """, (wl_id, ex["exercise_id"],
+                      _json.dumps(ex.get("sets_data", [])),
+                      ex.get("notes")))
+
+            # Spawn temático (25% de chance)
+            result["spawn_rolled"] = True
+            if random.random() < 0.25:
+                species_id, spawn_info = _spawn_typed(cur, user_id, type_slug)
+                if species_id:
+                    result["spawned"] = spawn_info
+                    cur.execute(
+                        "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
+                        (species_id, wl_id)
+                    )
+
+        conn.commit()
+        result["xp_earned"] = xp_to_award
+
+        # XP para o Pokémon slot 1 — transação separada após commit
+        try:
+            with get_connection().cursor() as cur2:
+                cur2.execute("""
+                    SELECT ut.user_pokemon_id FROM user_team ut
+                    WHERE ut.user_id = %s AND ut.slot = 1;
+                """, (user_id,))
+                row = cur2.fetchone()
+            if row:
+                result["xp_result"] = award_xp(row[0], xp_to_award, "exercise")
+        except Exception:
+            pass
+
+        return result
+
+    except Exception as e:
+        conn.rollback()
+        result["error"] = str(e)
+        return result
