@@ -140,6 +140,8 @@ else:
     pg = st.navigation([
         st.Page("pages/equipe.py",          title="Minha Equipe",   icon="⚔️"),
         st.Page("pages/batalha.py",         title="Arena",          icon="🥊"),
+        st.Page("pages/conquistas.py",      title="Conquistas",     icon="🏅"),
+        st.Page("pages/leaderboard.py",     title="Ranking",        icon="🏆"),
         st.Page("pages/pokedex.py",         title="Pokédex",        icon="📖"),
         st.Page("pages/pokedex_pessoal.py", title="Minha Pokédex",  icon="🗂️"),
         st.Page("pages/loja.py",            title="Loja",           icon="🛒"),

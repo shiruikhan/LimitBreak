@@ -5,7 +5,7 @@ import streamlit as st
 from utils.db import (
     get_monthly_checkins, get_checkin_streak,
     do_checkin, get_user_profile, get_image_as_base64,
-    _today_brt,
+    _today_brt, check_and_award_achievements,
 )
 from utils.type_colors import get_type_color
 
@@ -186,6 +186,11 @@ else:
     if st.button("✔ Fazer Check-in", type="primary", use_container_width=False):
         res = do_checkin(user_id)
         st.session_state.checkin_result = res
+        if res.get("success"):
+            new_ach = check_and_award_achievements(user_id)
+            if new_ach:
+                pending = st.session_state.get("new_achievements_pending", [])
+                st.session_state.new_achievements_pending = list({*pending, *new_ach})
         st.rerun()
 
 # ── Resultado do check-in ─────────────────────────────────────────────────────

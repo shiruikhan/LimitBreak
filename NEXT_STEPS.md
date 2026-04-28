@@ -250,9 +250,7 @@ Date-specific workout session logging.
 ## Phase 3 — Progression Depth (Long-term)
 
 ### 3.1 Competitive Improvements
-- [ ] Add PvP battle request/challenge system (async — opponent accepts before battle runs)
 - [ ] Implement seasonal leaderboard (top trainers by wins or Pokémon count)
-- [ ] Add a rematch cooldown per opponent pair
 
 ### 3.2 Pokémon Interaction
 - [ ] Add a "Happiness" mechanic — increases with check-ins and battles; unlocks friendship evolutions earlier than bypass level 36

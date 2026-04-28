@@ -3,7 +3,7 @@ from utils.db import (
     get_battle_opponents, get_daily_battle_count, start_battle, finalize_battle,
     get_battle_history, get_battle_detail, get_user_profile, get_user_team,
     get_image_as_base64, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
-    _type_effectiveness,
+    _type_effectiveness, check_and_award_achievements,
 )
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
@@ -345,6 +345,10 @@ else:
         saved = finalize_battle(bs)
         st.session_state.battle_saved  = True
         st.session_state.battle_result = saved
+        new_ach = check_and_award_achievements(user_id)
+        if new_ach:
+            pending = st.session_state.get("new_achievements_pending", [])
+            st.session_state.new_achievements_pending = list({*pending, *new_ach})
 
     saved = st.session_state.get("battle_result", {})
     winner_id = bs["winner_id"]

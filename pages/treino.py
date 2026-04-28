@@ -6,7 +6,7 @@ from utils.db import (
     get_workout_sheets, get_sheet_days, get_day_exercises_for_builder,
     get_exercises, do_exercise_event,
     get_daily_xp_from_exercise, get_workout_streak, get_workout_history,
-    get_image_as_base64, _today_brt,
+    get_image_as_base64, _today_brt, check_and_award_achievements,
 )
 from utils.type_colors import get_type_color
 
@@ -297,6 +297,10 @@ if st.button(
     res = do_exercise_event(user_id, payload, day_id=st.session_state.workout_day_id)
     st.session_state.workout_result = res
     if not res.get("error"):
+        new_ach = check_and_award_achievements(user_id)
+        if new_ach:
+            pending = st.session_state.get("new_achievements_pending", [])
+            st.session_state.new_achievements_pending = list({*pending, *new_ach})
         for row in st.session_state.workout_rows:
             rid = row["row_id"]
             for suf in ("sets", "reps", "weight"):

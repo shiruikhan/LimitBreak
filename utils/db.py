@@ -2479,3 +2479,205 @@ def get_day_exercises_for_builder(day_id: str) -> list[dict]:
             ]
     except Exception:
         return []
+
+
+# ── Achievements ─────────────────────────────────────────────────────────────
+
+def get_user_achievements(user_id: str) -> dict[str, datetime.datetime]:
+    """Returns {slug: unlocked_at} for all achievements the user has earned."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT achievement_slug, unlocked_at
+                FROM user_achievements
+                WHERE user_id = %s
+                ORDER BY unlocked_at DESC;
+            """, (user_id,))
+            return {r[0]: r[1] for r in cur.fetchall()}
+    except Exception:
+        return {}
+
+
+def _collect_achievement_stats(user_id: str, cur) -> dict:
+    """Collects all stats needed to evaluate achievement conditions."""
+    stats: dict = {}
+
+    cur.execute("SELECT COUNT(*) FROM user_pokemon WHERE user_id = %s;", (user_id,))
+    stats["pokemon_count"] = cur.fetchone()[0]
+
+    cur.execute(
+        "SELECT COALESCE(MAX(streak), 0) FROM user_checkins WHERE user_id = %s;",
+        (user_id,),
+    )
+    stats["checkin_streak_max"] = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
+    stats["workout_count"] = cur.fetchone()[0]
+
+    cur.execute(
+        "SELECT COUNT(*) FROM user_battles WHERE winner_id = %s;",
+        (user_id,),
+    )
+    stats["battle_wins"] = cur.fetchone()[0]
+
+    cur.execute(
+        "SELECT EXISTS(SELECT 1 FROM user_pokemon WHERE user_id = %s AND is_shiny = true);",
+        (user_id,),
+    )
+    stats["has_shiny"] = cur.fetchone()[0]
+
+    cur.execute("""
+        SELECT EXISTS(
+            SELECT 1 FROM user_pokemon up
+            JOIN pokemon_species ps ON ps.id = up.species_id
+            WHERE up.user_id = %s AND ps.id > 10000
+        );
+    """, (user_id,))
+    stats["has_regional"] = cur.fetchone()[0]
+
+    cur.execute("""
+        SELECT EXISTS(
+            SELECT 1 FROM user_pokemon up
+            JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
+            WHERE up.user_id = %s
+        );
+    """, (user_id,))
+    stats["has_evolved_pokemon"] = cur.fetchone()[0]
+
+    cur.execute("""
+        SELECT EXISTS(
+            SELECT 1 FROM user_pokemon up
+            JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
+            WHERE up.user_id = %s AND pe.trigger_name = 'use-item'
+        );
+    """, (user_id,))
+    stats["has_stone_evolved"] = cur.fetchone()[0]
+
+    # Workout streak (reuse the same logic as get_workout_streak)
+    cur.execute("""
+        SELECT DISTINCT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d
+        FROM workout_logs WHERE user_id = %s ORDER BY d DESC;
+    """, (user_id,))
+    streak_days = [r[0] for r in cur.fetchall()]
+    streak = 0
+    check_day = _today_brt()
+    for d in streak_days:
+        if d == check_day:
+            streak += 1
+            check_day -= datetime.timedelta(days=1)
+        elif d < check_day:
+            break
+    stats["workout_streak"] = streak
+
+    return stats
+
+
+def check_and_award_achievements(user_id: str) -> list[str]:
+    """Check every achievement condition and unlock newly eligible ones.
+
+    Returns slugs of achievements unlocked during this call (empty if none new).
+    """
+    from utils.achievements import CATALOG
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT achievement_slug FROM user_achievements WHERE user_id = %s;",
+                (user_id,),
+            )
+            already = {r[0] for r in cur.fetchall()}
+
+            stats = _collect_achievement_stats(user_id, cur)
+
+            new_unlocks: list[str] = []
+            for slug, ach in CATALOG.items():
+                if slug not in already and ach["check"](stats):
+                    cur.execute("""
+                        INSERT INTO user_achievements (user_id, achievement_slug)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id, achievement_slug) DO NOTHING
+                        RETURNING achievement_slug;
+                    """, (user_id, slug))
+                    if cur.fetchone():
+                        new_unlocks.append(slug)
+
+            if new_unlocks:
+                conn.commit()
+            return new_unlocks
+    except Exception:
+        return []
+
+
+# ── Leaderboard ───────────────────────────────────────────────────────────────
+
+def get_leaderboard_pokemon_count(limit: int = 20) -> list[dict]:
+    """Ranks all users by total Pokémon owned (all-time collection size)."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT pr.id, pr.username, COUNT(up.id) AS pokemon_count,
+                       ps.name AS lead_pokemon, ps.sprite_url AS lead_sprite,
+                       up2.level AS lead_level
+                FROM user_profiles pr
+                JOIN user_pokemon up ON up.user_id = pr.id
+                LEFT JOIN user_team ut ON ut.user_id = pr.id AND ut.slot = 1
+                LEFT JOIN user_pokemon up2 ON up2.id = ut.user_pokemon_id
+                LEFT JOIN pokemon_species ps ON ps.id = up2.species_id
+                GROUP BY pr.id, pr.username, ps.name, ps.sprite_url, up2.level
+                ORDER BY pokemon_count DESC
+                LIMIT %s;
+            """, (limit,))
+            cols = ["user_id", "username", "value", "lead_pokemon", "lead_sprite", "lead_level"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_leaderboard_checkin_streak(year: int, month: int, limit: int = 20) -> list[dict]:
+    """Ranks users by their best check-in streak reached in the given month."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT pr.id, pr.username, MAX(uc.streak) AS value,
+                       ps.name AS lead_pokemon, ps.sprite_url AS lead_sprite,
+                       up2.level AS lead_level
+                FROM user_profiles pr
+                JOIN user_checkins uc ON uc.user_id = pr.id
+                LEFT JOIN user_team ut ON ut.user_id = pr.id AND ut.slot = 1
+                LEFT JOIN user_pokemon up2 ON up2.id = ut.user_pokemon_id
+                LEFT JOIN pokemon_species ps ON ps.id = up2.species_id
+                WHERE EXTRACT(YEAR  FROM uc.checked_date) = %s
+                  AND EXTRACT(MONTH FROM uc.checked_date) = %s
+                GROUP BY pr.id, pr.username, ps.name, ps.sprite_url, up2.level
+                ORDER BY value DESC
+                LIMIT %s;
+            """, (year, month, limit))
+            cols = ["user_id", "username", "value", "lead_pokemon", "lead_sprite", "lead_level"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_leaderboard_workout_xp(year: int, month: int, limit: int = 20) -> list[dict]:
+    """Ranks users by total workout XP earned in the given month."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT pr.id, pr.username, COALESCE(SUM(wl.xp_earned), 0) AS value,
+                       ps.name AS lead_pokemon, ps.sprite_url AS lead_sprite,
+                       up2.level AS lead_level
+                FROM user_profiles pr
+                JOIN workout_logs wl ON wl.user_id = pr.id
+                LEFT JOIN user_team ut ON ut.user_id = pr.id AND ut.slot = 1
+                LEFT JOIN user_pokemon up2 ON up2.id = ut.user_pokemon_id
+                LEFT JOIN pokemon_species ps ON ps.id = up2.species_id
+                WHERE EXTRACT(YEAR  FROM wl.logged_at AT TIME ZONE 'America/Sao_Paulo') = %s
+                  AND EXTRACT(MONTH FROM wl.logged_at AT TIME ZONE 'America/Sao_Paulo') = %s
+                GROUP BY pr.id, pr.username, ps.name, ps.sprite_url, up2.level
+                ORDER BY value DESC
+                LIMIT %s;
+            """, (year, month, limit))
+            cols = ["user_id", "username", "value", "lead_pokemon", "lead_sprite", "lead_level"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []

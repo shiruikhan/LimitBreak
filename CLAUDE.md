@@ -764,3 +764,50 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 **Opcional**
 - [ ] Formas de Paldea — popular com `seed_regional_species.py`
+
+---
+
+## Sistema de Conquistas
+
+### Arquivos
+- **`utils/achievements.py`** — catálogo (`CATALOG`), `CATEGORY_META`, `badge_url(slug, unlocked)`
+- **`pages/conquistas.py`** — página 🏅 Conquistas com badges shields.io
+- **`scripts/migrate_achievements.sql`** — cria `user_achievements` (executar no Supabase)
+
+### Banco — `user_achievements`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_id | UUID FK | → user_profiles.id ON DELETE CASCADE |
+| achievement_slug | TEXT | Slug único da conquista |
+| unlocked_at | TIMESTAMPTZ | Data/hora de desbloqueio |
+
+> Constraint UNIQUE: `(user_id, achievement_slug)`
+
+### Funções em `utils/db.py`
+| Função | Retorno | Descrição |
+|---|---|---|
+| `get_user_achievements(user_id)` | `dict[slug, datetime]` | Conquistas desbloqueadas |
+| `check_and_award_achievements(user_id)` | `list[str]` | Verifica condições, desbloqueia elegíveis, retorna novos slugs |
+
+### Catálogo — 23 conquistas em 5 categorias
+| Categoria | Slugs | Métrica verificada |
+|---|---|---|
+| `treino` | `first_workout`, `workouts_10/50/100`, `workout_streak_7/30` | `workout_count`, `workout_streak` |
+| `colecao` | `first_capture`, `dex_10/50/100/200/500`, `dex_complete` | `pokemon_count` em `user_pokemon` |
+| `checkin` | `checkin_streak_7/30/100/365` | `MAX(streak)` em `user_checkins` |
+| `batalha` | `first_win`, `wins_10/50` | `COUNT` em `user_battles WHERE winner_id` |
+| `especial` | `first_evolution`, `shiny_catch`, `regional_form`, `stone_evolution` | flags booleanas derivadas de joins |
+
+### Gatilhos de verificação automática
+`check_and_award_achievements(user_id)` é chamado após:
+- `do_exercise_event` sem erro em `treino.py`
+- `do_checkin` com sucesso em `calendario.py`
+- `finalize_battle` em `batalha.py`
+
+Novos slugs → `st.session_state.new_achievements_pending` → banner verde em `conquistas.py`.
+
+### Badges shields.io
+`https://img.shields.io/badge/{CATEGORIA}-{Nome}-{color}?style=for-the-badge`  
+Cor: da categoria quando desbloqueada, `555555` quando bloqueada.  
+Helper: `badge_url(slug, unlocked: bool)` em `utils/achievements.py`.
