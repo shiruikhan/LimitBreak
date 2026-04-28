@@ -123,9 +123,9 @@ Still needed for Builder:
 - [x] Builder write helpers: `get_workout_sheets()`, `create_workout_sheet()`, `delete_workout_sheet()`, `create_workout_day()`, `delete_workout_day()`, `add_exercise_to_day()`, `update_day_exercise()`, `remove_exercise_from_day()`
 - [x] Create `pages/biblioteca.py` (see §2.5)
 - [x] Create `pages/rotinas.py` (see §2.6)
-- [ ] Create `pages/treino.py` (see §2.7)
-- [ ] Add "Biblioteca 📚", "Rotinas 📋", "Treino 🏋️" to nav order in `app.py` (after Calendário)
-- [ ] Update `equipe.py` to handle `source="exercise"` spawn banners (reuse existing spawn display logic)
+- [x] Create `pages/treino.py` (see §2.7)
+- [x] Add "Biblioteca 📚", "Rotinas 📋", "Treino 🏋️" to nav order in `app.py` (after Calendário)
+- [x] Update `equipe.py` to handle `source="exercise"` spawn banners (reuse existing spawn display logic)
 
 ---
 

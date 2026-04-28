@@ -145,6 +145,8 @@ else:
         st.Page("pages/loja.py",            title="Loja",           icon="🛒"),
         st.Page("pages/calendario.py",      title="Calendário",     icon="📅"),
         st.Page("pages/biblioteca.py",      title="Biblioteca",     icon="📚"),
+        st.Page("pages/rotinas.py",         title="Rotinas",        icon="📋"),
+        st.Page("pages/treino.py",          title="Treino",         icon="🏋️"),
     ])
 
 pg.run()

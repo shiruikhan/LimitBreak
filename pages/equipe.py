@@ -235,6 +235,7 @@ for k, v in [
     ("replacing_move_id", None),
     ("team_evo_notice", None),
     ("team_shed_notice", None),
+    ("team_spawn_notice", None),
     ("xp_share_log", None),
 ]:
     if k not in st.session_state:
@@ -306,6 +307,41 @@ if shed_notice:
         unsafe_allow_html=True,
     )
     st.session_state.team_shed_notice = None
+
+# ── Exercise spawn banner ─────────────────────────────────────────────────────
+spawn_notice = st.session_state.team_spawn_notice
+if spawn_notice:
+    _sp_b64    = None
+    _sp_sprite = spawn_notice.get("sprite_url", "")
+    if _sp_sprite:
+        if _sp_sprite.startswith("http"):
+            _sp_b64 = get_image_as_base64(_sp_sprite)
+        else:
+            _sp_full = os.path.join(BASE_DIR, _sp_sprite.lstrip("/\\"))
+            _sp_hq   = _sp_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
+            _sp_b64  = get_image_as_base64(_sp_hq) or get_image_as_base64(_sp_full)
+
+    _sp_img = (
+        f"<img src='data:image/png;base64,{_sp_b64}' "
+        f"style='width:72px;image-rendering:pixelated;filter:drop-shadow(0 0 10px #7038F8)'>"
+        if _sp_b64 else "<div style='font-size:2.5rem'>❓</div>"
+    )
+    st.markdown(
+        f"<div style='background:rgba(112,56,248,0.1);border:1px solid rgba(112,56,248,0.5);"
+        f"border-radius:14px;padding:16px 20px;margin-bottom:16px;"
+        f"display:flex;align-items:center;gap:16px'>"
+        f"<div>{_sp_img}</div>"
+        f"<div>"
+        f"<div style='font-weight:800;color:#e6edf3;font-size:1rem'>✨ Pokémon apareceu no treino!</div>"
+        f"<div style='margin-top:4px'>"
+        f"<span style='color:#A27DFA;font-size:1.1rem;font-weight:800'>"
+        f"{spawn_notice.get('name', '')}</span></div>"
+        f"<div style='color:#8b949e;font-size:0.8rem;margin-top:4px'>"
+        f"#{str(spawn_notice.get('id',0)).zfill(4)} foi capturado e adicionado à sua coleção!</div>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.session_state.team_spawn_notice = None
 
 # ── XP Share distribution log ──────────────────────────────────────────────────
 xp_share_log = st.session_state.xp_share_log
