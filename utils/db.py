@@ -2249,3 +2249,129 @@ def do_exercise_event(
         conn.rollback()
         result["error"] = str(e)
         return result
+
+
+# ── Workout Builder — write helpers ──────────────────────────────────────────
+
+def get_workout_sheets(user_id: str) -> list[dict]:
+    """Sheets owned by the user with day count."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT ws.id, ws.name, COUNT(wd.id) AS day_count
+                FROM workout_sheets ws
+                LEFT JOIN workout_days wd ON wd.workout_sheet_id = ws.id
+                WHERE ws.user_id = %s
+                GROUP BY ws.id, ws.name
+                ORDER BY ws.name;
+            """, (user_id,))
+            rows = cur.fetchall()
+        return [{"id": str(r[0]), "name": r[1], "day_count": r[2]} for r in rows]
+    except Exception:
+        return []
+
+
+def create_workout_sheet(user_id: str, name: str) -> str | None:
+    """INSERT into workout_sheets; returns new UUID or None on error."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO workout_sheets (user_id, name) VALUES (%s, %s) RETURNING id;",
+                (user_id, name.strip()),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return str(new_id)
+    except Exception:
+        get_connection().rollback()
+        return None
+
+
+def delete_workout_sheet(sheet_id: str) -> bool:
+    """DELETE a sheet (cascades to workout_days and workout_day_exercises)."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM workout_sheets WHERE id = %s;", (sheet_id,))
+        conn.commit()
+        return True
+    except Exception:
+        get_connection().rollback()
+        return False
+
+
+def create_workout_day(sheet_id: str, name: str) -> str | None:
+    """INSERT into workout_days; returns new UUID or None on error."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO workout_days (workout_sheet_id, name) VALUES (%s, %s) RETURNING id;",
+                (sheet_id, name.strip()),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return str(new_id)
+    except Exception:
+        get_connection().rollback()
+        return None
+
+
+def delete_workout_day(day_id: str) -> bool:
+    """DELETE a day (cascades to workout_day_exercises)."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM workout_days WHERE id = %s;", (day_id,))
+        conn.commit()
+        return True
+    except Exception:
+        get_connection().rollback()
+        return False
+
+
+def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> str | None:
+    """INSERT into workout_day_exercises; returns new UUID or None on error."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO workout_day_exercises (workout_day_id, exercise_id, sets, reps) VALUES (%s, %s, %s, %s) RETURNING id;",
+                (day_id, exercise_id, sets, reps),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return str(new_id)
+    except Exception:
+        get_connection().rollback()
+        return None
+
+
+def update_day_exercise(wde_id: str, sets: int, reps: int) -> bool:
+    """UPDATE sets/reps for a prescribed exercise."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workout_day_exercises SET sets = %s, reps = %s WHERE id = %s;",
+                (sets, reps, wde_id),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        get_connection().rollback()
+        return False
+
+
+def remove_exercise_from_day(wde_id: str) -> bool:
+    """DELETE a prescribed exercise from a day."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM workout_day_exercises WHERE id = %s;", (wde_id,))
+        conn.commit()
+        return True
+    except Exception:
+        get_connection().rollback()
+        return False

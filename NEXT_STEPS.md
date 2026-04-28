@@ -120,7 +120,7 @@ Still needed for Builder:
 - [x] `_spawn_typed(cur, user_id, type_slug)` — typed spawn helper in `db.py`
 - [x] `get_daily_xp_from_exercise()`, `do_exercise_event()` in `db.py`
 - [x] Read helpers: `get_muscle_groups()`, `get_exercises()`, `get_distinct_body_parts()`, `get_workout_days()`, `get_day_exercises()`, `get_workout_history()`, `get_workout_streak()`
-- [ ] Builder write helpers: `get_workout_sheets()`, `create_workout_sheet()`, `delete_workout_sheet()`, `create_workout_day()`, `delete_workout_day()`, `add_exercise_to_day()`, `update_day_exercise()`, `remove_exercise_from_day()`
+- [x] Builder write helpers: `get_workout_sheets()`, `create_workout_sheet()`, `delete_workout_sheet()`, `create_workout_day()`, `delete_workout_day()`, `add_exercise_to_day()`, `update_day_exercise()`, `remove_exercise_from_day()`
 - [ ] Create `pages/biblioteca.py` (see §2.5)
 - [ ] Create `pages/rotinas.py` (see §2.6)
 - [ ] Create `pages/treino.py` (see §2.7)
