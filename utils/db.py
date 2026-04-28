@@ -2375,3 +2375,41 @@ def remove_exercise_from_day(wde_id: str) -> bool:
     except Exception:
         get_connection().rollback()
         return False
+
+
+def get_sheet_days(sheet_id: str) -> list[dict]:
+    """Days for a specific workout sheet with exercise count."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT wd.id, wd.name, COUNT(wde.id) AS exercise_count
+                FROM workout_days wd
+                LEFT JOIN workout_day_exercises wde ON wde.workout_day_id = wd.id
+                WHERE wd.workout_sheet_id = %s
+                GROUP BY wd.id, wd.name
+                ORDER BY wd.name;
+            """, (sheet_id,))
+            return [{"id": str(r[0]), "name": r[1], "exercise_count": r[2]} for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_day_exercises_for_builder(day_id: str) -> list[dict]:
+    """Prescribed exercises for a day, including wde.id for edit/delete."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT wde.id, e.id AS exercise_id,
+                       COALESCE(e.name_pt, e.name) AS display_name,
+                       wde.sets, wde.reps
+                FROM workout_day_exercises wde
+                JOIN exercises e ON e.id = wde.exercise_id
+                WHERE wde.workout_day_id = %s
+                ORDER BY wde.id;
+            """, (day_id,))
+            return [
+                {"id": str(r[0]), "exercise_id": r[1], "name": r[2], "sets": r[3], "reps": r[4]}
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
