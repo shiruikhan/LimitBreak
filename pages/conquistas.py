@@ -187,19 +187,20 @@ def _render_grid(slugs: list[str]) -> None:
             f"🔓 {_date_str(unlock_dt)}" if is_unlocked else "🔒 Bloqueado"
         )
 
+        # Mantemos o código legível, mas removemos as quebras de linha no final
         cards_html += f"""
-<div class="ach-card {card_cls}">
-    <img class="ach-badge-img" src="{img_src}" loading="lazy" alt="{ach['name']}">
-    <div class="ach-body">
-        <div class="ach-icon-row">
-            <span class="ach-icon">{ach['icon']}</span>
-            {new_pill}
+        <div class="ach-card {card_cls}">
+            <img class="ach-badge-img" src="{img_src}" loading="lazy" alt="{ach['name']}">
+            <div class="ach-body">
+                <div class="ach-icon-row">
+                    <span class="ach-icon">{ach['icon']}</span>
+                    {new_pill}
+                </div>
+                <p class="ach-desc">{ach['description']}</p>
+                <p class="ach-date {date_cls}">{date_txt}</p>
+            </div>
         </div>
-        <p class="ach-desc">{ach['description']}</p>
-        <p class="ach-date {date_cls}">{date_txt}</p>
-    </div>
-</div>
-"""
+        """.replace('\n', '')
 
     st.markdown(f'<div class="ach-grid">{cards_html}</div>', unsafe_allow_html=True)
 
