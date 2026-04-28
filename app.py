@@ -144,6 +144,7 @@ else:
         st.Page("pages/pokedex_pessoal.py", title="Minha Pokédex",  icon="🗂️"),
         st.Page("pages/loja.py",            title="Loja",           icon="🛒"),
         st.Page("pages/calendario.py",      title="Calendário",     icon="📅"),
+        st.Page("pages/biblioteca.py",      title="Biblioteca",     icon="📚"),
     ])
 
 pg.run()
