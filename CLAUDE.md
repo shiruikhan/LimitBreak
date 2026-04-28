@@ -450,6 +450,27 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `get_checkin_streak(user_id)` | Streak atual de dias consecutivos |
 | `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
 
+### Exercícios e treino
+| Função | Descrição |
+|---|---|
+| `get_exercises(body_part=None)` | Lista completa de exercícios do catálogo; `body_part` filtra por parte do corpo (cacheado 3600s) |
+| `get_muscle_groups()` | Lista de grupos musculares `[{id, name}]` |
+| `get_distinct_body_parts()` | Lista de partes do corpo únicas extraídas de `exercises.body_parts` (cacheado 3600s) |
+| `get_workout_sheets(user_id)` | Rotinas do usuário `[{id, name, day_count}]` |
+| `create_workout_sheet(user_id, name)` | Cria nova rotina; retorna UUID |
+| `delete_workout_sheet(sheet_id)` | Deleta rotina e todos os dias/exercícios em cascata via FK |
+| `get_sheet_days(sheet_id)` | Dias de uma rotina `[{id, name, exercise_count}]` |
+| `create_workout_day(sheet_id, name)` | Cria dia dentro de uma rotina; retorna UUID |
+| `delete_workout_day(day_id)` | Deleta dia e todos os exercícios em cascata |
+| `get_day_exercises_for_builder(day_id)` | Exercícios de um dia para exibição no builder/treino `[{wde_id, exercise_id, name_pt, prescribed_sets, prescribed_reps}]` |
+| `add_exercise_to_day(day_id, exercise_id, sets, reps)` | Adiciona exercício prescrito ao dia; retorna UUID |
+| `update_day_exercise(wde_id, sets, reps)` | Edita sets/reps de um exercício prescrito |
+| `remove_exercise_from_day(wde_id)` | Remove exercício de um dia |
+| `get_daily_xp_from_exercise(user_id)` | XP total ganho de treinos hoje (para progress bar de cap) |
+| `get_workout_streak(user_id)` | Dias consecutivos com treino registrado |
+| `get_workout_history(user_id, limit=10)` | Últimas sessões `[{date, day_name, exercise_count, xp_earned, spawned_species_id}]` |
+| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, error}` |
+
 ---
 
 ## Fluxo de Autenticação e Sessão Persistente
@@ -508,9 +529,9 @@ def _resolve_asset(local_path: str) -> str:
 4. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
 5. `pages/loja.py` — Loja 🛒
 6. `pages/calendario.py` — Calendário 📅
-7. `pages/biblioteca.py` — Biblioteca 📚 *(Phase 2)*
-8. `pages/rotinas.py` — Rotinas 📋 *(Phase 2)*
-9. `pages/treino.py` — Treino 🏋️ *(Phase 2)*
+7. `pages/biblioteca.py` — Biblioteca 📚
+8. `pages/rotinas.py` — Rotinas 📋
+9. `pages/treino.py` — Treino 🏋️
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -522,7 +543,8 @@ def _resolve_asset(local_path: str) -> str:
 - Modo substituição: quando 4 slots cheios, clicar em novo move entra em modo replace (borda amarela)
 - Banner de evolução: se `st.session_state.team_evo_notice` estiver definido, exibe banner roxo com sprite e nome da evolução (limpo após exibição)
 - Banner de Shedinja: se `st.session_state.team_shed_notice` estiver definido, exibe banner verde ("👻 Shedinja capturado!") com sprite e texto "A muda de Nincada ganhou vida" (limpo após exibição); set em `calendario.py` quando mecânica shed dispara no check-in
-- Log de XP Share: se `st.session_state.xp_share_log` estiver definido, exibe chips azuis com nome e XP recebido por cada Pokémon da equipe na última distribuição (limpo após exibição); set em `calendario.py` via `xp_result["xp_share_distributed"]`
+- **Banner de spawn do treino:** se `st.session_state.team_spawn_notice` estiver definido, exibe sprite e nome do Pokémon que apareceu durante a sessão de exercício (limpo após exibição); set em `treino.py` via `do_exercise_event()` com `source="exercise"`
+- Log de XP Share: se `st.session_state.xp_share_log` estiver definido, exibe chips azuis com nome e XP recebido por cada Pokémon da equipe na última distribuição (limpo após exibição); set em `calendario.py` via `xp_result["xp_share_distributed"]` e em `treino.py` via `xp_result["xp_share_distributed"]`
 - Logout: sidebar → botão "Sair" (deleta cookie + limpa session_state)
 
 ### `pages/pokedex.py`
@@ -559,14 +581,14 @@ def _resolve_asset(local_path: str) -> str:
 - Streak stats: streak atual, check-ins do mês, moedas totais, dias para próximo spawn
 - Resultado do check-in exibe cards encadeados: base (moeda + streak) → XP Share (se dia bônus) → spawn (se rolou) → **XP ganho** → **Level Up** (se subiu) → **Evolução** (se evoluiu)
 
-### `pages/biblioteca.py` *(Phase 2 — não implementado)*
+### `pages/biblioteca.py`
 - Grade 4 colunas de todos os exercícios do catálogo (`get_exercises()`)
 - Card: GIF thumbnail via `gif_url`, `name_pt`, tags de `body_parts`, badge de tipo Pokémon colorido
 - Filtros no topo: busca por nome, multiselect de grupo muscular (de `get_muscle_groups()`), body part (de `get_distinct_body_parts()`), equipamento
 - Expander de detalhes: GIF em tamanho completo, músculos alvo completos, explicação da afinidade de tipo (ex.: "Exercícios de peito invocam Pokémon do tipo Lutador")
 - Página somente leitura — sem escrita no banco
 
-### `pages/rotinas.py` *(Phase 2 — não implementado)*
+### `pages/rotinas.py`
 - Árvore expansível: Rotina (`workout_sheets`) → Dia (`workout_days`) → Exercícios prescritos (`workout_day_exercises`)
 - "Nova Rotina": input de nome → `create_workout_sheet()` → expande automaticamente
 - "Adicionar Dia": input de nome dentro da rotina → `create_workout_day()`
@@ -575,16 +597,16 @@ def _resolve_asset(local_path: str) -> str:
 - Deletar exercício/dia/rotina com confirmação (cascata via FK no banco) → funções `delete_*` e `remove_exercise_from_day()`
 - Sets/reps aqui são **prescrição padrão** para o Import Default; não são valores de log real
 
-### `pages/treino.py` *(Phase 2 — não implementado)*
-- Date picker (padrão = hoje) + seleção de Rotina e Dia (via `get_workout_days()`)
-- Botão "⬇ Importar Padrão": chama `get_day_exercises(day_id)` e popula tabela editável
+### `pages/treino.py`
+- Date picker (padrão = hoje) + seleção de Rotina e Dia (via `get_sheet_days()`)
+- Botão "⬇ Importar Padrão": chama `get_day_exercises_for_builder(day_id)` e popula tabela editável
 - Tabela de exercícios editável: cada linha tem nome, sets, reps, peso (kg); botão de remoção por linha; botão de adição de linha nova
 - Sessão livre: quando sem rotina selecionada, exibe apenas a tabela vazia para preenchimento manual
-- "✅ Registrar Treino": chama `do_exercise_event(user_id, exercises, day_id)`, exibe card de resultado (XP ganho, cap indicator, spawn se rolou, level-up se subiu)
-- Progress bar de cap diário: XP hoje / 300 — laranja > 200 XP, vermelho quando capped
+- "✅ Registrar Treino": chama `do_exercise_event(user_id, exercises, day_id)`, exibe card de resultado (XP ganho, cap indicator, spawn se rolou, level-up se subiu, milestones de streak)
+- Progress bar de cap diário: XP hoje / 300 — via `get_daily_xp_from_exercise()`; laranja > 200 XP, vermelho quando capped
 - Streak de treino no topo (independente do streak de check-in), via `get_workout_streak()`
-- Histórico: últimos 7 dias em tabela (`get_workout_history()`)
-- Após resultado: define `st.session_state.team_evo_notice` / `st.session_state.xp_share_log` se aplicável
+- Histórico: últimos 7 dias em tabela (`get_workout_history()`) com badge 🌟 se houve spawn
+- Após resultado: define `st.session_state.team_evo_notice` (evolução), `st.session_state.team_shed_notice` (Shedinja), `st.session_state.team_spawn_notice` (spawn), `st.session_state.xp_share_log` se aplicável
 
 ### `pages/login.py`
 - Tabs "Entrar" / "Criar conta"
@@ -732,31 +754,13 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
 - Deploy em produção: Streamlit Cloud com CDN fallback para imagens
 - Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
+- **Phase 2 — Módulo de treinos completo:**
+  - Biblioteca de exercícios (`biblioteca.py`): grade 4 colunas, GIF thumbnail, badge de tipo Pokémon, filtros por nome/grupo muscular/equipamento, expander de detalhes
+  - Workout Builder (`rotinas.py`): árvore expansível Rotina → Dia → Exercícios, CRUD completo com confirmação de cascata, sets/reps editáveis inline
+  - Routine Log (`treino.py`): date picker, Import Default, tabela editável, cap diário 300 XP, streak de treino, histórico 7 dias, milestones de streak (7/30 dias)
+  - XP e spawn do treino fluem para `equipe.py` via `team_spawn_notice`, `team_evo_notice`, `team_shed_notice`, `xp_share_log`
 
-### A implementar (Phase 2)
-
-**Workout Library (`pages/biblioteca.py`)**
-- [ ] Catálogo Pokédex-style de 152 exercícios em grade 4 colunas
-- [ ] Cards: GIF thumbnail, `name_pt`, body part tags, badge de tipo Pokémon (cor de `type_colors.py`)
-- [ ] Filtros: busca por nome, multiselect de grupo muscular, body part e equipamento
-- [ ] Expander de detalhes: GIF completo, músculos alvo, explicação da afinidade de tipo
-
-**Workout Builder (`pages/rotinas.py`)**
-- [ ] Implementar write helpers em `db.py`: `get_workout_sheets()`, `create_workout_sheet()`, `delete_workout_sheet()`, `create_workout_day()`, `delete_workout_day()`, `add_exercise_to_day()`, `update_day_exercise()`, `remove_exercise_from_day()`
-- [ ] Árvore expansível: Rotina → Dia → Exercícios prescritos (sets/reps editáveis inline)
-- [ ] Fluxos: Nova Rotina, Adicionar Dia, Adicionar Exercício (busca na Biblioteca), Editar, Deletar com confirmação
-
-**Routine Log (`pages/treino.py`)**
-- [ ] Date picker (padrão = hoje), seleção de Rotina + Dia
-- [ ] Botão "⬇ Importar Padrão" → `get_day_exercises()` popula tabela editável de séries/reps/peso
-- [ ] Tabela de exercícios editável: adicionar linha, deletar linha, editar sets/reps/peso
-- [ ] "✅ Registrar Treino" → `do_exercise_event()` → card de resultado (XP, spawn, level-up)
-- [ ] Progress bar de cap diário (XP hoje / 300), streak de treino no topo
-- [ ] Histórico dos últimos 7 dias em tabela
-
-**Infraestrutura comum**
-- [ ] Adicionar "Biblioteca 📚", "Rotinas 📋", "Treino 🏋️" à ordem de navegação em `app.py`
-- [ ] Atualizar `equipe.py` para exibir banner de spawn com `source="exercise"` (reutilizar lógica existente)
+### A implementar
 
 **Opcional**
 - [ ] Formas de Paldea — popular com `seed_regional_species.py`
