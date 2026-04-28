@@ -66,10 +66,12 @@ st.markdown("""
 .result-card {
     border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; border: 1px solid;
 }
-.result-card.success  { background: rgba(47,158,68,0.12); border-color: rgba(47,158,68,0.5); }
-.result-card.spawned  { background: rgba(112,56,248,0.12); border-color: rgba(112,56,248,0.5); }
-.result-card.levelup  { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.5); }
-.result-card.evolution{ background: #1f0f2e; border-color: #BC8CFF; }
+.result-card.success   { background: rgba(47,158,68,0.12); border-color: rgba(47,158,68,0.5); }
+.result-card.spawned   { background: rgba(112,56,248,0.12); border-color: rgba(112,56,248,0.5); }
+.result-card.shiny     { background: rgba(255,215,0,0.10); border-color: rgba(255,215,0,0.6); }
+.result-card.levelup   { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.5); }
+.result-card.evolution { background: #1f0f2e; border-color: #BC8CFF; }
+.result-card.milestone { background: rgba(255,179,71,0.12); border-color: rgba(255,179,71,0.55); }
 .result-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 6px; }
 .result-body  { color: #8b949e; font-size: 0.85rem; }
 .spawn-name   { font-size: 1.15rem; font-weight: 800; color: #A27DFA; }
@@ -318,11 +320,43 @@ if res:
             unsafe_allow_html=True,
         )
 
+        # Milestone banners
+        milestone = res.get("milestone")
+        streak_val = res.get("streak", 0)
+        if milestone == "first_workout":
+            bonus_xp = res.get("milestone_xp", 50)
+            st.markdown(
+                f"<div class='result-card milestone'>"
+                f"<div class='result-title'>🎉 Primeiro treino! +{bonus_xp} XP bônus</div>"
+                f"<div class='result-body'>Parabéns por começar sua jornada! "
+                f"Bônus de XP concedido fora do cap diário.</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        elif milestone and milestone.startswith("streak_"):
+            if streak_val >= 30 and streak_val % 30 == 0:
+                st.markdown(
+                    f"<div class='result-card milestone'>"
+                    f"<div class='result-title'>🌟 {streak_val} dias de streak! Spawn shiny garantido!</div>"
+                    f"<div class='result-body'>Dedicação lendária — um Pokémon shiny aparece durante o treino!</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            elif streak_val >= 7 and streak_val % 7 == 0:
+                st.markdown(
+                    f"<div class='result-card milestone'>"
+                    f"<div class='result-title'>🔥 {streak_val} dias de streak! Spawn garantido!</div>"
+                    f"<div class='result-body'>Uma semana de consistência — um Pokémon aparece durante o treino!</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
         # Spawn
         if res.get("spawned"):
-            pk      = res["spawned"]
-            sp_path = pk.get("sprite_url", "")
-            b64     = None
+            pk        = res["spawned"]
+            is_shiny  = pk.get("is_shiny", False)
+            sp_path   = pk.get("sprite_url", "")
+            b64       = None
             if sp_path:
                 if sp_path.startswith("http"):
                     b64 = get_image_as_base64(sp_path)
@@ -330,16 +364,20 @@ if res:
                     full = os.path.join(BASE_DIR, sp_path.lstrip("/\\"))
                     hq   = full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
                     b64  = get_image_as_base64(hq) or get_image_as_base64(full)
+            shiny_filter = "filter:drop-shadow(0 0 10px gold) saturate(1.6)" if is_shiny else ""
             img_html = (
-                f"<img src='data:image/png;base64,{b64}' style='width:88px;image-rendering:pixelated'>"
+                f"<img src='data:image/png;base64,{b64}' style='width:88px;image-rendering:pixelated;{shiny_filter}'>"
                 if b64 else "<div style='font-size:2.6rem'>❓</div>"
             )
+            shiny_badge = " ✨ <span style='color:#FFD700;font-weight:800'>SHINY</span>" if is_shiny else ""
+            card_cls    = "shiny" if is_shiny else "spawned"
+            spawn_title = "🌟 Pokémon SHINY apareceu!" if is_shiny else "✨ Pokémon apareceu durante o treino!"
             st.markdown(
-                f"<div class='result-card spawned' style='display:flex;align-items:center;gap:18px'>"
+                f"<div class='result-card {card_cls}' style='display:flex;align-items:center;gap:18px'>"
                 f"<div>{img_html}</div>"
                 f"<div>"
-                f"<div class='result-title'>✨ Pokémon apareceu durante o treino!</div>"
-                f"<div class='spawn-name'>{pk['name']}</div>"
+                f"<div class='result-title'>{spawn_title}</div>"
+                f"<div class='spawn-name'>{pk['name']}{shiny_badge}</div>"
                 f"<div class='result-body' style='margin-top:4px'>"
                 f"#{str(pk['id']).zfill(4)} foi capturado e adicionado à sua coleção.</div>"
                 f"</div></div>",

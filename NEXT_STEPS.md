@@ -239,11 +239,11 @@ Date-specific workout session logging.
 - Workout streak counter at top (independent of check-in streak, from `get_workout_streak()`)
 - Free session: skip Rotina/Dia selectors; show only the exercise table + "Adicionar Exercício"
 
-### 2.8 Milestone Rewards
+### 2.8 Milestone Rewards ✅ DONE
 
-- [ ] 7-day workout streak → guaranteed spawn (no roll)
-- [ ] 30-day streak → guaranteed shiny spawn (set `is_shiny=True` in capture)
-- [ ] First workout → +50 bonus XP one-time
+- [x] 7-day workout streak → guaranteed spawn (no roll)
+- [x] 30-day streak → guaranteed shiny spawn (set `is_shiny=True` in capture)
+- [x] First workout → +50 bonus XP one-time
 
 ---
 

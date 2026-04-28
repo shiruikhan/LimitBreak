@@ -1850,6 +1850,7 @@ def get_battle_detail(battle_id: int) -> list:
 # ── Exercícios e treino ────────────────────────────────────────────────────────
 
 _EXERCISE_XP_DAILY_CAP = 300
+_FIRST_WORKOUT_BONUS_XP = 50
 
 # body_parts (campo de exercises) → slug de tipo Pokémon para spawn temático
 _BODY_PART_TYPE: dict[str, str] = {
@@ -2061,11 +2062,11 @@ def _calc_exercise_xp(exercises: list[dict]) -> int:
     return max(0, total)
 
 
-def _spawn_typed(cur, user_id: str, type_slug: str | None = None):
+def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool = False):
     """Captura um Pokémon não capturado (tipo opcional) dentro de uma transação aberta.
 
     Tenta primeiro com filtro de tipo; se não encontrar, usa qualquer espécie.
-    Retorna (species_id, {id, name, sprite_url, type1}) ou (None, None).
+    Retorna (species_id, {id, name, sprite_url, type1, is_shiny}) ou (None, None).
     """
     def _query_species(with_type: bool):
         if with_type:
@@ -2102,16 +2103,16 @@ def _spawn_typed(cur, user_id: str, type_slug: str | None = None):
     species_id = row[0]
     cur.execute("""
         INSERT INTO user_pokemon (
-            user_id, species_id, level, xp,
+            user_id, species_id, level, xp, is_shiny,
             stat_hp, stat_attack, stat_defense,
             stat_sp_attack, stat_sp_defense, stat_speed
         )
-        SELECT %s, %s, 5, 0,
+        SELECT %s, %s, 5, 0, %s,
                base_hp, base_attack, base_defense,
                base_sp_attack, base_sp_defense, base_speed
         FROM pokemon_species WHERE id = %s
         RETURNING id;
-    """, (user_id, species_id, species_id))
+    """, (user_id, species_id, is_shiny, species_id))
     up_id = cur.fetchone()[0]
 
     cur.execute("SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;", (user_id,))
@@ -2124,13 +2125,17 @@ def _spawn_typed(cur, user_id: str, type_slug: str | None = None):
         )
 
     cur.execute("""
-        SELECT p.id, p.name, p.sprite_url, t.name AS type1
+        SELECT p.id, p.name, p.sprite_url, p.sprite_shiny_url, t.name AS type1
         FROM pokemon_species p
         LEFT JOIN pokemon_types t ON p.type1_id = t.id
         WHERE p.id = %s;
     """, (species_id,))
     pdata = cur.fetchone()
-    return species_id, {"id": pdata[0], "name": pdata[1], "sprite_url": pdata[2], "type1": pdata[3]}
+    sprite = (pdata[3] if is_shiny and pdata[3] else pdata[2])
+    return species_id, {
+        "id": pdata[0], "name": pdata[1], "sprite_url": sprite,
+        "type1": pdata[4], "is_shiny": is_shiny,
+    }
 
 
 def do_exercise_event(
@@ -2158,6 +2163,9 @@ def do_exercise_event(
         "spawn_rolled": False,
         "spawned":      None,
         "xp_result":    None,
+        "milestone":    None,
+        "milestone_xp": 0,
+        "streak":       0,
         "error":        None,
     }
 
@@ -2184,6 +2192,10 @@ def do_exercise_event(
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # Primeiro treino? (antes do INSERT)
+            cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
+            is_first_workout = cur.fetchone()[0] == 0
+
             # Busca body_parts dos exercícios para determinar tipo de spawn
             ex_ids = [ex["exercise_id"] for ex in exercises]
             cur.execute(
@@ -2216,10 +2228,42 @@ def do_exercise_event(
                       _json.dumps(ex.get("sets_data", [])),
                       ex.get("notes")))
 
-            # Spawn temático (25% de chance)
+            # Streak pós-insert (inclui a sessão recém inserida)
+            cur.execute("""
+                SELECT DISTINCT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d
+                FROM workout_logs WHERE user_id = %s ORDER BY d DESC;
+            """, (user_id,))
+            streak_days = [r[0] for r in cur.fetchall()]
+            new_streak = 0
+            check_day = _today_brt()
+            for d in streak_days:
+                if d == check_day:
+                    new_streak += 1
+                    check_day -= datetime.timedelta(days=1)
+                elif d < check_day:
+                    break
+            result["streak"] = new_streak
+
+            # Milestone
+            force_spawn = False
+            force_shiny = False
+            if is_first_workout:
+                result["milestone"] = "first_workout"
+            if new_streak >= 30 and new_streak % 30 == 0:
+                force_spawn = True
+                force_shiny = True
+                if result["milestone"] != "first_workout":
+                    result["milestone"] = f"streak_{new_streak}"
+            elif new_streak >= 7 and new_streak % 7 == 0:
+                force_spawn = True
+                if result["milestone"] != "first_workout":
+                    result["milestone"] = f"streak_{new_streak}"
+
+            # Spawn temático
             result["spawn_rolled"] = True
-            if random.random() < 0.25:
-                species_id, spawn_info = _spawn_typed(cur, user_id, type_slug)
+            should_spawn = force_spawn or (random.random() < 0.25)
+            if should_spawn:
+                species_id, spawn_info = _spawn_typed(cur, user_id, type_slug, is_shiny=force_shiny)
                 if species_id:
                     result["spawned"] = spawn_info
                     cur.execute(
@@ -2231,6 +2275,7 @@ def do_exercise_event(
         result["xp_earned"] = xp_to_award
 
         # XP para o Pokémon slot 1 — transação separada após commit
+        slot1_id = None
         try:
             with get_connection().cursor() as cur2:
                 cur2.execute("""
@@ -2239,9 +2284,30 @@ def do_exercise_event(
                 """, (user_id,))
                 row = cur2.fetchone()
             if row:
-                result["xp_result"] = award_xp(row[0], xp_to_award, "exercise")
+                slot1_id = row[0]
+                result["xp_result"] = award_xp(slot1_id, xp_to_award, "exercise")
         except Exception:
             pass
+
+        # Bônus de primeiro treino (+50 XP fora do cap diário)
+        if is_first_workout and slot1_id:
+            try:
+                bonus_res = award_xp(slot1_id, _FIRST_WORKOUT_BONUS_XP, "first_workout_bonus")
+                result["milestone_xp"] = _FIRST_WORKOUT_BONUS_XP
+                if result["xp_result"] and not result["xp_result"].get("error"):
+                    result["xp_result"]["levels_gained"] = (
+                        result["xp_result"].get("levels_gained", 0)
+                        + bonus_res.get("levels_gained", 0)
+                    )
+                    result["xp_result"]["new_level"] = bonus_res.get("new_level", result["xp_result"].get("new_level"))
+                    result["xp_result"]["new_xp"]    = bonus_res.get("new_xp",    result["xp_result"].get("new_xp"))
+                    evos = result["xp_result"].get("evolutions", [])
+                    evos.extend(bonus_res.get("evolutions", []))
+                    result["xp_result"]["evolutions"] = evos
+                else:
+                    result["xp_result"] = bonus_res
+            except Exception:
+                pass
 
         return result
 
