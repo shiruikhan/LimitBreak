@@ -5,6 +5,15 @@ from utils.db import (
     get_user_team, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
     get_xp_share_status, open_loot_box, use_xp_share_item,
+    use_nature_mint,
+)
+
+_ALL_NATURES = (
+    "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
+    "Bold", "Docile", "Relaxed", "Impish", "Lax",
+    "Timid", "Hasty", "Serious", "Jolly", "Naive",
+    "Modest", "Mild", "Quiet", "Bashful", "Rash",
+    "Calm", "Gentle", "Sassy", "Careful", "Quirky",
 )
 
 BASE_DIR = os.getcwd()
@@ -98,9 +107,10 @@ team         = get_user_team(user_id)
 xp_share_st  = get_xp_share_status(user_id)
 
 # Catálogo por categoria
-stones      = [i for i in items if i["category"] == "stone"]
-stat_boosts = [i for i in items if i["category"] == "stat_boost"]
-others      = [i for i in items if i["category"] == "other" and i["slug"] != "loot-box"]
+stones        = [i for i in items if i["category"] == "stone"]
+stat_boosts   = [i for i in items if i["category"] == "stat_boost"]
+nature_mints  = [i for i in items if i["category"] == "nature_mint"]
+others        = [i for i in items if i["category"] == "other" and i["slug"] != "loot-box"]
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
@@ -178,6 +188,12 @@ with tab_shop:
     st.caption("Aumentam permanentemente o stat do Pokémon escolhido. Use na aba Mochila.")
     _item_grid(stat_boosts, cols=6)
 
+    # ── Nature Mint ────────────────────────────────────────────────────────────
+    if nature_mints:
+        st.markdown("<div class='section-title'>🌿 Nature Mint — Troca de Natureza</div>", unsafe_allow_html=True)
+        st.caption("Troca permanentemente a natureza de um Pokémon. Use na aba Mochila.")
+        _item_grid(nature_mints, cols=4)
+
     # ── Outros ────────────────────────────────────────────────────────────────
     st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
     st.caption("Efeitos ativados automaticamente na compra — não vão para a mochila.")
@@ -239,10 +255,12 @@ with tab_bag:
         item_map = {i["id"]: i for i in items}
 
         # Separa por categoria para exibição organizada
-        inv_stat   = [(iid, qty) for iid, qty in inventory.items()
-                      if item_map.get(iid, {}).get("category") == "stat_boost"]
-        inv_stones = [(iid, qty) for iid, qty in inventory.items()
-                      if item_map.get(iid, {}).get("category") == "stone"]
+        inv_stat        = [(iid, qty) for iid, qty in inventory.items()
+                           if item_map.get(iid, {}).get("category") == "stat_boost"]
+        inv_nature_mint = [(iid, qty) for iid, qty in inventory.items()
+                           if item_map.get(iid, {}).get("category") == "nature_mint"]
+        inv_stones      = [(iid, qty) for iid, qty in inventory.items()
+                           if item_map.get(iid, {}).get("category") == "stone"]
         inv_loot_boxes = [(iid, qty) for iid, qty in inventory.items()
                           if item_map.get(iid, {}).get("slug") == "loot-box"
                           or item_map.get(iid, {}).get("category") == "loot_box"]
@@ -295,6 +313,60 @@ with tab_bag:
                         st.session_state.shop_msg      = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
+
+        # ── Nature Mint ───────────────────────────────────────────────────────
+        if inv_nature_mint:
+            st.markdown("<div class='section-title'>🌿 Nature Mint</div>", unsafe_allow_html=True)
+
+            if not team:
+                st.warning("Você não tem Pokémon na equipe para usar Nature Mint.")
+            else:
+                mint_team_options = {
+                    f"{p['name']} (Nv. {p['level']}) — Slot {p['slot']}": p
+                    for p in team
+                }
+                mint_target_label = st.selectbox(
+                    "Aplicar em qual Pokémon da equipe?",
+                    options=list(mint_team_options.keys()),
+                    key="bag_mint_target_pokemon",
+                )
+                mint_target = mint_team_options[mint_target_label]
+                mint_target_id = mint_target["user_pokemon_id"]
+                current_nature = mint_target.get("nature_name") or "Desconhecida"
+
+                st.caption(f"Natureza atual: **{current_nature}**")
+
+                available_natures = [n for n in _ALL_NATURES if n != current_nature]
+                new_nature = st.selectbox(
+                    "Nova natureza:",
+                    options=available_natures,
+                    key="bag_mint_new_nature",
+                )
+
+                st.write("")
+                cols_mint = st.columns(min(len(inv_nature_mint), 4))
+                for idx, (iid, qty) in enumerate(inv_nature_mint):
+                    item = item_map[iid]
+                    with cols_mint[idx % 4]:
+                        st.markdown(
+                            f"<div class='inv-card'>"
+                            f"<div class='inv-icon'>{item['icon']}</div>"
+                            f"<div class='inv-info'>"
+                            f"<div class='inv-name'>{item['name']}</div>"
+                            f"<div class='inv-qty'>Quantidade: {qty}</div>"
+                            f"</div></div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.write("")
+                        if st.button(
+                            f"Usar em {mint_target['name']}",
+                            key=f"use_mint_{iid}",
+                            use_container_width=True,
+                        ):
+                            ok, msg = use_nature_mint(user_id, iid, mint_target_id, new_nature)
+                            st.session_state.shop_msg      = msg
+                            st.session_state.shop_msg_type = "success" if ok else "error"
+                            st.rerun()
 
         # ── Pedras de Evolução ─────────────────────────────────────────────────
         if inv_stones:

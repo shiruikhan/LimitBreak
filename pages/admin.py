@@ -2,7 +2,7 @@ import streamlit as st
 from utils.db import (
     is_admin, get_all_users, admin_update_user, admin_delete_user,
     set_admin_role, get_system_logs, get_global_stats, log_admin_action,
-    admin_gift_loot_box,
+    admin_gift_loot_box, admin_create_exercise, get_exercises,
 )
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_overview, tab_users, tab_gift, tab_logs = st.tabs(["📊 Visão Geral", "👥 Usuários", "🎁 Gift Loot Box", "📋 Logs do Sistema"])
+tab_overview, tab_users, tab_gift, tab_exercises, tab_logs = st.tabs(["📊 Visão Geral", "👥 Usuários", "🎁 Gift Loot Box", "📝 Exercícios", "📋 Logs do Sistema"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Overview
@@ -213,7 +213,96 @@ with tab_gift:
             st.error(msg)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — System Logs
+# TAB 4 — Exercises
+# ══════════════════════════════════════════════════════════════════════════════
+_VALID_BODY_PARTS = [
+    "Peitoral", "Braços", "Antebraços", "Costas", "Ombros",
+    "Coxas", "Pernas", "Cintura", "Pescoço", "Cardio",
+]
+
+with tab_exercises:
+    st.markdown("### 📝 Criar Exercício")
+
+    with st.form("create_exercise_form"):
+        col_en, col_pt = st.columns(2)
+        with col_en:
+            ex_name    = st.text_input("Nome (inglês) *", placeholder="Barbell Bench Press")
+        with col_pt:
+            ex_name_pt = st.text_input("Nome (português) *", placeholder="Supino com Barra")
+
+        col_bp, col_eq = st.columns(2)
+        with col_bp:
+            ex_body_parts = st.multiselect(
+                "Partes do corpo *",
+                options=_VALID_BODY_PARTS,
+                help="Define a afinidade de tipo Pokémon para spawns temáticos",
+            )
+        with col_eq:
+            ex_equipments_raw = st.text_input(
+                "Equipamentos (separados por vírgula)",
+                placeholder="barbell, bench",
+            )
+
+        ex_muscles_raw = st.text_input(
+            "Músculos alvo (separados por vírgula)",
+            placeholder="pectorals, triceps, anterior deltoid",
+        )
+
+        ex_gif_url = st.text_input(
+            "URL do GIF (opcional)",
+            placeholder="https://v2.exercisedb.io/image/...",
+        )
+
+        submitted = st.form_submit_button("➕ Criar Exercício", type="primary")
+
+    if submitted:
+        muscles   = [m.strip() for m in ex_muscles_raw.split(",") if m.strip()]
+        equips    = [e.strip() for e in ex_equipments_raw.split(",") if e.strip()]
+        ok, msg, new_id = admin_create_exercise(
+            ex_name, ex_name_pt, muscles, ex_body_parts, equips, ex_gif_url or None,
+        )
+        if ok:
+            log_admin_action(
+                user_id, "create_exercise",
+                target_type="exercise", target_id=str(new_id),
+                details={"name": ex_name, "name_pt": ex_name_pt},
+            )
+            st.success(msg)
+        else:
+            st.error(msg)
+
+    st.divider()
+    st.markdown("### 📋 Exercícios cadastrados")
+    exercises = get_exercises()
+    st.caption(f"{len(exercises)} exercício(s) no catálogo")
+
+    ex_search = st.text_input("🔍 Buscar", placeholder="Nome do exercício...", key="admin_ex_search")
+    filtered = [
+        e for e in exercises
+        if not ex_search or ex_search.lower() in (e["name"] or "").lower()
+        or ex_search.lower() in (e["name_pt"] or "").lower()
+    ]
+
+    for ex in filtered[:100]:
+        label = ex["name_pt"] or ex["name"]
+        with st.expander(f"#{ex['id']} — {label}"):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(f"**EN:** {ex['name']}")
+                st.markdown(f"**PT:** {ex['name_pt'] or '—'}")
+                st.markdown(f"**Partes do corpo:** {', '.join(ex['body_parts'] or [])}")
+            with c2:
+                st.markdown(f"**Músculos:** {', '.join(ex['target_muscles'] or [])}")
+                st.markdown(f"**Equipamentos:** {', '.join(ex['equipments'] or [])}")
+            if ex["gif_url"]:
+                st.markdown(f"**GIF:** [{ex['gif_url'][:60]}...]({ex['gif_url']})")
+
+    if len(filtered) > 100:
+        st.caption(f"Mostrando 100 de {len(filtered)} resultados — refine a busca.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — System Logs
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_logs:
     fc1, fc2, fc3 = st.columns([2, 2, 1])

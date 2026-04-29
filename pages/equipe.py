@@ -5,9 +5,10 @@ from utils.db import (
     get_user_team, get_user_bench, get_user_profile, swap_team_slots,
     remove_from_team, add_to_team, get_image_as_base64,
     get_available_moves, get_active_moves, equip_move, unequip_move,
-    get_xp_share_status,
+    get_xp_share_status, get_user_eggs,
 )
 from utils.type_colors import get_type_color
+from utils.abilities import get_ability_description as _get_ability_desc
 
 BASE_DIR   = os.getcwd()
 XP_PER_LV  = 100   # XP needed = level * XP_PER_LV
@@ -183,6 +184,44 @@ st.markdown("""
     border-radius: 9999px; padding: 6px 14px;
     font-weight: 800; font-size: 0.85rem; color: #0d1117;
 }
+
+/* Ability badge (slot 1) */
+.ability-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.4);
+    border-radius: 9999px; padding: 3px 10px;
+    font-size: 0.6rem; font-weight: 700; color: #d8b4fe;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-top: 5px;
+}
+
+/* Egg section */
+.egg-section-title {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 1.1rem; letter-spacing: 3px; color: #e6edf3;
+    text-transform: uppercase; margin-bottom: 10px;
+}
+.egg-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 14px;
+    padding: 12px 14px; text-align: center;
+}
+.egg-card.rarity-uncommon { border-color: rgba(59,130,246,0.5); }
+.egg-card.rarity-rare     { border-color: rgba(168,85,247,0.6); }
+.egg-rarity {
+    font-size: 0.58rem; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; margin-bottom: 4px;
+}
+.egg-rarity.common   { color: #8b949e; }
+.egg-rarity.uncommon { color: #58a6ff; }
+.egg-rarity.rare     { color: #d2a8ff; }
+.egg-progress-bg {
+    background: #21262d; border-radius: 9999px; height: 6px;
+    margin: 6px 0 4px; overflow: hidden;
+}
+.egg-progress-fill { height: 100%; border-radius: 9999px; }
+.egg-progress-fill.common   { background: #4b5563; }
+.egg-progress-fill.uncommon { background: #3b82f6; }
+.egg-progress-fill.rare     { background: linear-gradient(90deg, #8b5cf6, #d946ef); }
+.egg-remaining { font-size: 0.62rem; color: #8b949e; }
 
 /* Move panel */
 .move-panel {
@@ -475,12 +514,25 @@ for slot in range(1, 7):
 
             stat_html = _stat_bars(member)
             nature_html = _nature_html(member)
+
+            ability_html = ""
+            if slot == 1:
+                ability_desc = _get_ability_desc(member.get("ability_slug"))
+                if ability_desc:
+                    aslug = member["ability_slug"]
+                    ability_html = (
+                        f"<div style='text-align:center'>"
+                        f"<span class='ability-badge'>⚡ {aslug}</span>"
+                        f"</div>"
+                    )
+
             st.markdown(
                 f"<div class='{card_cls}'>{lbl_html}{img_tag}"
                 f"<div class='poke-card-name'>#{member['species_id']} {member['name'].upper()}</div>"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
                 f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {member['level']}</div>"
                 f"{nature_html}"
+                f"{ability_html}"
                 f"<div class='xp-track'><div class='xp-fill' style='width:{prog*100:.0f}%'></div></div>"
                 f"<div class='xp-label'>{member['xp']} / {needed} XP</div>"
                 f"{stat_html}"
@@ -658,6 +710,32 @@ if sel_slot and sel_slot in team_by_slot:
                             if st.button("↩ Trocar", key=f"repl_init_{up_id}_{mv['id']}", use_container_width=True):
                                 st.session_state.replacing_move_id = mv["id"]
                                 st.rerun()
+
+# ── Ovos ──────────────────────────────────────────────────────────────────────
+eggs = get_user_eggs(user_id)
+if eggs:
+    st.markdown("<div class='egg-section-title'>🥚 Ovos em Incubação</div>", unsafe_allow_html=True)
+    _rarity_emoji = {"common": "⚪", "uncommon": "🔵", "rare": "🟣"}
+    egg_cols = st.columns(min(len(eggs), 6))
+    for idx, egg in enumerate(eggs):
+        col = egg_cols[idx % 6]
+        with col:
+            rar   = egg["rarity"]
+            done  = egg["workouts_done"]
+            total = egg["workouts_to_hatch"]
+            pct   = min(done / total, 1.0) if total else 1.0
+            emoji = _rarity_emoji.get(rar, "⚪")
+            st.markdown(
+                f"<div class='egg-card rarity-{rar}'>"
+                f"<div style='font-size:2.2rem'>🥚</div>"
+                f"<div class='egg-rarity {rar}'>{emoji} {rar.upper()}</div>"
+                f"<div class='egg-progress-bg'>"
+                f"<div class='egg-progress-fill {rar}' style='width:{pct*100:.0f}%'></div>"
+                f"</div>"
+                f"<div class='egg-remaining'>{done}/{total} treinos</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 # ── Banco de Pokémon ───────────────────────────────────────────────────────────
 with st.spinner("Carregando banco..."):

@@ -9,6 +9,7 @@ from utils.db import (
     get_image_as_base64, _today_brt, check_and_award_achievements,
 )
 from utils.type_colors import get_type_color
+from utils.abilities import get_ability_description as _get_ability_desc, WORKOUT_ABILITIES as _WORKOUT_ABILITIES
 
 if not st.session_state.get("user"):
     st.warning("Faça login para acessar esta página.")
@@ -73,9 +74,13 @@ st.markdown("""
 .result-card.evolution { background: #1f0f2e; border-color: #BC8CFF; }
 .result-card.milestone { background: rgba(255,179,71,0.12); border-color: rgba(255,179,71,0.55); }
 .result-card.pr       { background: rgba(234,179,8,0.10);  border-color: rgba(234,179,8,0.55); }
+.result-card.egg-hatch { background: rgba(236,72,153,0.10); border-color: rgba(236,72,153,0.5); }
+.result-card.ability  { background: rgba(168,85,247,0.08); border-color: rgba(168,85,247,0.4); }
 .pr-row { display:flex; justify-content:space-between; align-items:center; margin:4px 0; font-size:0.85rem; }
 .pr-name { color:#e6edf3; font-weight:600; }
 .pr-weight { color:#FDE047; font-weight:700; }
+.egg-hatch-name { font-size:1.05rem; font-weight:800; color:#f472b6; margin-top:4px; }
+.ability-row { font-size:0.82rem; color:#c4b5fd; margin-top:4px; }
 .result-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 6px; }
 .result-body  { color: #8b949e; font-size: 0.85rem; }
 .spawn-name   { font-size: 1.15rem; font-weight: 800; color: #A27DFA; }
@@ -348,6 +353,75 @@ if res:
                 f"<div class='result-card pr'>"
                 f"<div class='result-title'>🏅 Recorde Pessoal! {pr_xp_note}</div>"
                 f"{pr_rows_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        # Ability activation card
+        abilfx = res.get("ability_effects") or {}
+        if abilfx:
+            aslug = abilfx.get("slug", "")
+            adesc = _get_ability_desc(aslug) or ""
+            notes = []
+            if "blaze_xp_after" in abilfx:
+                diff = abilfx["blaze_xp_after"] - abilfx["blaze_xp_before"]
+                notes.append(f"+{diff} XP bônus (Blaze)")
+            if "synchronize_bonus_xp" in abilfx:
+                notes.append(f"+{abilfx['synchronize_bonus_xp']} XP bônus para a equipe (Synchronize)")
+            if "pickup_item" in abilfx:
+                notes.append(f"Item obtido: {abilfx['pickup_item']} (Pickup)")
+            if "compound_eyes_rerolled" in abilfx:
+                notes.append("Spawn rerrolado (Compound Eyes)")
+            if "pressure_type" in abilfx:
+                notes.append(f"Spawn focado em {abilfx['pressure_type']} (Pressure)")
+            notes_html = "".join(f"<div class='ability-row'>• {n}</div>" for n in notes)
+            if notes:
+                st.markdown(
+                    f"<div class='result-card ability'>"
+                    f"<div class='result-title'>⚡ Habilidade ativa: {aslug}</div>"
+                    f"{notes_html}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Egg hatch banner
+        hatched = res.get("eggs_hatched") or []
+        for egg in hatched:
+            hatch_sprite = egg.get("sprite_url", "")
+            hatch_b64 = get_image_as_base64(hatch_sprite) if hatch_sprite else None
+            hatch_img = (
+                f"<img src='data:image/png;base64,{hatch_b64}' "
+                f"style='width:80px;image-rendering:pixelated'>"
+                if hatch_b64 else "<div style='font-size:2.4rem'>🐣</div>"
+            )
+            rarity_label = egg.get("rarity", "common").upper()
+            st.markdown(
+                f"<div class='result-card egg-hatch' style='display:flex;align-items:center;gap:16px'>"
+                f"<div>{hatch_img}</div>"
+                f"<div>"
+                f"<div class='result-title'>🥚 Ovo chocou! ({rarity_label})</div>"
+                f"<div class='egg-hatch-name'>{egg['name']}</div>"
+                f"<div class='result-body' style='margin-top:4px'>"
+                f"#{str(egg['species_id']).zfill(4)} foi capturado e adicionado à sua coleção!</div>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
+            st.session_state.team_spawn_notice = {
+                "source":     "egg_hatch",
+                "name":       egg["name"],
+                "id":         egg["species_id"],
+                "sprite_url": egg.get("sprite_url", ""),
+                "type1":      egg.get("type1"),
+            }
+
+        # Egg grant notification
+        granted = res.get("eggs_granted") or []
+        for eg in granted:
+            st.markdown(
+                f"<div class='result-card' style='background:rgba(16,185,129,0.08);"
+                f"border-color:rgba(16,185,129,0.4)'>"
+                f"<div class='result-title'>🥚 Novo ovo recebido! ({eg['rarity'].upper()})</div>"
+                f"<div class='result-body'>Treine mais {eg['workouts_to_hatch']} vezes para chocar.</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )

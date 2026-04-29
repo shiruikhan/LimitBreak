@@ -671,7 +671,8 @@ def get_user_team(user_id: str) -> list[dict]:
                        up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
                        p.base_hp, p.base_attack, p.base_defense,
                        p.base_sp_attack, p.base_sp_defense, p.base_speed,
-                       {nature_select}
+                       {nature_select},
+                       p.ability_slug
                 FROM user_team ut
                 JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species p ON up.species_id = p.id
@@ -692,6 +693,7 @@ def get_user_team(user_id: str) -> list[dict]:
                     "base_sp_attack": r[18], "base_sp_defense": r[19], "base_speed": r[20],
                     "nature_name": r[21],
                     "nature": _nature_payload(r[21]),
+                    "ability_slug": r[22] if len(r) > 22 else None,
                 }
                 for r in rows
             ]
@@ -1357,6 +1359,57 @@ def use_xp_share_item(user_id: str, item_id: int) -> tuple[bool, str]:
     except Exception as e:
         conn.rollback()
         return False, f"Erro ao ativar item: {e}"
+
+
+def use_nature_mint(user_id: str, item_id: int, user_pokemon_id: int, new_nature: str) -> tuple[bool, str]:
+    """Troca a natureza de um Pokémon. Consome 1 Nature Mint do inventário."""
+    if new_nature not in _ALL_NATURES:
+        return False, "Natureza inválida."
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name, category FROM shop_items WHERE id = %s;", (item_id,))
+            item = cur.fetchone()
+            if not item:
+                return False, "Item não encontrado."
+            iname, category = item
+            if category != "nature_mint":
+                return False, "Este item não pode ser usado aqui."
+
+            cur.execute(
+                "SELECT nature FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                (user_pokemon_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False, "Pokémon não encontrado na sua coleção."
+            current_nature = (row[0] or "").capitalize()
+            if current_nature == new_nature:
+                return False, f"Este Pokémon já tem a natureza {new_nature}."
+
+            cur.execute("""
+                SELECT quantity FROM user_inventory
+                WHERE user_id = %s AND item_id = %s FOR UPDATE;
+            """, (user_id, item_id))
+            inv = cur.fetchone()
+            if not inv or inv[0] < 1:
+                return False, "Você não possui este item."
+
+            cur.execute("""
+                UPDATE user_inventory SET quantity = quantity - 1
+                WHERE user_id = %s AND item_id = %s;
+            """, (user_id, item_id))
+            cur.execute(
+                "UPDATE user_pokemon SET nature = %s WHERE id = %s;",
+                (new_nature, user_pokemon_id),
+            )
+            _sync_user_pokemon_stats(cur, user_pokemon_id)
+
+        conn.commit()
+        return True, f"Natureza alterada para **{new_nature}** com sucesso! 🌿"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao usar Nature Mint: {e}"
 
 
 def open_loot_box(user_id: str, item_id: int) -> tuple[bool, str, dict | None]:
@@ -2787,6 +2840,10 @@ def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool
 _PR_XP_BONUS       = 50   # XP awarded per personal record
 _PR_MAX_PER_SESSION = 3   # cap on how many PR bonuses can fire in one session
 
+# Egg system (Release 2A)
+_EGG_MILESTONES: dict[int, str] = {25: "uncommon", 50: "rare", 100: "rare"}
+_EGG_WORKOUTS_TO_HATCH: dict[str, int] = {"common": 5, "uncommon": 8, "rare": 12}
+
 
 def _get_exercise_bests(cur, user_id: str, exercise_ids: list[int]) -> dict[int, tuple[float, int]]:
     """Returns {exercise_id: (best_weight, best_reps_at_best_weight)} from historical logs.
@@ -2865,6 +2922,125 @@ def _detect_prs(
     return prs
 
 
+def get_user_eggs(user_id: str) -> list[dict]:
+    """Returns all pending (unhatched) eggs for a user, oldest first."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT id, rarity, workouts_to_hatch, workouts_done, received_at
+                FROM user_eggs
+                WHERE user_id = %s AND hatched_at IS NULL
+                ORDER BY received_at;
+            """, (user_id,))
+            return [
+                {
+                    "id": r[0], "rarity": r[1],
+                    "workouts_to_hatch": r[2], "workouts_done": r[3],
+                    "received_at": r[4],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+def _pick_egg_species(cur, user_id: str, rarity: str) -> int | None:
+    """Picks a random spawnable species the user doesn't own yet, matching rarity tier."""
+    cur.execute("""
+        SELECT ps.id FROM pokemon_species ps
+        WHERE ps.is_spawnable = TRUE
+          AND ps.rarity_tier = %s
+          AND ps.id NOT IN (
+              SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
+          )
+        ORDER BY RANDOM() LIMIT 1;
+    """, (rarity, user_id))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _grant_eggs_if_milestone(cur, user_id: str, workout_count: int) -> list[dict]:
+    """Grants one egg if workout_count is exactly a milestone. Returns list of granted egg dicts."""
+    rarity = _EGG_MILESTONES.get(workout_count)
+    if not rarity:
+        return []
+    species_id = _pick_egg_species(cur, user_id, rarity)
+    if species_id is None:
+        species_id = _pick_egg_species(cur, user_id, "common")
+    if species_id is None:
+        return []
+    workouts_to_hatch = _EGG_WORKOUTS_TO_HATCH[rarity]
+    cur.execute("""
+        INSERT INTO user_eggs (user_id, species_id, rarity, workouts_to_hatch)
+        VALUES (%s, %s, %s, %s);
+    """, (user_id, species_id, rarity, workouts_to_hatch))
+    return [{"rarity": rarity, "workouts_to_hatch": workouts_to_hatch}]
+
+
+def _advance_and_hatch_eggs(cur, user_id: str) -> list[dict]:
+    """Increments workouts_done for all pending eggs; hatches any that are ready.
+
+    Returns list of hatched egg dicts: {species_id, name, sprite_url, type1, rarity}.
+    """
+    cur.execute("""
+        UPDATE user_eggs
+        SET workouts_done = workouts_done + 1
+        WHERE user_id = %s AND hatched_at IS NULL
+        RETURNING id, species_id, rarity, workouts_done, workouts_to_hatch;
+    """, (user_id,))
+    updated = cur.fetchall()
+
+    hatched: list[dict] = []
+    for egg_id, species_id, rarity, done, to_hatch in updated:
+        if done < to_hatch:
+            continue
+        up_id = _insert_user_pokemon(cur, user_id, species_id, level=5, xp=0, is_shiny=False)
+        if up_id is None:
+            continue
+        cur.execute("SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;", (user_id,))
+        used = {r[0] for r in cur.fetchall()}
+        free = next((s for s in range(1, 7) if s not in used), None)
+        if free:
+            cur.execute(
+                "INSERT INTO user_team (user_id, slot, user_pokemon_id) VALUES (%s, %s, %s);",
+                (user_id, free, up_id)
+            )
+        cur.execute("UPDATE user_eggs SET hatched_at = now() WHERE id = %s;", (egg_id,))
+        cur.execute("""
+            SELECT ps.name, ps.sprite_url, pt.name AS type1
+            FROM pokemon_species ps
+            LEFT JOIN pokemon_types pt ON pt.id = ps.type1_id
+            WHERE ps.id = %s;
+        """, (species_id,))
+        row = cur.fetchone()
+        if row:
+            hatched.append({
+                "species_id": species_id,
+                "name": row[0],
+                "sprite_url": row[1],
+                "type1": row[2],
+                "rarity": rarity,
+            })
+    return hatched
+
+
+def _get_slot1_ability(user_id: str) -> str | None:
+    """Returns the ability_slug of the Pokémon in slot 1, or None."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT ps.ability_slug
+                FROM user_team ut
+                JOIN user_pokemon up ON up.id = ut.user_pokemon_id
+                JOIN pokemon_species ps ON ps.id = up.species_id
+                WHERE ut.user_id = %s AND ut.slot = 1;
+            """, (user_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    except Exception:
+        return None
+
+
 def do_exercise_event(
     user_id: str,
     exercises: list[dict],
@@ -2905,7 +3081,18 @@ def do_exercise_event(
         result["error"] = "Nenhum exercício informado."
         return result
 
+    from utils.abilities import apply_blaze as _apply_blaze
+    slot1_ability = _get_slot1_ability(user_id)
+    _abilfx: dict = {}
+
     raw_xp = _calc_exercise_xp(exercises)
+    # Release 3A — blaze boosts XP on high-intensity sessions before cap calculation
+    if slot1_ability == "blaze" and raw_xp >= 200:
+        boosted = _apply_blaze(raw_xp)
+        _abilfx["blaze_xp_before"] = raw_xp
+        _abilfx["blaze_xp_after"] = boosted
+        raw_xp = boosted
+
     if raw_xp <= 0:
         result["error"] = "Nenhuma série registrada."
         return result
@@ -2922,7 +3109,8 @@ def do_exercise_event(
         with conn.cursor() as cur:
             # Primeiro treino? (antes do INSERT)
             cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
-            is_first_workout = cur.fetchone()[0] == 0
+            _pre_insert_count = cur.fetchone()[0]
+            is_first_workout = _pre_insert_count == 0
 
             # Busca body_parts e nomes dos exercícios (spawn affinity + PR names)
             ex_ids = [ex["exercise_id"] for ex in exercises]
@@ -2935,6 +3123,10 @@ def do_exercise_event(
             ex_name_map  = {r[0]: r[2] for r in ex_rows}
 
             candidate_types = _ranked_spawn_types(exercises, bp_map)
+            # Release 3A — pressure: focus spawn on single top-affinity type
+            if slot1_ability == "pressure" and candidate_types:
+                candidate_types = [candidate_types[0]]
+                _abilfx["pressure_type"] = candidate_types[0]
 
             # Detecta PRs antes do INSERT (histórico exclui sessão atual)
             historical_bests = _get_exercise_bests(cur, user_id, ex_ids)
@@ -2999,6 +3191,13 @@ def do_exercise_event(
                 species_id, spawn_info = _spawn_multi_typed(
                     cur, user_id, candidate_types, is_shiny=roll_shiny
                 )
+                # Release 3A — compound-eyes rerolls a failed spawn once
+                if species_id is None and slot1_ability == "compound-eyes":
+                    species_id, spawn_info = _spawn_multi_typed(
+                        cur, user_id, candidate_types, is_shiny=roll_shiny
+                    )
+                    if species_id:
+                        _abilfx["compound_eyes_rerolled"] = True
                 if species_id:
                     result["spawned"] = spawn_info
                     result["spawn_context"]["chosen_type"] = spawn_info.get("type1")
@@ -3007,8 +3206,32 @@ def do_exercise_event(
                         (species_id, wl_id)
                     )
 
+            # Release 2A — egg system: grant milestone eggs + advance all pending
+            _post_workout_count = _pre_insert_count + 1
+            try:
+                result["eggs_granted"] = _grant_eggs_if_milestone(cur, user_id, _post_workout_count)
+                result["eggs_hatched"] = _advance_and_hatch_eggs(cur, user_id)
+            except Exception:
+                result["eggs_granted"] = []
+                result["eggs_hatched"] = []
+
         conn.commit()
         result["xp_earned"] = xp_to_award
+
+        # Release 3A — pickup: 10% chance for a bonus vitamin after commit
+        if slot1_ability == "pickup" and random.random() < 0.10:
+            try:
+                pickup_slug = random.choice(_LOOT_VITAMINS)
+                _conn_pk = get_connection()
+                with _conn_pk.cursor() as _c:
+                    _c.execute("SELECT id FROM shop_items WHERE slug = %s;", (pickup_slug,))
+                    _row = _c.fetchone()
+                    if _row:
+                        _add_inventory_item(_c, user_id, _row[0])
+                _conn_pk.commit()
+                _abilfx["pickup_item"] = pickup_slug
+            except Exception:
+                pass
 
         # XP para o Pokémon slot 1 — transação separada após commit
         slot1_id = None
@@ -3025,6 +3248,20 @@ def do_exercise_event(
                     result["xp_result"] = award_xp(slot1_id, xp_to_award, "exercise")
         except Exception:
             pass
+
+        # Release 3A — synchronize: award +15% extra XP to team members who received XP Share
+        if slot1_ability == "synchronize" and slot1_id and xp_to_award > 0:
+            sync_bonus = int(xp_to_award * 0.15)
+            if sync_bonus > 0 and result.get("xp_result"):
+                shared = result["xp_result"].get("xp_share_distributed", [])
+                if shared:
+                    for entry in shared:
+                        try:
+                            award_xp(entry["user_pokemon_id"], sync_bonus,
+                                     "synchronize_bonus", _distributing=True)
+                        except Exception:
+                            pass
+                    _abilfx["synchronize_bonus_xp"] = sync_bonus
 
         # Detecta PRs e concede bônus de XP (fora do cap diário, máx _PR_MAX_PER_SESSION)
         detected_prs = _detect_prs(exercises, historical_bests, ex_name_map)
@@ -3069,6 +3306,9 @@ def do_exercise_event(
                     result["xp_result"] = bonus_res
             except Exception:
                 pass
+
+        if _abilfx and slot1_ability:
+            result["ability_effects"] = {"slug": slot1_ability, **_abilfx}
 
         return result
 
@@ -3460,13 +3700,20 @@ def _roll_loot_box(cur, user_id: str) -> dict:
         )
         return {"type": "coins", "amount": amount, "label": f"+{amount} moedas", "rarity": "common"}
 
-    if roll <= 95:                          # 15% — Vitamin (rare)
+    if roll <= 90:                          # 10% — Vitamin (rare)
         slug = random.choice(_LOOT_VITAMINS)
         cur.execute("SELECT id, name FROM shop_items WHERE slug = %s", (slug,))
         row = cur.fetchone()
         if row:
             _add_inventory_item(cur, user_id, row[0])
             return {"type": "item", "slug": slug, "name": row[1], "label": f"1x {row[1]}", "rarity": "rare"}
+
+    if roll <= 95:                          # 5% — Nature Mint (rare)
+        cur.execute("SELECT id, name FROM shop_items WHERE slug = 'nature-mint'")
+        row = cur.fetchone()
+        if row:
+            _add_inventory_item(cur, user_id, row[0])
+            return {"type": "item", "slug": "nature-mint", "name": row[1], "label": f"1x {row[1]}", "rarity": "rare"}
 
     if roll <= 99:                          # 4% — Evolution stone (ultra-rare)
         slug = random.choice(_LOOT_STONES)
@@ -3553,6 +3800,51 @@ def admin_gift_loot_box(admin_id: str, target_user_id: str, count: int = 1) -> t
         return True, f"{count}x loot box(es) enviado(s) para a mochila do usuário: {labels}", results
     except Exception as e:
         return False, f"Erro: {e}", []
+
+def admin_create_exercise(
+    name: str,
+    name_pt: str,
+    target_muscles: list[str],
+    body_parts: list[str],
+    equipments: list[str],
+    gif_url: str | None = None,
+) -> tuple[bool, str, int | None]:
+    """Insert a new exercise into the catalogue.
+
+    Returns (success, message, new_id).
+    """
+    if not name.strip():
+        return False, "O nome em inglês é obrigatório.", None
+    if not name_pt.strip():
+        return False, "O nome em português é obrigatório.", None
+    if not body_parts:
+        return False, "Informe ao menos uma parte do corpo.", None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO exercises (name, name_pt, target_muscles, body_parts, equipments, gif_url)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id;
+                """,
+                (
+                    name.strip(),
+                    name_pt.strip(),
+                    target_muscles,
+                    body_parts,
+                    equipments,
+                    gif_url.strip() if gif_url and gif_url.strip() else None,
+                ),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        get_exercises.clear()
+        get_distinct_body_parts.clear()
+        return True, f"Exercício #{new_id} criado com sucesso.", new_id
+    except Exception as e:
+        return False, f"Erro ao criar exercício: {e}", None
+
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 
