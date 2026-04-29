@@ -71,8 +71,8 @@ Estas são as que mais aprofundam a proposta central do produto.
 |---|---|---|
 | Blaze | Charizard | +15% XP em treinos de alta intensidade (>200 XP bruto) |
 | Hustle | Raticate | +20% XP, mas -10% moedas ganhas |
-| Synchronize | Alakazam | Distribui XP Share para 4 Pokémon (não 3) |
-| Speed Boost | Yanmega | Reduz cooldown de batalha de 3 para 2/dia |
+| Synchronize | Alakazam | Aumenta o XP ganho através do XP share |
+| Speed Boost | Yanmega | Reduz cooldown de batalha de 3 para 4/dia |
 | Pickup | Meowth | 10% de chance de item extra após treino |
 
 **Por que alto impacto:** dá valor estratégico à composição da equipe e razão para trocar o Pokémon do slot 1 conforme o tipo de treino planejado.
