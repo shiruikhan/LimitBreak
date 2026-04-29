@@ -68,6 +68,238 @@ def get_connection():
     return st.session_state._db_conn
 
 
+_STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
+_GENETIC_COLUMNS = (
+    "iv_hp", "iv_attack", "iv_defense", "iv_sp_attack", "iv_sp_defense", "iv_speed",
+    "ev_hp", "ev_attack", "ev_defense", "ev_sp_attack", "ev_sp_defense", "ev_speed",
+    "nature",
+)
+_NEUTRAL_NATURES = {"hardy", "docile", "serious", "bashful", "quirky"}
+_NATURE_EFFECTS = {
+    "lonely": ("attack", "defense"),
+    "brave": ("attack", "speed"),
+    "adamant": ("attack", "sp_attack"),
+    "naughty": ("attack", "sp_defense"),
+    "bold": ("defense", "attack"),
+    "relaxed": ("defense", "speed"),
+    "impish": ("defense", "sp_attack"),
+    "lax": ("defense", "sp_defense"),
+    "timid": ("speed", "attack"),
+    "hasty": ("speed", "defense"),
+    "jolly": ("speed", "sp_attack"),
+    "naive": ("speed", "sp_defense"),
+    "modest": ("sp_attack", "attack"),
+    "mild": ("sp_attack", "defense"),
+    "quiet": ("sp_attack", "speed"),
+    "rash": ("sp_attack", "sp_defense"),
+    "calm": ("sp_defense", "attack"),
+    "gentle": ("sp_defense", "defense"),
+    "sassy": ("sp_defense", "speed"),
+    "careful": ("sp_defense", "sp_attack"),
+}
+_ALL_NATURES = (
+    "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
+    "Bold", "Docile", "Relaxed", "Impish", "Lax",
+    "Timid", "Hasty", "Serious", "Jolly", "Naive",
+    "Modest", "Mild", "Quiet", "Bashful", "Rash",
+    "Calm", "Gentle", "Sassy", "Careful", "Quirky",
+)
+
+
+def _pokemon_stat_value(
+    base: int,
+    level: int,
+    *,
+    iv: int = 0,
+    ev: int = 0,
+    nature: float = 1.0,
+    is_hp: bool = False,
+) -> int:
+    """Calcula um stat usando a fórmula padrão de Pokémon.
+
+    Quando IV/EV/Nature não estiverem presentes ou preenchidos, usa valores
+    neutros como fallback para manter compatibilidade.
+    """
+    level = max(1, min(level, 100))
+    base = max(0, base or 0)
+    iv = max(0, iv or 0)
+    ev = max(0, ev or 0)
+    scaled = ((2 * base + iv + (ev // 4)) * level) // 100
+    if is_hp:
+        return max(1, scaled + level + 10)
+    return max(1, int((scaled + 5) * nature))
+
+
+def _build_pokemon_stats(
+    bases: tuple | list,
+    level: int,
+    *,
+    ivs: dict | None = None,
+    evs: dict | None = None,
+    nature_modifiers: dict | None = None,
+    flat_boosts: dict | None = None,
+) -> list[int]:
+    """Monta os seis stats finais na ordem usada por user_pokemon."""
+    ivs = ivs or {}
+    evs = evs or {}
+    nature_modifiers = nature_modifiers or {}
+    flat_boosts = flat_boosts or {}
+
+    values = []
+    for i, stat in enumerate(_STAT_ORDER):
+        values.append(
+            _pokemon_stat_value(
+                bases[i] or 0,
+                level,
+                iv=ivs.get(stat, 0),
+                ev=evs.get(stat, 0),
+                nature=nature_modifiers.get(stat, 1.0),
+                is_hp=(stat == "hp"),
+            ) + flat_boosts.get(stat, 0)
+        )
+    return values
+
+
+def _get_species_bases(cur, species_id: int):
+    cur.execute("""
+        SELECT base_hp, base_attack, base_defense,
+               base_sp_attack, base_sp_defense, base_speed
+        FROM pokemon_species WHERE id = %s;
+    """, (species_id,))
+    return cur.fetchone()
+
+
+def _random_ivs() -> dict:
+    return {stat: random.randint(0, 31) for stat in _STAT_ORDER}
+
+
+def _random_evs() -> dict:
+    remaining = 510
+    evs = {}
+    for stat in random.sample(list(_STAT_ORDER), len(_STAT_ORDER)):
+        max_for_stat = min(252, remaining)
+        value = random.randint(0, max_for_stat // 4) * 4
+        evs[stat] = value
+        remaining -= value
+    return evs
+
+
+def _random_nature() -> str:
+    return random.choice(_ALL_NATURES)
+
+
+def _nature_modifiers(nature_name: str | None) -> dict:
+    modifiers = {stat: 1.0 for stat in _STAT_ORDER}
+    if not nature_name:
+        return modifiers
+
+    slug = str(nature_name).strip().lower()
+    if slug in _NEUTRAL_NATURES:
+        return modifiers
+
+    boosted_nerfed = _NATURE_EFFECTS.get(slug)
+    if not boosted_nerfed:
+        return modifiers
+
+    boosted, nerfed = boosted_nerfed
+    modifiers[boosted] = 1.1
+    modifiers[nerfed] = 0.9
+    return modifiers
+
+
+def _has_genetic_columns(cur) -> bool:
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_name = 'user_pokemon'
+          AND table_schema = ANY(current_schemas(false))
+          AND column_name = ANY(%s);
+    """, (list(_GENETIC_COLUMNS),))
+    return cur.fetchone()[0] == len(_GENETIC_COLUMNS)
+
+
+def _load_pokemon_genetics(cur, user_pokemon_id: int) -> tuple[dict, dict, dict]:
+    if not _has_genetic_columns(cur):
+        return {}, {}, _nature_modifiers(None)
+
+    cur.execute("""
+        SELECT iv_hp, iv_attack, iv_defense, iv_sp_attack, iv_sp_defense, iv_speed,
+               ev_hp, ev_attack, ev_defense, ev_sp_attack, ev_sp_defense, ev_speed,
+               nature
+        FROM user_pokemon
+        WHERE id = %s;
+    """, (user_pokemon_id,))
+    row = cur.fetchone()
+    if not row:
+        return {}, {}, _nature_modifiers(None)
+
+    ivs = {stat: row[i] or 0 for i, stat in enumerate(_STAT_ORDER)}
+    evs = {stat: row[i + len(_STAT_ORDER)] or 0 for i, stat in enumerate(_STAT_ORDER)}
+    nature_mods = _nature_modifiers(row[-1])
+    return ivs, evs, nature_mods
+
+
+def _insert_user_pokemon(
+    cur,
+    user_id: str,
+    species_id: int,
+    *,
+    level: int,
+    xp: int = 0,
+    is_shiny: bool = False,
+) -> int | None:
+    """Insere um Pokémon com stats calculados pela fórmula canônica."""
+    bases = _get_species_bases(cur, species_id)
+    if not bases:
+        return None
+
+    if _has_genetic_columns(cur):
+        ivs = _random_ivs()
+        evs = _random_evs()
+        nature = _random_nature()
+        nature_mods = _nature_modifiers(nature)
+        stats = _build_pokemon_stats(
+            bases, level, ivs=ivs, evs=evs, nature_modifiers=nature_mods
+        )
+        cur.execute("""
+            INSERT INTO user_pokemon (
+                user_id, species_id, level, xp, is_shiny,
+                iv_hp, iv_attack, iv_defense, iv_sp_attack, iv_sp_defense, iv_speed,
+                ev_hp, ev_attack, ev_defense, ev_sp_attack, ev_sp_defense, ev_speed,
+                nature,
+                stat_hp, stat_attack, stat_defense,
+                stat_sp_attack, stat_sp_defense, stat_speed
+            )
+            VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s,
+                %s, %s, %s, %s, %s, %s
+            )
+            RETURNING id;
+        """, (
+            user_id, species_id, level, xp, is_shiny,
+            ivs["hp"], ivs["attack"], ivs["defense"], ivs["sp_attack"], ivs["sp_defense"], ivs["speed"],
+            evs["hp"], evs["attack"], evs["defense"], evs["sp_attack"], evs["sp_defense"], evs["speed"],
+            nature,
+            *stats,
+        ))
+    else:
+        stats = _build_pokemon_stats(bases, level)
+        cur.execute("""
+            INSERT INTO user_pokemon (
+                user_id, species_id, level, xp, is_shiny,
+                stat_hp, stat_attack, stat_defense,
+                stat_sp_attack, stat_sp_defense, stat_speed
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (user_id, species_id, level, xp, is_shiny, *stats))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 # URL base do repo público de assets (HybridShivam/Pokemon)
 _GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
@@ -239,24 +471,9 @@ def create_user_profile(user_id: str, username: str, starter_id: int) -> bool:
                 ON CONFLICT (id) DO NOTHING;
             """, (user_id, username, starter_id))
 
-            # Adiciona starter com stats escalados para nível 1
-            cur.execute("""
-                INSERT INTO user_pokemon (
-                    user_id, species_id, level, xp,
-                    stat_hp, stat_attack, stat_defense,
-                    stat_sp_attack, stat_sp_defense, stat_speed
-                )
-                SELECT %s, %s, 1, 0,
-                    GREATEST(1, 2*base_hp         /100 + 11),
-                    GREATEST(1, 2*base_attack      /100 + 5),
-                    GREATEST(1, 2*base_defense     /100 + 5),
-                    GREATEST(1, 2*base_sp_attack   /100 + 5),
-                    GREATEST(1, 2*base_sp_defense  /100 + 5),
-                    GREATEST(1, 2*base_speed       /100 + 5)
-                FROM pokemon_species WHERE id = %s
-                RETURNING id;
-            """, (user_id, starter_id, starter_id))
-            up_id = cur.fetchone()[0]
+            up_id = _insert_user_pokemon(cur, user_id, starter_id, level=1, xp=0)
+            if up_id is None:
+                raise ValueError("Espécie inicial não encontrada para calcular stats.")
 
             # Put starter in team slot 1
             cur.execute("""
@@ -325,23 +542,9 @@ def capture_pokemon(user_id: str, species_id: int) -> bool:
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO user_pokemon (
-                    user_id, species_id, level, xp,
-                    stat_hp, stat_attack, stat_defense,
-                    stat_sp_attack, stat_sp_defense, stat_speed
-                )
-                SELECT %s, %s, 1, 0,
-                    GREATEST(1, 2*base_hp         /100 + 11),
-                    GREATEST(1, 2*base_attack      /100 + 5),
-                    GREATEST(1, 2*base_defense     /100 + 5),
-                    GREATEST(1, 2*base_sp_attack   /100 + 5),
-                    GREATEST(1, 2*base_sp_defense  /100 + 5),
-                    GREATEST(1, 2*base_speed       /100 + 5)
-                FROM pokemon_species WHERE id = %s
-                RETURNING id;
-            """, (user_id, species_id, species_id))
-            up_id = cur.fetchone()[0]
+            up_id = _insert_user_pokemon(cur, user_id, species_id, level=1, xp=0)
+            if up_id is None:
+                raise ValueError("Espécie não encontrada para calcular stats.")
 
             # Fill first available team slot (1-6)
             cur.execute("""
@@ -1035,24 +1238,17 @@ def do_checkin(user_id: str) -> dict:
                         spawned_species_id = spawn_row[0]
                         checkin_shiny = _shiny_roll(streak)
 
-                        # Captura o Pokémon (nível 5, stats escalados)
-                        cur.execute("""
-                            INSERT INTO user_pokemon (
-                                user_id, species_id, level, xp, is_shiny,
-                                stat_hp, stat_attack, stat_defense,
-                                stat_sp_attack, stat_sp_defense, stat_speed
-                            )
-                            SELECT %s, %s, 5, 0, %s,
-                                GREATEST(1, 2*base_hp         *5/100 + 5 + 10),
-                                GREATEST(1, 2*base_attack     *5/100 + 5),
-                                GREATEST(1, 2*base_defense    *5/100 + 5),
-                                GREATEST(1, 2*base_sp_attack  *5/100 + 5),
-                                GREATEST(1, 2*base_sp_defense *5/100 + 5),
-                                GREATEST(1, 2*base_speed      *5/100 + 5)
-                            FROM pokemon_species WHERE id = %s
-                            RETURNING id;
-                        """, (user_id, spawned_species_id, checkin_shiny, spawned_species_id))
-                        up_id = cur.fetchone()[0]
+                        # Captura o Pokémon (nível 5, fórmula padrão)
+                        up_id = _insert_user_pokemon(
+                            cur,
+                            user_id,
+                            spawned_species_id,
+                            level=5,
+                            xp=0,
+                            is_shiny=checkin_shiny,
+                        )
+                        if up_id is None:
+                            raise ValueError("Espécie spawnada não encontrada para calcular stats.")
 
                         # Slot de equipe livre, se houver
                         cur.execute(
@@ -1126,25 +1322,10 @@ def do_checkin(user_id: str) -> dict:
 
 # ── XP, level-up e evolução ────────────────────────────────────────────────────
 
-def _scaled_stat(base: int, level: int, is_hp: bool = False) -> int:
-    """Fórmula Pokémon simplificada (sem IVs / EVs / Natureza).
-
-    HP:   floor(2 × base × level / 100) + level + 10
-    Demais: floor(2 × base × level / 100) + 5
-
-    Cap: nível máximo 100 (consistente com award_xp).
-    """
-    level = min(level, 100)
-    scaled = int(2 * base * level / 100)
-    if is_hp:
-        return max(1, scaled + level + 10)
-    return max(1, scaled + 5)
-
-
 def _recalc_stats_for_level(
     cur, user_pokemon_id: int, species_id: int, level: int
 ) -> None:
-    """Recalcula stat_* usando a fórmula Pokémon escalada pelo nível + vitaminas.
+    """Recalcula stat_* com a fórmula padrão de Pokémon + boosts planos.
 
     Deve ser chamada após level-ups e evoluções para manter os stats
     individuais em sincronia com o nível atual e a espécie atual.
@@ -1157,21 +1338,20 @@ def _recalc_stats_for_level(
     """, (user_pokemon_id,))
     boosts = {r[0]: r[1] for r in cur.fetchall()}
 
-    cur.execute("""
-        SELECT base_hp, base_attack, base_defense,
-               base_sp_attack, base_sp_defense, base_speed
-        FROM pokemon_species WHERE id = %s;
-    """, (species_id,))
-    bases = cur.fetchone()
+    bases = _get_species_bases(cur, species_id)
     if not bases:
         return
 
-    stat_cols = ["hp", "attack", "defense", "sp_attack", "sp_defense", "speed"]
-    values = [
-        _scaled_stat(bases[i] or 0, level, is_hp=(stat == "hp")) + boosts.get(stat, 0)
-        for i, stat in enumerate(stat_cols)
-    ]
-    set_parts = ", ".join(f"stat_{stat} = %s" for stat in stat_cols)
+    ivs, evs, nature_mods = _load_pokemon_genetics(cur, user_pokemon_id)
+    values = _build_pokemon_stats(
+        bases,
+        level,
+        ivs=ivs,
+        evs=evs,
+        nature_modifiers=nature_mods,
+        flat_boosts=boosts,
+    )
+    set_parts = ", ".join(f"stat_{stat} = %s" for stat in _STAT_ORDER)
     cur.execute(
         f"UPDATE user_pokemon SET {set_parts} WHERE id = %s;",
         values + [user_pokemon_id],
@@ -1181,10 +1361,7 @@ def _recalc_stats_for_level(
 def _recalc_stats_on_evolution(
     cur, user_pokemon_id: int, new_species_id: int, level: int
 ) -> None:
-    """Recalcula stat_* após uma evolução usando a nova espécie e o nível atual.
-
-    Delega para _recalc_stats_for_level com a espécie pós-evolução.
-    """
+    """Troca o bloco de base stats para a espécie evoluída e recalcula tudo."""
     _recalc_stats_for_level(cur, user_pokemon_id, new_species_id, level)
 
 
@@ -1360,30 +1537,13 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                                 (user_id,)
                             )
                             if cur.fetchone()[0] < 6:
-                                cur.execute("""
-                                    INSERT INTO user_pokemon (
-                                        user_id, species_id, level, xp,
-                                        stat_hp, stat_attack, stat_defense,
-                                        stat_sp_attack, stat_sp_defense, stat_speed
+                                shed_up_id = _insert_user_pokemon(
+                                    cur, user_id, shed_id, level=level, xp=0
+                                )
+                                if shed_up_id is None:
+                                    raise ValueError(
+                                        "Espécie de evolução complementar não encontrada."
                                     )
-                                    SELECT %s, %s, %s, 0,
-                                        GREATEST(1, 2*base_hp        *%s/100 + %s + 10),
-                                        GREATEST(1, 2*base_attack    *%s/100 + 5),
-                                        GREATEST(1, 2*base_defense   *%s/100 + 5),
-                                        GREATEST(1, 2*base_sp_attack *%s/100 + 5),
-                                        GREATEST(1, 2*base_sp_defense*%s/100 + 5),
-                                        GREATEST(1, 2*base_speed     *%s/100 + 5)
-                                    FROM pokemon_species WHERE id = %s
-                                    RETURNING id;
-                                """, (user_id, shed_id, level,
-                                      level, level,   # HP: ×level + +level
-                                      level,          # attack
-                                      level,          # defense
-                                      level,          # sp_attack
-                                      level,          # sp_defense
-                                      level,          # speed
-                                      shed_id))
-                                shed_up_id = cur.fetchone()[0]
                                 cur.execute(
                                     "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
                                     (user_id,)
@@ -1555,6 +1715,7 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
                 "UPDATE user_pokemon SET species_id = %s WHERE id = %s;",
                 (to_id, user_pokemon_id)
             )
+            # A evolução passa a usar o bloco de base stats da nova espécie.
             _recalc_stats_on_evolution(cur, user_pokemon_id, to_id, poke_level)
 
             # Debita pedra do inventário
@@ -2183,23 +2344,11 @@ def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool
         return None, None
 
     species_id = row[0]
-    cur.execute("""
-        INSERT INTO user_pokemon (
-            user_id, species_id, level, xp, is_shiny,
-            stat_hp, stat_attack, stat_defense,
-            stat_sp_attack, stat_sp_defense, stat_speed
-        )
-        SELECT %s, %s, 5, 0, %s,
-            GREATEST(1, 2*base_hp         *5/100 + 5 + 10),
-            GREATEST(1, 2*base_attack     *5/100 + 5),
-            GREATEST(1, 2*base_defense    *5/100 + 5),
-            GREATEST(1, 2*base_sp_attack  *5/100 + 5),
-            GREATEST(1, 2*base_sp_defense *5/100 + 5),
-            GREATEST(1, 2*base_speed      *5/100 + 5)
-        FROM pokemon_species WHERE id = %s
-        RETURNING id;
-    """, (user_id, species_id, is_shiny, species_id))
-    up_id = cur.fetchone()[0]
+    up_id = _insert_user_pokemon(
+        cur, user_id, species_id, level=5, xp=0, is_shiny=is_shiny
+    )
+    if up_id is None:
+        raise ValueError("Espécie sorteada não encontrada para calcular stats.")
 
     cur.execute("SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;", (user_id,))
     used = {r[0] for r in cur.fetchall()}
