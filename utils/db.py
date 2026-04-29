@@ -1117,6 +1117,65 @@ def get_user_inventory(user_id: str) -> dict[int, int]:
         return {}
 
 
+_LOOT_BOX_ITEM = {
+    "slug": "loot-box",
+    "name": "Loot Box",
+    "description": "Abra na Mochila para receber uma recompensa aleatoria.",
+    "category": "loot_box",
+    "price": 0,
+    "icon": "🎁",
+}
+
+
+def _add_inventory_item(cur, user_id: str, item_id: int, quantity: int = 1) -> None:
+    """Adiciona quantidade ao inventario do usuario dentro da transacao atual."""
+    cur.execute("""
+        INSERT INTO user_inventory (user_id, item_id, quantity)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (user_id, item_id)
+        DO UPDATE SET quantity = user_inventory.quantity + EXCLUDED.quantity;
+    """, (user_id, item_id, quantity))
+
+
+def _ensure_loot_box_item(cur) -> tuple[int, str]:
+    """Garante que a Loot Box exista em shop_items e retorna (id, name)."""
+    cur.execute("SELECT id, name FROM shop_items WHERE slug = %s;", (_LOOT_BOX_ITEM["slug"],))
+    row = cur.fetchone()
+    if row:
+        return row[0], row[1]
+
+    cur.execute("""
+        INSERT INTO shop_items (slug, name, description, category, price, effect_stat, effect_value, icon)
+        VALUES (%s, %s, %s, %s, %s, NULL, NULL, %s)
+        RETURNING id, name;
+    """, (
+        _LOOT_BOX_ITEM["slug"],
+        _LOOT_BOX_ITEM["name"],
+        _LOOT_BOX_ITEM["description"],
+        _LOOT_BOX_ITEM["category"],
+        _LOOT_BOX_ITEM["price"],
+        _LOOT_BOX_ITEM["icon"],
+    ))
+    get_shop_items.clear()
+    row = cur.fetchone()
+    return row[0], row[1]
+
+
+def _grant_loot_box(cur, user_id: str, count: int = 1) -> dict:
+    """Entrega loot boxes ao inventario do usuario dentro da transacao atual."""
+    item_id, item_name = _ensure_loot_box_item(cur)
+    _add_inventory_item(cur, user_id, item_id, count)
+    label = f"{count}x {item_name}" if count != 1 else f"1x {item_name}"
+    return {
+        "type": "loot_box",
+        "slug": _LOOT_BOX_ITEM["slug"],
+        "name": item_name,
+        "label": label,
+        "rarity": "common",
+        "count": count,
+    }
+
+
 def buy_item(user_id: str, item_id: int) -> tuple[bool, str]:
     """Compra um item: debita moedas e adiciona ao inventário.
 
@@ -1256,6 +1315,98 @@ def use_stat_item(user_id: str, item_id: int, user_pokemon_id: int) -> tuple[boo
     except Exception as e:
         conn.rollback()
         return False, f"Erro ao usar item: {e}"
+
+
+def use_xp_share_item(user_id: str, item_id: int) -> tuple[bool, str]:
+    """Ativa um XP Share que esteja guardado no inventario do usuario."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT name, slug, category
+                FROM shop_items
+                WHERE id = %s;
+            """, (item_id,))
+            item = cur.fetchone()
+            if not item:
+                return False, "Item não encontrado."
+
+            item_name, slug, category = item
+            if slug != "xp-share" or category != "other":
+                return False, "Este item não pode ser ativado aqui."
+
+            cur.execute("""
+                SELECT quantity FROM user_inventory
+                WHERE user_id = %s AND item_id = %s FOR UPDATE;
+            """, (user_id, item_id))
+            inv = cur.fetchone()
+            if not inv or inv[0] < 1:
+                return False, "Você não possui este item."
+
+            cur.execute("""
+                UPDATE user_inventory
+                SET quantity = quantity - 1
+                WHERE user_id = %s AND item_id = %s;
+            """, (user_id, item_id))
+            _extend_xp_share(cur, user_id)
+
+        conn.commit()
+        return True, f"📡 **{item_name}** ativado! +15 dias adicionados ao efeito."
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao ativar item: {e}"
+
+
+def open_loot_box(user_id: str, item_id: int) -> tuple[bool, str, dict | None]:
+    """Consome 1 Loot Box do inventario e aplica o premio sorteado."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, name
+                FROM shop_items
+                WHERE id = %s AND slug = %s;
+            """, (item_id, _LOOT_BOX_ITEM["slug"]))
+            item = cur.fetchone()
+            if not item:
+                return False, "Loot Box não encontrada.", None
+
+            _, item_name = item
+            cur.execute("""
+                SELECT quantity FROM user_inventory
+                WHERE user_id = %s AND item_id = %s FOR UPDATE;
+            """, (user_id, item_id))
+            inv = cur.fetchone()
+            if not inv or inv[0] < 1:
+                return False, "Você não possui nenhuma Loot Box.", None
+
+            cur.execute("""
+                UPDATE user_inventory
+                SET quantity = quantity - 1
+                WHERE user_id = %s AND item_id = %s;
+            """, (user_id, item_id))
+
+            loot = _roll_loot_box(cur, user_id)
+
+        conn.commit()
+
+        if loot["type"] == "xp":
+            try:
+                with get_connection().cursor() as cur2:
+                    cur2.execute(
+                        "SELECT user_pokemon_id FROM user_team WHERE user_id = %s AND slot = 1",
+                        (user_id,),
+                    )
+                    slot1 = cur2.fetchone()
+                if slot1:
+                    award_xp(slot1[0], loot["amount"], "loot_box_open")
+            except Exception:
+                pass
+
+        return True, f"🎁 **{item_name}** aberta com sucesso! Recompensa: {loot['label']}", loot
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao abrir Loot Box: {e}", None
 
 
 # ── Calendário / Check-in ──────────────────────────────────────────────────────
@@ -3305,10 +3456,7 @@ def _roll_loot_box(cur, user_id: str) -> dict:
         cur.execute("SELECT id, name FROM shop_items WHERE slug = %s", (slug,))
         row = cur.fetchone()
         if row:
-            cur.execute("""
-                INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (%s, %s, 1)
-                ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1
-            """, (user_id, row[0]))
+            _add_inventory_item(cur, user_id, row[0])
             return {"type": "item", "slug": slug, "name": row[1], "label": f"1x {row[1]}", "rarity": "rare"}
 
     if roll <= 99:                          # 4% — Evolution stone (ultra-rare)
@@ -3316,20 +3464,14 @@ def _roll_loot_box(cur, user_id: str) -> dict:
         cur.execute("SELECT id, name FROM shop_items WHERE slug = %s", (slug,))
         row = cur.fetchone()
         if row:
-            cur.execute("""
-                INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (%s, %s, 1)
-                ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1
-            """, (user_id, row[0]))
+            _add_inventory_item(cur, user_id, row[0])
             return {"type": "item", "slug": slug, "name": row[1], "label": f"1x {row[1]}", "rarity": "ultra_rare"}
 
     # 1% — XP Share (ultra-rare)
     cur.execute("SELECT id, name FROM shop_items WHERE slug = 'xp-share'")
     row = cur.fetchone()
     if row:
-        cur.execute("""
-            INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (%s, %s, 1)
-            ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1
-        """, (user_id, row[0]))
+        _add_inventory_item(cur, user_id, row[0])
         return {"type": "item", "slug": "xp-share", "name": row[1], "label": f"1x {row[1]}", "rarity": "ultra_rare"}
 
     # Fallback — always give coins
@@ -3364,26 +3506,11 @@ def check_and_award_achievements(user_id: str) -> list[dict]:
                         RETURNING achievement_slug;
                     """, (user_id, slug))
                     if cur.fetchone():
-                        loot = _roll_loot_box(cur, user_id)
+                        loot = _grant_loot_box(cur, user_id)
                         new_unlocks.append({"slug": slug, "loot": loot})
 
             if new_unlocks:
                 conn.commit()
-                # Apply any XP rewards (award_xp manages its own transaction)
-                xp_items = [item for item in new_unlocks if item["loot"]["type"] == "xp"]
-                if xp_items:
-                    try:
-                        with get_connection().cursor() as cur2:
-                            cur2.execute(
-                                "SELECT user_pokemon_id FROM user_team WHERE user_id = %s AND slot = 1",
-                                (user_id,),
-                            )
-                            slot1_row = cur2.fetchone()
-                        if slot1_row:
-                            for item in xp_items:
-                                award_xp(slot1_row[0], item["loot"]["amount"], "achievement")
-                    except Exception:
-                        pass
 
             return new_unlocks
     except Exception:
@@ -3393,8 +3520,7 @@ def check_and_award_achievements(user_id: str) -> list[dict]:
 def admin_gift_loot_box(admin_id: str, target_user_id: str, count: int = 1) -> tuple[bool, str, list[dict]]:
     """Gift `count` loot boxes to `target_user_id`.
 
-    Returns (success, message, list_of_loot_dicts).
-    XP rewards are applied after commit via award_xp.
+    Returns (success, message, list_of_granted_loot_box_dicts).
     """
     if count < 1 or count > 10:
         return False, "Quantidade deve estar entre 1 e 10.", []
@@ -3405,27 +3531,9 @@ def admin_gift_loot_box(admin_id: str, target_user_id: str, count: int = 1) -> t
             if not cur.fetchone():
                 return False, "Usuário não encontrado.", []
 
-            results = []
-            for _ in range(count):
-                loot = _roll_loot_box(cur, target_user_id)
-                results.append(loot)
+            results = [_grant_loot_box(cur, target_user_id, count)]
 
             conn.commit()
-
-        xp_items = [l for l in results if l["type"] == "xp"]
-        if xp_items:
-            try:
-                with get_connection().cursor() as cur2:
-                    cur2.execute(
-                        "SELECT user_pokemon_id FROM user_team WHERE user_id = %s AND slot = 1",
-                        (target_user_id,),
-                    )
-                    slot1 = cur2.fetchone()
-                if slot1:
-                    for l in xp_items:
-                        award_xp(slot1[0], l["amount"], "gift_loot_box")
-            except Exception:
-                pass
 
         log_admin_action(
             admin_id, "gift_loot_box",
@@ -3433,7 +3541,7 @@ def admin_gift_loot_box(admin_id: str, target_user_id: str, count: int = 1) -> t
             details={"count": count, "results": [l["label"] for l in results]},
         )
         labels = ", ".join(l["label"] for l in results)
-        return True, f"{count}x loot box(es) enviado(s): {labels}", results
+        return True, f"{count}x loot box(es) enviado(s) para a mochila do usuário: {labels}", results
     except Exception as e:
         return False, f"Erro: {e}", []
 

@@ -4,7 +4,7 @@ from utils.db import (
     get_shop_items, get_user_inventory, get_user_profile,
     get_user_team, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
-    get_xp_share_status,
+    get_xp_share_status, open_loot_box, use_xp_share_item,
 )
 
 BASE_DIR = os.getcwd()
@@ -243,8 +243,12 @@ with tab_bag:
                       if item_map.get(iid, {}).get("category") == "stat_boost"]
         inv_stones = [(iid, qty) for iid, qty in inventory.items()
                       if item_map.get(iid, {}).get("category") == "stone"]
+        inv_loot_boxes = [(iid, qty) for iid, qty in inventory.items()
+                          if item_map.get(iid, {}).get("slug") == "loot-box"
+                          or item_map.get(iid, {}).get("category") == "loot_box"]
         inv_others = [(iid, qty) for iid, qty in inventory.items()
-                      if item_map.get(iid, {}).get("category") == "other"]
+                      if item_map.get(iid, {}).get("category") == "other"
+                      and item_map.get(iid, {}).get("slug") != "loot-box"]
 
         # ── Vitaminas (usáveis) ────────────────────────────────────────────────
         if inv_stat:
@@ -354,6 +358,33 @@ with tab_bag:
                                 st.session_state.team_evo_notice = evo_data
                             st.rerun()
 
+        # ── Loot Boxes ────────────────────────────────────────────────────────
+        if inv_loot_boxes:
+            st.markdown("<div class='section-title'>🎁 Loot Boxes</div>", unsafe_allow_html=True)
+            cols_loot = st.columns(4)
+            for idx, (iid, qty) in enumerate(inv_loot_boxes):
+                item = item_map[iid]
+                with cols_loot[idx % 4]:
+                    st.markdown(
+                        f"<div class='inv-card' style='flex-direction:column;text-align:center'>"
+                        f"<div class='inv-icon'>{item['icon']}</div>"
+                        f"<div class='inv-name'>{item['name']}</div>"
+                        f"<div class='inv-qty'>Qtd: {qty}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.write("")
+                    if st.button(
+                        "Abrir",
+                        key=f"open_loot_box_{iid}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        ok, msg, _loot = open_loot_box(user_id, iid)
+                        st.session_state.shop_msg = msg
+                        st.session_state.shop_msg_type = "success" if ok else "error"
+                        st.rerun()
+
         # ── Outros ────────────────────────────────────────────────────────────
         if inv_others:
             st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
@@ -369,5 +400,16 @@ with tab_bag:
                         f"</div>",
                         unsafe_allow_html=True,
                     )
-                    st.markdown("<div class='soon-badge' style='display:block;text-align:center;margin-top:4px'>Em breve</div>", unsafe_allow_html=True)
-
+                    st.write("")
+                    if item["slug"] == "xp-share":
+                        if st.button(
+                            "Ativar",
+                            key=f"use_other_{iid}",
+                            use_container_width=True,
+                        ):
+                            ok, msg = use_xp_share_item(user_id, iid)
+                            st.session_state.shop_msg = msg
+                            st.session_state.shop_msg_type = "success" if ok else "error"
+                            st.rerun()
+                    else:
+                        st.markdown("<div class='soon-badge' style='display:block;text-align:center;margin-top:4px'>Em breve</div>", unsafe_allow_html=True)

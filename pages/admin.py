@@ -189,12 +189,9 @@ with tab_users:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — Gift Loot Box
 # ══════════════════════════════════════════════════════════════════════════════
-_RARITY_COLOR = {"common": "#8b949e", "rare": "#a371f7", "ultra_rare": "#ffa657"}
-_RARITY_LABEL = {"common": "Comum", "rare": "Raro", "ultra_rare": "Ultra Raro"}
-
 with tab_gift:
     st.markdown("### 🎁 Enviar Loot Box para Usuário")
-    st.caption("Sorteia e entrega itens diretamente no inventário do usuário. O resultado é registrado nos logs.")
+    st.caption("Entrega Loot Boxes na mochila do usuário. A abertura passa a ser manual na aba Mochila.")
 
     all_users_gift = get_all_users("")
     user_options = {f"{u['username'] or '(sem nome)'} — {u['email'] or u['id']}": u["id"] for u in all_users_gift}
@@ -208,10 +205,8 @@ with tab_gift:
         if ok:
             st.success(msg)
             for loot in results:
-                color = _RARITY_COLOR.get(loot.get("rarity", "common"), "#8b949e")
-                label = _RARITY_LABEL.get(loot.get("rarity", "common"), "Comum")
                 st.markdown(
-                    f'<span style="color:{color};font-weight:700">[{label}]</span> {loot["label"]}',
+                    f'• <strong>{loot["label"]}</strong> adicionado à mochila',
                     unsafe_allow_html=True,
                 )
         else:
