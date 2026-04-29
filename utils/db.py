@@ -2685,6 +2685,41 @@ def create_workout_sheet(
         return None, str(e)
 
 
+def update_workout_sheet(user_id: str, sheet_id: str, name: str) -> tuple[bool, str | None]:
+    """Updates the routine name; returns (True, None) or (False, error_msg)."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            if _table_has_column("workout_sheets", "updated_at"):
+                cur.execute(
+                    """
+                    UPDATE workout_sheets
+                    SET name = %s,
+                        updated_at = NOW()
+                    WHERE id = %s AND user_id = %s;
+                    """,
+                    (name.strip(), sheet_id, user_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE workout_sheets
+                    SET name = %s
+                    WHERE id = %s AND user_id = %s;
+                    """,
+                    (name.strip(), sheet_id, user_id),
+                )
+            if cur.rowcount == 0:
+                conn.rollback()
+                return False, "Rotina não encontrada para este usuário."
+        conn.commit()
+        return True, None
+    except Exception as e:
+        if "conn" in locals():
+            conn.rollback()
+        return False, str(e)
+
+
 def delete_workout_sheet(sheet_id: str) -> bool:
     """DELETE a sheet (cascades to workout_days and workout_day_exercises)."""
     try:

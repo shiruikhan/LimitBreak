@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.db import (
-    get_workout_sheets, create_workout_sheet, delete_workout_sheet,
+    get_workout_sheets, create_workout_sheet, update_workout_sheet, delete_workout_sheet,
     get_sheet_days, create_workout_day, delete_workout_day,
     get_day_exercises_for_builder, add_exercise_to_day,
     update_day_exercise, remove_exercise_from_day,
@@ -17,6 +17,7 @@ user_id = st.session_state.user.id
 for _k, _v in [
     ("adding_day_to", None),
     ("adding_ex_to", None),
+    ("editing_sheet", None),
     ("editing_wde", None),
     ("confirm_delete", None),
     ("show_new_sheet_form", False),
@@ -77,7 +78,7 @@ for sheet in sheets:
     expander_label = f"**{sheet['name']}** — {sheet['day_count']} {day_word}"
 
     with st.expander(expander_label, expanded=True):
-        # ── delete sheet ──────────────────────────────────────────────────────
+        # ── sheet actions ─────────────────────────────────────────────────────
         confirm_sheet = ("sheet", sid)
         if st.session_state.confirm_delete == confirm_sheet:
             st.warning(f"Deletar **{sheet['name']}** e todos os dias/exercícios?")
@@ -92,11 +93,39 @@ for sheet in sheets:
                     st.session_state.confirm_delete = None
                     st.rerun()
         else:
-            _, col_del_s = st.columns([5, 1])
+            _, col_edit_s, col_del_s = st.columns([4, 1, 1])
+            with col_edit_s:
+                if st.button("✏ Editar rotina", key=f"edit_s_{sid}", use_container_width=True):
+                    st.session_state.editing_sheet = sid
+                    st.session_state.confirm_delete = None
+                    st.rerun()
             with col_del_s:
                 if st.button("🗑 Deletar rotina", key=f"del_s_{sid}", use_container_width=True):
+                    st.session_state.editing_sheet = None
                     st.session_state.confirm_delete = confirm_sheet
                     st.rerun()
+
+        if st.session_state.editing_sheet == sid:
+            with st.form(f"form_edit_sheet_{sid}"):
+                edited_sheet_name = st.text_input("Nome da rotina", value=sheet["name"])
+                sf1, sf2 = st.columns(2)
+                with sf1:
+                    save_sheet = st.form_submit_button("Salvar", type="primary", use_container_width=True)
+                with sf2:
+                    cancel_sheet = st.form_submit_button("Cancelar", use_container_width=True)
+            if save_sheet:
+                if edited_sheet_name.strip():
+                    ok, err = update_workout_sheet(user_id, sid, edited_sheet_name.strip())
+                    if err:
+                        st.error(f"Erro ao editar rotina: {err}")
+                        st.stop()
+                    if ok:
+                        st.success("Rotina atualizada com sucesso!")
+                st.session_state.editing_sheet = None
+                st.rerun()
+            elif cancel_sheet:
+                st.session_state.editing_sheet = None
+                st.rerun()
 
         st.divider()
 
