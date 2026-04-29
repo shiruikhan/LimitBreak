@@ -84,6 +84,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── login.py                 # Login / Cadastro + salva cookie de sessão
 │   ├── starter.py               # Seleção de Pokémon inicial (27 + 2 easter egg)
 │   ├── equipe.py                # Equipe ativa (página inicial) + banco de Pokémon
+│   ├── batalha.py               # Arena PvP — desafiar outros usuários
+│   ├── conquistas.py            # Sistema de conquistas — 23 badges em 5 categorias
+│   ├── leaderboard.py           # Ranking — XP de treino / streak de check-in / coleção Pokémon
 │   ├── pokedex.py               # Pokédex nacional completo
 │   ├── pokedex_pessoal.py       # Pokédex pessoal — capturados vs não capturados
 │   ├── loja.py                  # Loja de itens + mochila com uso de itens
@@ -94,20 +97,24 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ├── utils/
 │   ├── __init__.py
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
+│   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, badge_url)
 │   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
 │   └── supabase_client.py       # Supabase client (somente Auth) — lê st.secrets
 └── scripts/
-    ├── seed_types.py              # Popula pokemon_types (executar 1º)
-    ├── seed_pokedex.py            # Popula pokemon_species, pokemon_moves, species_moves (2º)
-    ├── seed_evolutions.py         # Popula pokemon_evolutions (3º)
-    ├── seed_stats.py              # Popula base stats em pokemon_species via PokéAPI (4º)
+    ├── seed_types.py                         # Popula pokemon_types (executar 1º)
+    ├── seed_pokedex.py                       # Popula pokemon_species, pokemon_moves, species_moves (2º)
+    ├── seed_evolutions.py                    # Popula pokemon_evolutions (3º)
+    ├── seed_stats.py                         # Popula base stats em pokemon_species via PokéAPI (4º)
     ├── seed_shop_items.py                    # Popula/atualiza nomes e descrições de shop_items via PokéAPI
-    ├── seed_regional_species.py              # Popula pokemon_species + moves para as 41 formas regionais
+    ├── seed_regional_species.py              # Popula pokemon_species + moves para as 42 formas regionais
+    ├── seed_pokemon_instances.py             # Semeia IV/EV/Nature para todos os user_pokemon; recalcula stat_* (idempotente)
+    ├── audit_team_stats.py                   # Audita e sincroniza stat_* da equipe ativa (--dry-run / --user-id)
     ├── migrate_drop_regional_catalog.sql     # Remove pokemon_regional_forms e user_pokemon_forms (executar no Supabase)
     ├── migrate_battles.sql                   # Cria user_battles e user_battle_turns (executar no Supabase)
     ├── migrate_regional_forms.sql            # Migração auxiliar de formas regionais (executar no Supabase)
     ├── migrate_v2.sql                        # Migrações v2 diversas (executar no Supabase)
     ├── migrate_consolidate_profiles.sql      # Retarget workout_logs FK → user_profiles; remove tabela profiles legada
+    ├── migrate_achievements.sql              # Cria user_achievements (executar no Supabase)
     ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
     ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais (espécies normais)
     ├── update_regional_sprites.py            # Substitui URLs de sprites para formas regionais via CDN HybridShivam
@@ -248,8 +255,12 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | level | INT | Começa em 1 |
 | xp | INT | XP acumulado dentro do nível atual |
 | is_shiny | BOOL | |
-| stat_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Stats individuais — copiados dos base stats na captura; atualizados por vitaminas e evoluções |
+| stat_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Stats efetivos — calculados pela fórmula padrão Pokémon (base + IV + EV + nature + vitaminas) |
+| iv_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | IVs individuais 0–31, gerados aleatoriamente na captura |
+| ev_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | EVs individuais 0–252 (total ≤ 510), gerados aleatoriamente na captura |
+| nature | TEXT | Natureza (uma das 25 padrão), gerada aleatoriamente na captura |
 
+> **Fórmula de stat:** `((2×base + iv + ev//4) × level) // 100 + 5` para não-HP; `+ level + 10` para HP; multiplicado pelo modificador de nature (+10%/−10%) quando aplicável.
 > **Pokémon no banco:** `user_pokemon` que não aparecem em `user_team` = banco/depósito. Nunca deletar `user_pokemon` diretamente — apenas remover de `user_team`.
 
 #### `user_team`
@@ -338,7 +349,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | day_id | UUID FK | FK → workout_days (nullable — NULL = treino livre) |
 | xp_earned | INT | XP concedido ao Pokémon do slot 1 nesta sessão |
 | spawned_species_id | INT FK | Pokémon spawnado nesta sessão (nullable) |
-| logged_at | TIMESTAMPTZ | |
+| duration_minutes | INT | Duração da sessão em minutos (nullable) |
+| completed_at | TIMESTAMPTZ | Timestamp de conclusão (coluna é `completed_at`, não `logged_at`) |
 
 #### `exercise_logs`
 | Coluna | Tipo | Descrição |
@@ -359,6 +371,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `_db_params()` | Lê credenciais: `st.secrets["database"]` primeiro, fallback para `.env` |
 | `get_connection()` | Retorna conexão psycopg2 por sessão (`st.session_state._db_conn`); reconecta se fechada ou em estado de erro |
 | `get_image_as_base64(path)` | Converte imagem local para base64; aceita URLs HTTP; **fallback automático para CDN HybridShivam/Pokemon** quando arquivo não encontrado localmente |
+| `_today_brt()` | Retorna `datetime.date` de hoje no fuso BRT (UTC-3) |
 
 ### Catálogo Pokémon
 | Função | Descrição |
@@ -395,13 +408,22 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `equip_move(user_pokemon_id, slot, move_id)` | Upsert em user_pokemon_moves |
 | `unequip_move(user_pokemon_id, slot)` | Remove do slot |
 
-### Stats e boosts
+### Stats, IVs/EVs/Nature e boosts
 | Função | Descrição |
 |---|---|
 | `apply_stat_boost(user_pokemon_id, stat, delta, source_item)` | INSERT em stat_boosts + UPDATE stat_* atomicamente; valida `stat` contra whitelist `_VALID_STATS`; retorna `False` silenciosamente se o cap de `_MAX_STAT_BOOSTS_PER_STAT = 5` for atingido |
 | `get_stat_boosts(user_pokemon_id)` | Histórico completo |
 | `get_stat_boost_summary(user_pokemon_id)` | `{stat: total_delta}` |
-| `_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)` | **Interno.** Recalcula stat_* = new_base_* + soma de vitaminas; chamado após qualquer evolução |
+| `_recalc_stats_on_evolution(cur, user_pokemon_id)` | **Interno.** Força recálculo completo usando `_sync_user_pokemon_stats()` após evolução |
+| `_stored_user_pokemon_stats(cur, user_pokemon_id)` | **Interno.** Retorna `list[int]` com os seis stat_* armazenados |
+| `_expected_user_pokemon_stats(cur, user_pokemon_id)` | **Interno.** Calcula os seis stats esperados pela fórmula (base + IV + EV + nature + boosts) |
+| `_sync_user_pokemon_stats(cur, user_pokemon_id)` | **Interno.** Compara stored vs. expected; atualiza banco se divergirem; retorna `bool` |
+
+**Constantes de stats:**
+- `_STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")`
+- `_GENETIC_COLUMNS` — nomes das 13 colunas de IV/EV/nature em `user_pokemon`
+- `_ALL_NATURES` — 25 naturezas padrão Pokémon
+- `_NATURE_EFFECTS` — dict `{slug: (boosted_stat, nerfed_stat)}` para as 20 naturezas não-neutras
 
 > **Cap de vitaminas:** `_MAX_STAT_BOOSTS_PER_STAT = 5` — máximo 5 usos de vitaminas por stat por Pokémon. `use_stat_item()` retorna mensagem de erro em português se o limite for atingido; `apply_stat_boost()` retorna `False` na mesma condição.
 
@@ -449,6 +471,15 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item_id, spawned_species_id}}` |
 | `get_checkin_streak(user_id)` | Streak atual de dias consecutivos |
 | `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
+
+### Leaderboard
+| Função | Descrição |
+|---|---|
+| `get_leaderboard_pokemon_count(limit=20)` | Ranking all-time por total de Pokémon capturados |
+| `get_leaderboard_checkin_streak(year, month, limit=20)` | Ranking mensal por melhor streak de check-in |
+| `get_leaderboard_workout_xp(year, month, limit=20)` | Ranking mensal por XP de treino acumulado |
+
+Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, lead_sprite, lead_level`. Em caso de erro retornam `[]`.
 
 ### Exercícios e treino
 | Função | Descrição |
@@ -525,13 +556,15 @@ def _resolve_asset(local_path: str) -> str:
 ### Ordem na navegação (primeira = página inicial)
 1. `pages/equipe.py` — Minha Equipe ⚔️
 2. `pages/batalha.py` — Arena 🥊
-3. `pages/pokedex.py` — Pokédex 📖
-4. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
-5. `pages/loja.py` — Loja 🛒
-6. `pages/calendario.py` — Calendário 📅
-7. `pages/biblioteca.py` — Biblioteca 📚
-8. `pages/rotinas.py` — Rotinas 📋
-9. `pages/treino.py` — Treino 🏋️
+3. `pages/conquistas.py` — Conquistas 🏅
+4. `pages/leaderboard.py` — Ranking 🏆
+5. `pages/pokedex.py` — Pokédex 📖
+6. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
+7. `pages/loja.py` — Loja 🛒
+8. `pages/calendario.py` — Calendário 📅
+9. `pages/biblioteca.py` — Biblioteca 📚
+10. `pages/rotinas.py` — Rotinas 📋
+11. `pages/treino.py` — Treino 🏋️
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -607,6 +640,13 @@ def _resolve_asset(local_path: str) -> str:
 - Streak de treino no topo (independente do streak de check-in), via `get_workout_streak()`
 - Histórico: últimos 7 dias em tabela (`get_workout_history()`) com badge 🌟 se houve spawn
 - Após resultado: define `st.session_state.team_evo_notice` (evolução), `st.session_state.team_shed_notice` (Shedinja), `st.session_state.team_spawn_notice` (spawn), `st.session_state.xp_share_log` se aplicável
+
+### `pages/leaderboard.py`
+- Header com título + navegação mensal (◀/▶) para meses anteriores
+- 3 tabs: **XP de Treino** (mensal), **Streak de Check-in** (melhor streak do mês), **Coleção Pokémon** (all-time)
+- Card de linha por usuário: posição (🥇/🥈/🥉/número), sprite do Pokémon slot 1, username, nível/nome do Pokémon líder, valor da métrica
+- Badge "Você" verde-limão na linha do usuário logado (classe `is-me` com borda e fundo diferenciados)
+- Sem dados → mensagem `lb-empty` estilizada
 
 ### `pages/login.py`
 - Tabs "Entrar" / "Criar conta"
@@ -731,7 +771,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ---
 
-## Estado Atual do Projeto (maio 2026)
+## Estado Atual do Projeto (abril 2026)
 
 ### Implementado ✅
 - Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática)
@@ -740,7 +780,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Pokédex pessoal: 1.025 cards com filtros, progresso por geração
 - Equipe: 6 slots, moveset equipável (4 por Pokémon), modo substituição, stats visíveis
 - Banco de Pokémon: Pokémon fora da equipe ficam no banco; seção na página de equipe com botão para trazer à equipe
-- Stats individuais: copiados na captura, atualizados por vitaminas e evoluções
+- **Stats individuais com IV/EV/Nature:** fórmula padrão Pokémon; gerados aleatoriamente na captura; `seed_pokemon_instances.py` aplica retroativamente; `audit_team_stats.py` detecta divergências
 - Sistema de XP e evolução automática: `award_xp()` com distribuição via XP Share
   - **Bypass de triggers não-padrão:** evoluções por troca, amizade, etc. disparam automaticamente no nível 36
   - **Mecânica Shed (Nincada):** ao evoluir para Ninjask, captura Shedinja automaticamente se houver slot livre; exibe banner verde em `equipe.py` e card verde em `calendario.py`
@@ -754,11 +794,14 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
 - Deploy em produção: Streamlit Cloud com CDN fallback para imagens
 - Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
+- **Conquistas:** 23 badges em 5 categorias; `check_and_award_achievements()` chamado após treino/check-in/batalha; banner de novos badges em `conquistas.py`
+- **Leaderboard (`leaderboard.py`):** ranking mensal de XP de treino e streak de check-in; ranking all-time de coleção Pokémon; badge "Você" na linha do usuário logado
 - **Phase 2 — Módulo de treinos completo:**
   - Biblioteca de exercícios (`biblioteca.py`): grade 4 colunas, GIF thumbnail, badge de tipo Pokémon, filtros por nome/grupo muscular/equipamento, expander de detalhes
   - Workout Builder (`rotinas.py`): árvore expansível Rotina → Dia → Exercícios, CRUD completo com confirmação de cascata, sets/reps editáveis inline
   - Routine Log (`treino.py`): date picker, Import Default, tabela editável, cap diário 300 XP, streak de treino, histórico 7 dias, milestones de streak (7/30 dias)
   - XP e spawn do treino fluem para `equipe.py` via `team_spawn_notice`, `team_evo_notice`, `team_shed_notice`, `xp_share_log`
+  - `workout_logs` usa coluna `completed_at` (não `logged_at`) e tem coluna `duration_minutes`
 
 ### A implementar
 
