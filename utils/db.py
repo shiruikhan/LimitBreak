@@ -3390,6 +3390,53 @@ def check_and_award_achievements(user_id: str) -> list[dict]:
         return []
 
 
+def admin_gift_loot_box(admin_id: str, target_user_id: str, count: int = 1) -> tuple[bool, str, list[dict]]:
+    """Gift `count` loot boxes to `target_user_id`.
+
+    Returns (success, message, list_of_loot_dicts).
+    XP rewards are applied after commit via award_xp.
+    """
+    if count < 1 or count > 10:
+        return False, "Quantidade deve estar entre 1 e 10.", []
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM user_profiles WHERE id = %s", (target_user_id,))
+            if not cur.fetchone():
+                return False, "Usuário não encontrado.", []
+
+            results = []
+            for _ in range(count):
+                loot = _roll_loot_box(cur, target_user_id)
+                results.append(loot)
+
+            conn.commit()
+
+        xp_items = [l for l in results if l["type"] == "xp"]
+        if xp_items:
+            try:
+                with get_connection().cursor() as cur2:
+                    cur2.execute(
+                        "SELECT user_pokemon_id FROM user_team WHERE user_id = %s AND slot = 1",
+                        (target_user_id,),
+                    )
+                    slot1 = cur2.fetchone()
+                if slot1:
+                    for l in xp_items:
+                        award_xp(slot1[0], l["amount"], "gift_loot_box")
+            except Exception:
+                pass
+
+        log_admin_action(
+            admin_id, "gift_loot_box",
+            target_type="user", target_id=target_user_id,
+            details={"count": count, "results": [l["label"] for l in results]},
+        )
+        labels = ", ".join(l["label"] for l in results)
+        return True, f"{count}x loot box(es) enviado(s): {labels}", results
+    except Exception as e:
+        return False, f"Erro: {e}", []
+
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 
 def get_leaderboard_pokemon_count(limit: int = 20) -> list[dict]:

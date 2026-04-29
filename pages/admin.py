@@ -2,6 +2,7 @@ import streamlit as st
 from utils.db import (
     is_admin, get_all_users, admin_update_user, admin_delete_user,
     set_admin_role, get_system_logs, get_global_stats, log_admin_action,
+    admin_gift_loot_box,
 )
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_overview, tab_users, tab_logs = st.tabs(["📊 Visão Geral", "👥 Usuários", "📋 Logs do Sistema"])
+tab_overview, tab_users, tab_gift, tab_logs = st.tabs(["📊 Visão Geral", "👥 Usuários", "🎁 Gift Loot Box", "📋 Logs do Sistema"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Overview
@@ -186,7 +187,38 @@ with tab_users:
                     st.caption("—")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — System Logs
+# TAB 3 — Gift Loot Box
+# ══════════════════════════════════════════════════════════════════════════════
+_RARITY_COLOR = {"common": "#8b949e", "rare": "#a371f7", "ultra_rare": "#ffa657"}
+_RARITY_LABEL = {"common": "Comum", "rare": "Raro", "ultra_rare": "Ultra Raro"}
+
+with tab_gift:
+    st.markdown("### 🎁 Enviar Loot Box para Usuário")
+    st.caption("Sorteia e entrega itens diretamente no inventário do usuário. O resultado é registrado nos logs.")
+
+    all_users_gift = get_all_users("")
+    user_options = {f"{u['username'] or '(sem nome)'} — {u['email'] or u['id']}": u["id"] for u in all_users_gift}
+
+    gift_target_label = st.selectbox("Usuário destinatário", options=list(user_options.keys()), key="gift_target")
+    gift_count = st.number_input("Quantidade de loot boxes", min_value=1, max_value=10, value=1, step=1, key="gift_count")
+
+    if st.button("🎁 Enviar", key="gift_send_btn", type="primary"):
+        target_uid = user_options[gift_target_label]
+        ok, msg, results = admin_gift_loot_box(user_id, target_uid, int(gift_count))
+        if ok:
+            st.success(msg)
+            for loot in results:
+                color = _RARITY_COLOR.get(loot.get("rarity", "common"), "#8b949e")
+                label = _RARITY_LABEL.get(loot.get("rarity", "common"), "Comum")
+                st.markdown(
+                    f'<span style="color:{color};font-weight:700">[{label}]</span> {loot["label"]}',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.error(msg)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — System Logs
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_logs:
     fc1, fc2, fc3 = st.columns([2, 2, 1])
