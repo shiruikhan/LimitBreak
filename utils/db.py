@@ -239,7 +239,7 @@ def create_user_profile(user_id: str, username: str, starter_id: int) -> bool:
                 ON CONFLICT (id) DO NOTHING;
             """, (user_id, username, starter_id))
 
-            # Add starter to user_pokemon, copying base stats as individual stats
+            # Adiciona starter com stats escalados para nível 1
             cur.execute("""
                 INSERT INTO user_pokemon (
                     user_id, species_id, level, xp,
@@ -247,8 +247,12 @@ def create_user_profile(user_id: str, username: str, starter_id: int) -> bool:
                     stat_sp_attack, stat_sp_defense, stat_speed
                 )
                 SELECT %s, %s, 1, 0,
-                       base_hp, base_attack, base_defense,
-                       base_sp_attack, base_sp_defense, base_speed
+                    GREATEST(1, 2*base_hp         /100 + 11),
+                    GREATEST(1, 2*base_attack      /100 + 5),
+                    GREATEST(1, 2*base_defense     /100 + 5),
+                    GREATEST(1, 2*base_sp_attack   /100 + 5),
+                    GREATEST(1, 2*base_sp_defense  /100 + 5),
+                    GREATEST(1, 2*base_speed       /100 + 5)
                 FROM pokemon_species WHERE id = %s
                 RETURNING id;
             """, (user_id, starter_id, starter_id))
@@ -328,8 +332,12 @@ def capture_pokemon(user_id: str, species_id: int) -> bool:
                     stat_sp_attack, stat_sp_defense, stat_speed
                 )
                 SELECT %s, %s, 1, 0,
-                       base_hp, base_attack, base_defense,
-                       base_sp_attack, base_sp_defense, base_speed
+                    GREATEST(1, 2*base_hp         /100 + 11),
+                    GREATEST(1, 2*base_attack      /100 + 5),
+                    GREATEST(1, 2*base_defense     /100 + 5),
+                    GREATEST(1, 2*base_sp_attack   /100 + 5),
+                    GREATEST(1, 2*base_sp_defense  /100 + 5),
+                    GREATEST(1, 2*base_speed       /100 + 5)
                 FROM pokemon_species WHERE id = %s
                 RETURNING id;
             """, (user_id, species_id, species_id))
@@ -1026,7 +1034,7 @@ def do_checkin(user_id: str) -> dict:
                     if spawn_row:
                         spawned_species_id = spawn_row[0]
 
-                        # Captura o Pokémon (nível 5)
+                        # Captura o Pokémon (nível 5, stats escalados)
                         cur.execute("""
                             INSERT INTO user_pokemon (
                                 user_id, species_id, level, xp,
@@ -1034,8 +1042,12 @@ def do_checkin(user_id: str) -> dict:
                                 stat_sp_attack, stat_sp_defense, stat_speed
                             )
                             SELECT %s, %s, 5, 0,
-                                   base_hp, base_attack, base_defense,
-                                   base_sp_attack, base_sp_defense, base_speed
+                                GREATEST(1, 2*base_hp         *5/100 + 5 + 10),
+                                GREATEST(1, 2*base_attack     *5/100 + 5),
+                                GREATEST(1, 2*base_defense    *5/100 + 5),
+                                GREATEST(1, 2*base_sp_attack  *5/100 + 5),
+                                GREATEST(1, 2*base_sp_defense *5/100 + 5),
+                                GREATEST(1, 2*base_speed      *5/100 + 5)
                             FROM pokemon_species WHERE id = %s
                             RETURNING id;
                         """, (user_id, spawned_species_id, spawned_species_id))
@@ -1111,11 +1123,28 @@ def do_checkin(user_id: str) -> dict:
 
 # ── XP, level-up e evolução ────────────────────────────────────────────────────
 
-def _recalc_stats_on_evolution(cur, user_pokemon_id: int, new_species_id: int) -> None:
-    """Recalcula stat_* = new_base_* + total de vitaminas aplicadas.
+def _scaled_stat(base: int, level: int, is_hp: bool = False) -> int:
+    """Fórmula Pokémon simplificada (sem IVs / EVs / Natureza).
 
-    Chamado internamente após qualquer tipo de evolução para manter
-    os stats individuais consistentes com a nova espécie.
+    HP:   floor(2 × base × level / 100) + level + 10
+    Demais: floor(2 × base × level / 100) + 5
+
+    Cap: nível máximo 100 (consistente com award_xp).
+    """
+    level = min(level, 100)
+    scaled = int(2 * base * level / 100)
+    if is_hp:
+        return max(1, scaled + level + 10)
+    return max(1, scaled + 5)
+
+
+def _recalc_stats_for_level(
+    cur, user_pokemon_id: int, species_id: int, level: int
+) -> None:
+    """Recalcula stat_* usando a fórmula Pokémon escalada pelo nível + vitaminas.
+
+    Deve ser chamada após level-ups e evoluções para manter os stats
+    individuais em sincronia com o nível atual e a espécie atual.
     """
     cur.execute("""
         SELECT stat, COALESCE(SUM(delta), 0)
@@ -1129,20 +1158,31 @@ def _recalc_stats_on_evolution(cur, user_pokemon_id: int, new_species_id: int) -
         SELECT base_hp, base_attack, base_defense,
                base_sp_attack, base_sp_defense, base_speed
         FROM pokemon_species WHERE id = %s;
-    """, (new_species_id,))
+    """, (species_id,))
     bases = cur.fetchone()
     if not bases:
         return
 
     stat_cols = ["hp", "attack", "defense", "sp_attack", "sp_defense", "speed"]
-    set_parts = ", ".join(
-        f"stat_{stat} = %s" for stat in stat_cols
-    )
-    values = [(bases[i] or 0) + boosts.get(stat, 0) for i, stat in enumerate(stat_cols)]
+    values = [
+        _scaled_stat(bases[i] or 0, level, is_hp=(stat == "hp")) + boosts.get(stat, 0)
+        for i, stat in enumerate(stat_cols)
+    ]
+    set_parts = ", ".join(f"stat_{stat} = %s" for stat in stat_cols)
     cur.execute(
         f"UPDATE user_pokemon SET {set_parts} WHERE id = %s;",
         values + [user_pokemon_id],
     )
+
+
+def _recalc_stats_on_evolution(
+    cur, user_pokemon_id: int, new_species_id: int, level: int
+) -> None:
+    """Recalcula stat_* após uma evolução usando a nova espécie e o nível atual.
+
+    Delega para _recalc_stats_for_level com a espécie pós-evolução.
+    """
+    _recalc_stats_for_level(cur, user_pokemon_id, new_species_id, level)
 
 
 def get_xp_share_status(user_id: str) -> dict:
@@ -1264,8 +1304,9 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
             xp += amount
 
             # ── Loop de level-up ──────────────────────────────────────────────
-            # Fórmula: level * 100 XP para o próximo nível
-            while xp >= level * 100:
+            # Fórmula: level * 100 XP para o próximo nível. Cap: nível 100.
+            _BYPASS_LEVEL = 36
+            while xp >= level * 100 and level < 100:
                 xp    -= level * 100
                 level += 1
                 result["levels_gained"] += 1
@@ -1274,7 +1315,6 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 # Triggers não-padrão (trade, spin, three-critical-hits, take-damage,
                 # agile/strong-style-move, recoil-damage, tower-*, other) disparam
                 # no nível 36 como bypass. 'use-item' e 'shed' são tratados à parte.
-                _BYPASS_LEVEL = 36
                 if len(result["evolutions"]) < 3:
                     cur.execute("""
                         SELECT e.to_species_id, p2.name, p2.sprite_url,
@@ -1324,11 +1364,22 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                                         stat_sp_attack, stat_sp_defense, stat_speed
                                     )
                                     SELECT %s, %s, %s, 0,
-                                           base_hp, base_attack, base_defense,
-                                           base_sp_attack, base_sp_defense, base_speed
+                                        GREATEST(1, 2*base_hp        *%s/100 + %s + 10),
+                                        GREATEST(1, 2*base_attack    *%s/100 + 5),
+                                        GREATEST(1, 2*base_defense   *%s/100 + 5),
+                                        GREATEST(1, 2*base_sp_attack *%s/100 + 5),
+                                        GREATEST(1, 2*base_sp_defense*%s/100 + 5),
+                                        GREATEST(1, 2*base_speed     *%s/100 + 5)
                                     FROM pokemon_species WHERE id = %s
                                     RETURNING id;
-                                """, (user_id, shed_id, level, shed_id))
+                                """, (user_id, shed_id, level,
+                                      level, level,   # HP: ×level + +level
+                                      level,          # attack
+                                      level,          # defense
+                                      level,          # sp_attack
+                                      level,          # sp_defense
+                                      level,          # speed
+                                      shed_id))
                                 shed_up_id = cur.fetchone()[0]
                                 cur.execute(
                                     "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
@@ -1353,6 +1404,11 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
 
                         species_id = to_id  # próxima iteração usa a nova espécie
 
+            # Ao atingir o cap: congela XP em 0
+            if level >= 100:
+                level = 100
+                xp = 0
+
             # ── Persiste level, xp e espécie ─────────────────────────────────
             cur.execute("""
                 UPDATE user_pokemon
@@ -1360,9 +1416,14 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 WHERE id = %s;
             """, (level, xp, species_id, user_pokemon_id))
 
-            # ── Recalcula stats se houve evolução ────────────────────────────
+            # ── Recalcula stats por nível e/ou evolução ──────────────────────
             if result["evolutions"]:
-                _recalc_stats_on_evolution(cur, user_pokemon_id, species_id)
+                # Nova espécie + novo nível → usa _recalc_stats_on_evolution
+                # (que delega para _recalc_stats_for_level com new_species_id)
+                _recalc_stats_on_evolution(cur, user_pokemon_id, species_id, level)
+            elif result["levels_gained"] > 0:
+                # Sem evolução, mas subiu de nível → escala stats pela fórmula
+                _recalc_stats_for_level(cur, user_pokemon_id, species_id, level)
 
         conn.commit()
         result["new_level"] = level
@@ -1459,15 +1520,15 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
             if not inv or inv[0] < 1:
                 return False, f"Você não possui {stone_name}.", {}
 
-            # Verifica ownership do Pokémon
+            # Verifica ownership do Pokémon e carrega nível atual
             cur.execute(
-                "SELECT species_id FROM user_pokemon WHERE id = %s AND user_id = %s;",
+                "SELECT species_id, level FROM user_pokemon WHERE id = %s AND user_id = %s;",
                 (user_pokemon_id, user_id)
             )
             poke_row = cur.fetchone()
             if not poke_row:
                 return False, "Pokémon não encontrado na sua coleção.", {}
-            current_species = poke_row[0]
+            current_species, poke_level = poke_row
 
             # Verifica se esta pedra evolui este Pokémon
             cur.execute("""
@@ -1491,7 +1552,7 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
                 "UPDATE user_pokemon SET species_id = %s WHERE id = %s;",
                 (to_id, user_pokemon_id)
             )
-            _recalc_stats_on_evolution(cur, user_pokemon_id, to_id)
+            _recalc_stats_on_evolution(cur, user_pokemon_id, to_id, poke_level)
 
             # Debita pedra do inventário
             cur.execute("""
@@ -1525,7 +1586,10 @@ _LOSS_XP = 10
 
 
 def _pokemon_max_hp(stat_hp: int, level: int) -> int:
-    return max(1, int((2 * stat_hp * level) / 100) + level + 10)
+    # stat_hp já está pré-computado pela fórmula Pokémon escalada por nível
+    # (floor(2 × base × level / 100) + level + 10 + vitaminas).
+    # Retorna diretamente — sem re-escalar.
+    return max(1, stat_hp)
 
 
 # Type chart: _TYPE_CHART[move_type_id][defender_type_id] = multiplier (omitidos = 1.0)
@@ -2108,8 +2172,12 @@ def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool
             stat_sp_attack, stat_sp_defense, stat_speed
         )
         SELECT %s, %s, 5, 0, %s,
-               base_hp, base_attack, base_defense,
-               base_sp_attack, base_sp_defense, base_speed
+            GREATEST(1, 2*base_hp         *5/100 + 5 + 10),
+            GREATEST(1, 2*base_attack     *5/100 + 5),
+            GREATEST(1, 2*base_defense    *5/100 + 5),
+            GREATEST(1, 2*base_sp_attack  *5/100 + 5),
+            GREATEST(1, 2*base_sp_defense *5/100 + 5),
+            GREATEST(1, 2*base_speed      *5/100 + 5)
         FROM pokemon_species WHERE id = %s
         RETURNING id;
     """, (user_id, species_id, is_shiny, species_id))
