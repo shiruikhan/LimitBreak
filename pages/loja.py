@@ -100,7 +100,7 @@ xp_share_st  = get_xp_share_status(user_id)
 # Catálogo por categoria
 stones      = [i for i in items if i["category"] == "stone"]
 stat_boosts = [i for i in items if i["category"] == "stat_boost"]
-others      = [i for i in items if i["category"] == "other"]
+others      = [i for i in items if i["category"] == "other" and i["slug"] != "loot-box"]
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 

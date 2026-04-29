@@ -1121,7 +1121,7 @@ _LOOT_BOX_ITEM = {
     "slug": "loot-box",
     "name": "Loot Box",
     "description": "Abra na Mochila para receber uma recompensa aleatoria.",
-    "category": "loot_box",
+    "category": "other",
     "price": 0,
     "icon": "🎁",
 }
@@ -1192,6 +1192,8 @@ def buy_item(user_id: str, item_id: int) -> tuple[bool, str]:
             if not row:
                 return False, "Item não encontrado."
             item_name, price, slug = row
+            if slug == _LOOT_BOX_ITEM["slug"]:
+                return False, "Este item não pode ser comprado na loja."
 
             # Saldo do usuário (FOR UPDATE trava a linha contra compras simultâneas)
             cur.execute(
