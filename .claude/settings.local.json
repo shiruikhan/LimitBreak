@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(py|sql|txt|md\\)$\")",
+      "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__list_projects",
+      "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__apply_migration",
+      "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__get_project_url",
+      "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__get_publishable_keys",
+      "Bash(pip show *)",
+      "Bash(python -c \"import supabase; print\\(supabase.__file__\\)\")",
+      "Bash(pip install *)",
+      "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__list_migrations",
+      "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__execute_sql",
+      "Bash(python scripts/seed_stats.py)",
+      "Bash(python scripts/seed_shop_items.py)",
+      "Bash(powershell -Command \"Get-ChildItem -Path 'src\\\\Pokemon\\\\assets' -Recurse -File | Measure-Object -Property Length -Sum | Select-Object -ExpandProperty Sum\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path 'src\\\\Pokemon\\\\assets' -Recurse -File | Measure-Object | Select-Object -ExpandProperty Count\")",
+      "Bash(powershell -Command ' *)",
+      "Bash(powershell -Command 'Get-ChildItem -Path '\\\\''src\\\\Pokemon\\\\assets\\\\Others'\\\\'' -Recurse -File | Measure-Object -Property Length -Sum | Select-Object @{N='\\\\''MB'\\\\'';E={[math]::Round\\($_.Sum/1MB,2\\)}}, Count')",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('pages/pokedex_pessoal.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('pages/equipe.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('pages/equipe.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('utils/db.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
+    ]
+  }
+}
