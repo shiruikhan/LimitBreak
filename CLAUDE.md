@@ -455,7 +455,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 - Moves físicos usam `attack/defense`; especiais usam `sp_attack/sp_defense`; status = pulado
 - Sem move equipado: usa "Investida" (power 40, físico)
 - Máx 50 turnos — depois empate
-- Vitória: +50 moedas, +30 XP; Derrota: +10 XP
+- Vitória: +1 moeda, +30 XP; Derrota: +10 XP
 
 ### Loja e inventário
 | Função | Descrição |
