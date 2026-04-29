@@ -97,6 +97,14 @@ _NATURE_EFFECTS = {
     "sassy": ("sp_defense", "speed"),
     "careful": ("sp_defense", "sp_attack"),
 }
+_STAT_LABELS = {
+    "hp": "HP",
+    "attack": "ATK",
+    "defense": "DEF",
+    "sp_attack": "Sp. Atk",
+    "sp_defense": "Sp. Def",
+    "speed": "SPD",
+}
 _ALL_NATURES = (
     "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
     "Bold", "Docile", "Relaxed", "Impish", "Lax",
@@ -188,20 +196,43 @@ def _random_nature() -> str:
     return random.choice(_ALL_NATURES)
 
 
-def _nature_modifiers(nature_name: str | None) -> dict:
-    modifiers = {stat: 1.0 for stat in _STAT_ORDER}
+def _nature_payload(nature_name: str | None) -> dict | None:
     if not nature_name:
-        return modifiers
+        return None
 
     slug = str(nature_name).strip().lower()
-    if slug in _NEUTRAL_NATURES:
-        return modifiers
+    if not slug:
+        return None
 
+    boosted = nerfed = None
     boosted_nerfed = _NATURE_EFFECTS.get(slug)
-    if not boosted_nerfed:
+    if boosted_nerfed:
+        boosted, nerfed = boosted_nerfed
+
+    is_neutral = slug in _NEUTRAL_NATURES or not boosted_nerfed
+    boosted_label = _STAT_LABELS.get(boosted) if boosted else None
+    nerfed_label = _STAT_LABELS.get(nerfed) if nerfed else None
+
+    return {
+        "name": slug.capitalize(),
+        "slug": slug,
+        "is_neutral": is_neutral,
+        "boosted_stat": boosted,
+        "boosted_label": boosted_label,
+        "nerfed_stat": nerfed,
+        "nerfed_label": nerfed_label,
+        "summary": "Neutral" if is_neutral else f"+{boosted_label} / -{nerfed_label}",
+    }
+
+
+def _nature_modifiers(nature_name: str | None) -> dict:
+    modifiers = {stat: 1.0 for stat in _STAT_ORDER}
+    payload = _nature_payload(nature_name)
+    if not payload or payload["is_neutral"]:
         return modifiers
 
-    boosted, nerfed = boosted_nerfed
+    boosted = payload["boosted_stat"]
+    nerfed = payload["nerfed_stat"]
     modifiers[boosted] = 1.1
     modifiers[nerfed] = 0.9
     return modifiers
@@ -216,6 +247,10 @@ def _has_genetic_columns(cur) -> bool:
           AND column_name = ANY(%s);
     """, (list(_GENETIC_COLUMNS),))
     return cur.fetchone()[0] == len(_GENETIC_COLUMNS)
+
+
+def _nature_select_sql(cur, table_alias: str = "up") -> str:
+    return f"{table_alias}.nature AS nature" if _has_genetic_columns(cur) else "NULL AS nature"
 
 
 def _load_pokemon_genetics(cur, user_pokemon_id: int) -> tuple[dict, dict, dict]:
@@ -492,13 +527,15 @@ def create_user_profile(user_id: str, username: str, starter_id: int) -> bool:
 def get_user_team(user_id: str) -> list[dict]:
     try:
         with get_connection().cursor() as cur:
-            cur.execute("""
+            nature_select = _nature_select_sql(cur)
+            cur.execute(f"""
                 SELECT ut.slot, up.id, up.species_id, p.name, p.sprite_url,
                        up.level, up.xp, t1.name AS type1, t2.name AS type2,
                        up.stat_hp, up.stat_attack, up.stat_defense,
                        up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
                        p.base_hp, p.base_attack, p.base_defense,
-                       p.base_sp_attack, p.base_sp_defense, p.base_speed
+                       p.base_sp_attack, p.base_sp_defense, p.base_speed,
+                       {nature_select}
                 FROM user_team ut
                 JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species p ON up.species_id = p.id
@@ -517,6 +554,8 @@ def get_user_team(user_id: str) -> list[dict]:
                     "stat_sp_attack": r[12], "stat_sp_defense": r[13], "stat_speed": r[14],
                     "base_hp": r[15], "base_attack": r[16], "base_defense": r[17],
                     "base_sp_attack": r[18], "base_sp_defense": r[19], "base_speed": r[20],
+                    "nature_name": r[21],
+                    "nature": _nature_payload(r[21]),
                 }
                 for r in rows
             ]
@@ -569,12 +608,14 @@ def get_user_bench(user_id: str) -> list[dict]:
     """Retorna todos os user_pokemon do usuário que NÃO estão na equipe ativa."""
     try:
         with get_connection().cursor() as cur:
-            cur.execute("""
+            nature_select = _nature_select_sql(cur)
+            cur.execute(f"""
                 SELECT up.id, up.species_id, p.name, p.sprite_url,
                        up.level, up.xp,
                        t1.name AS type1, t2.name AS type2,
                        up.stat_hp, up.stat_attack, up.stat_defense,
-                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed
+                       up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
+                       {nature_select}
                 FROM user_pokemon up
                 JOIN pokemon_species p  ON up.species_id = p.id
                 LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
@@ -594,6 +635,8 @@ def get_user_bench(user_id: str) -> list[dict]:
                     "type1": r[6], "type2": r[7],
                     "stat_hp": r[8],  "stat_attack": r[9],  "stat_defense": r[10],
                     "stat_sp_attack": r[11], "stat_sp_defense": r[12], "stat_speed": r[13],
+                    "nature_name": r[14],
+                    "nature": _nature_payload(r[14]),
                 }
                 for r in rows
             ]
@@ -2079,6 +2122,8 @@ def get_battle_detail(battle_id: int) -> list:
 
 _EXERCISE_XP_DAILY_CAP = 300
 _FIRST_WORKOUT_BONUS_XP = 50
+_EXERCISE_REP_XP_DIVISOR = 2
+_EXERCISE_WEIGHT_XP_DIVISOR = 20
 
 # body_parts (campo de exercises) → slug de tipo Pokémon para spawn temático
 _BODY_PART_TYPE: dict[str, str] = {
@@ -2280,13 +2325,19 @@ def get_workout_history(user_id: str, limit: int = 10) -> list[dict]:
 
 
 def _calc_exercise_xp(exercises: list[dict]) -> int:
-    """XP bruto de uma sessão: sets × reps × 2 + FLOOR(weight_kg / 10) × sets."""
+    """XP bruto de uma sessão: CEIL(reps / 2) + FLOOR(weight_kg / 20) por set.
+
+    A curva foi reduzida para que um treino completo avance o Pokémon de forma
+    consistente sem estourar o cap diário em poucos exercícios.
+    """
     total = 0
     for ex in exercises:
         for s in ex.get("sets_data", []):
             reps   = int(s.get("reps") or 0)
             weight = float(s.get("weight") or 0)
-            total += reps * 2 + int(weight / 10)
+            rep_xp = (reps + (_EXERCISE_REP_XP_DIVISOR - 1)) // _EXERCISE_REP_XP_DIVISOR
+            weight_xp = int(weight / _EXERCISE_WEIGHT_XP_DIVISOR)
+            total += rep_xp + weight_xp
     return max(0, total)
 
 

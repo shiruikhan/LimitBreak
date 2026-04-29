@@ -38,6 +38,27 @@ def _xp_progress(level: int, xp: int) -> float:
     needed = level * XP_PER_LV
     return min(xp / needed, 1.0) if needed else 1.0
 
+
+def _nature_html(member: dict, *, compact: bool = False, align: str = "center") -> str:
+    nature = member.get("nature")
+    if not nature:
+        return ""
+
+    chip_classes = "nature-chip neutral" if nature["is_neutral"] else "nature-chip"
+    row_classes = "nature-row compact" if compact else "nature-row"
+    effect = "Neutral" if nature["is_neutral"] else nature["summary"]
+    effect_html = (
+        f"<span class='nature-effect'>{effect}</span>"
+        if not compact
+        else ""
+    )
+    return (
+        f"<div class='{row_classes}' style='justify-content:{align}'>"
+        f"<span class='{chip_classes}'>{nature['name']} Nature</span>"
+        f"{effect_html}"
+        f"</div>"
+    )
+
 # Cores canônicas de cada stat (padrão Pokémon)
 _STAT_COLORS = {
     "HP":     "#FF5959",
@@ -118,6 +139,26 @@ st.markdown("""
 .xp-track { background: #21262d; border-radius: 9999px; height: 4px; margin-top: 8px; overflow: hidden; border: 1px solid #30363d; }
 .xp-fill  { height: 100%; border-radius: 9999px; background: #58A6FF; }
 .xp-label { font-size: 0.62rem; color: #8b949e; margin-top: 2px; font-family: "JetBrains Mono", monospace; }
+.nature-row {
+    margin-top: 6px; display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap;
+}
+.nature-row.compact { margin-top: 4px; }
+.nature-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 3px 8px; border-radius: 9999px;
+    background: rgba(210,168,255,0.10); border: 1px solid rgba(210,168,255,0.35);
+    color: #d2a8ff; font-size: 0.58rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px;
+}
+.nature-chip.neutral {
+    background: rgba(88,166,255,0.10); border-color: rgba(88,166,255,0.35);
+    color: #79c0ff;
+}
+.nature-effect {
+    font-size: 0.62rem; color: #8b949e; font-weight: 600;
+    letter-spacing: 0.2px;
+}
 
 /* Stats mini-grid */
 .stat-grid { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -434,11 +475,13 @@ for slot in range(1, 7):
             needed   = member["level"] * XP_PER_LV
 
             stat_html = _stat_bars(member)
+            nature_html = _nature_html(member)
             st.markdown(
                 f"<div class='{card_cls}'>{lbl_html}{img_tag}"
                 f"<div class='poke-card-name'>#{member['species_id']} {member['name'].upper()}</div>"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
                 f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {member['level']}</div>"
+                f"{nature_html}"
                 f"<div class='xp-track'><div class='xp-fill' style='width:{prog*100:.0f}%'></div></div>"
                 f"<div class='xp-label'>{member['xp']} / {needed} XP</div>"
                 f"{stat_html}"
@@ -493,6 +536,7 @@ if sel_slot and sel_slot in team_by_slot:
     st.markdown(
         f"<div class='move-panel'>"
         f"<div class='move-panel-title'>⚔ GOLPES — {member['name'].upper()} Lv.{level}</div>"
+        f"{_nature_html(member, align='flex-start')}"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -658,12 +702,14 @@ else:
             ) if pk["type2"] else ""
 
             stat_html = _stat_bars(pk)
+            nature_html = _nature_html(pk, compact=True)
 
             st.markdown(
                 f"<div class='bench-card'>"
                 f"{img_tag}"
                 f"<div class='bench-name'>{pk['name'].upper()}</div>"
                 f"<div class='bench-lv'>Lv. {pk['level']}</div>"
+                f"{nature_html}"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
                 f"{stat_html}"
                 f"</div>",
