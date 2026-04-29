@@ -3,21 +3,40 @@ import streamlit as st
 from utils.db import (
     get_all_pokemon, get_pokemon_details, get_pokemon_moves,
     get_full_evolution_chain, get_image_as_base64,
-    get_user_pokemon_ids, capture_pokemon,
 )
 from utils.type_colors import get_type_color, TYPE_COLORS
 
 BASE_DIR = os.getcwd()
 TOTAL_POKEMON = 1025
+_GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _hq_path(sprite_url: str) -> str:
-    return os.path.join(BASE_DIR, sprite_url.replace("/images/", "/imagesHQ/").lstrip("/"))
+def _resolve_asset(local_path: str) -> str:
+    """Retorna o caminho local se existir, senão URL do GitHub CDN."""
+    if os.path.isfile(local_path):
+        return local_path
+    norm = local_path.replace("\\", "/")
+    if "assets/" in norm:
+        rel = norm.split("assets/", 1)[1]
+        return f"{_GITHUB_ASSETS_CDN}/assets/{rel}"
+    return local_path  # melhor esforço
 
-def _thumb_path(pokemon_id: int) -> str:
-    return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails", f"{str(pokemon_id).zfill(4)}.png")
+def _hq_path(sprite_url: str) -> str:
+    """Caminho/URL para a imagem HQ (official artwork)."""
+    if sprite_url.startswith("http"):
+        return sprite_url.replace("/images/", "/imagesHQ/")
+    local = os.path.join(BASE_DIR, sprite_url.replace("/images/", "/imagesHQ/").lstrip("/\\"))
+    return _resolve_asset(local)
+
+def _thumb_for(pokemon_id: int, sprite_url: str | None = None) -> str:
+    """Caminho/URL para o thumbnail. Usa CDN direto para formas regionais (id > 10000)."""
+    if pokemon_id > 10000 and sprite_url and sprite_url.startswith("http"):
+        return sprite_url.replace("/images/", "/thumbnails/")
+    local = os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
+                         f"{str(pokemon_id).zfill(4)}.png")
+    return _resolve_asset(local)
 
 def _type_icon_path(type_name: str) -> str:
     return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "Others", "type-icons", "png", f"{type_name.lower()}.png")
@@ -48,15 +67,15 @@ def _inject_global_css():
 
 /* Section labels */
 .section-label {
-    font-size: 0.7rem; font-weight: 700; letter-spacing: 2px;
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 2px;
     text-transform: uppercase; color: #8b949e; margin-bottom: 10px;
 }
 
 /* Type badge */
 .type-badge {
     display: inline-flex; align-items: center; gap: 5px;
-    padding: 4px 12px; border-radius: 20px;
-    font-size: 0.78rem; font-weight: 700; letter-spacing: 1px;
+    padding: 4px 12px; border-radius: 9999px;
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.5px;
     text-transform: uppercase; margin-right: 6px;
 }
 
@@ -65,20 +84,24 @@ def _inject_global_css():
     display: flex; align-items: center; gap: 10px;
     background: #161b22; border-radius: 10px;
     padding: 8px 14px; margin-bottom: 8px;
-    border-left: 4px solid #30363d;
-    transition: all 0.18s ease;
+    border-left: 3px solid #30363d;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .move-card:hover {
-    transform: translateX(4px);
+    transform: translateX(4px) scale(1.02);
     box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 .move-lv {
-    font-size: 0.7rem; font-weight: 700; color: #8b949e;
+    font-size: 0.65rem; font-weight: 700; color: #8b949e;
     min-width: 36px; text-align: right;
+    font-family: "JetBrains Mono", monospace;
 }
-.move-name { flex: 1; font-weight: 600; font-size: 0.92rem; color: #e6edf3; }
-.move-stat { font-size: 0.72rem; color: #8b949e; text-align: center; min-width: 32px; }
-.move-stat span { display: block; font-size: 0.62rem; text-transform: uppercase; }
+.move-name { flex: 1; font-weight: 700; font-size: 0.88rem; color: #e6edf3; }
+.move-stat {
+    font-size: 0.65rem; color: #8b949e; text-align: center; min-width: 32px;
+    font-family: "JetBrains Mono", monospace;
+}
+.move-stat span { display: block; font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* Moves scroll container */
 .moves-wrap {
@@ -106,7 +129,8 @@ def _inject_global_css():
 }
 .poke-number { font-size: 0.85rem; font-weight: 700; letter-spacing: 2px; opacity: 0.6; }
 .poke-name {
-    font-size: 2.8rem; font-weight: 900; letter-spacing: 1px;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2.8rem; font-weight: 400; letter-spacing: 2px;
     line-height: 1; margin: 4px 0 12px;
     text-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
@@ -114,7 +138,7 @@ def _inject_global_css():
 
 /* Evolution chain */
 .evo-container {
-    background: #161b22; border: 1px solid #21262d;
+    background: #161b22; border: 1px solid #30363d;
     border-radius: 16px; padding: 24px 20px; margin-top: 16px;
 }
 .evo-node {
@@ -122,8 +146,8 @@ def _inject_global_css():
     border-radius: 12px; transition: all 0.2s ease;
 }
 .evo-node.active {
-    background: rgba(120,200,80,0.12);
-    box-shadow: 0 0 0 2px #78C850;
+    background: rgba(184,248,47,0.10);
+    box-shadow: 0 0 0 2px #B8F82F;
 }
 .evo-name {
     font-size: 0.78rem; font-weight: 700; margin-top: 6px;
@@ -145,18 +169,6 @@ def _inject_global_css():
 .info-key { font-size: 0.72rem; font-weight: 700; letter-spacing: 1px;
     text-transform: uppercase; color: #8b949e; min-width: 70px; }
 
-/* Capture button */
-.stButton.capture > button {
-    background: linear-gradient(90deg, #4E8234, #78C850) !important;
-    color: #fff !important; font-weight: 700 !important;
-    border: none !important; border-radius: 8px !important;
-    padding: 8px 20px !important;
-}
-.stButton.owned > button {
-    background: #21262d !important;
-    color: #58a66e !important; font-weight: 700 !important;
-    border: 1px solid #30363d !important; border-radius: 8px !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -212,26 +224,20 @@ def _type_badge(type_name: str, size: str = "md") -> str:
 
 # ── Main render ────────────────────────────────────────────────────────────────
 
-def _render_pokedex(pid: int, user_id: str | None):
+def _render_pokedex(pid: int):
     details = get_pokemon_details(pid)
     if not details:
         st.error("Pokémon não encontrado.")
         return
 
-    pk_id, name, sprite_url, sprite_shiny_url, type1, type2, base_xp = details
+    pk_id, name, sprite_url, sprite_shiny_url, type1, type2, base_xp, \
+        base_hp, base_atk, base_def, base_spa, base_spd, base_spe = details
     moves = get_pokemon_moves(pid)
     evolutions = get_full_evolution_chain(pid)
 
     c1 = get_type_color(type1)
     c2 = get_type_color(type2 or type1)
     _inject_header_css(c1, c2)
-
-    # Owned / capture state
-    owned_ids: set[int] = get_user_pokemon_ids(user_id) if user_id else set()
-    is_owned = pid in owned_ids
-
-    # Shiny toggle
-    show_shiny = st.session_state.get("show_shiny", False)
 
     # ── HEADER CARD ──────────────────────────────────────────────────────────
     st.markdown("<div class='poke-header'>", unsafe_allow_html=True)
@@ -240,8 +246,9 @@ def _render_pokedex(pid: int, user_id: str | None):
 
     # Left: Info
     with col_info:
+        num_display = f"#{pk_id} — Regional" if pk_id > 10000 else f"#{str(pk_id).zfill(3)} / {TOTAL_POKEMON}"
         st.markdown(
-            f"<div class='poke-number'>#{str(pk_id).zfill(3)} / {TOTAL_POKEMON}</div>"
+            f"<div class='poke-number'>{num_display}</div>"
             f"<div class='poke-name'>{name.upper()}</div>",
             unsafe_allow_html=True,
         )
@@ -259,44 +266,15 @@ def _render_pokedex(pid: int, user_id: str | None):
             unsafe_allow_html=True,
         )
 
-        st.write("")
-
-        # Capture / owned button
-        if user_id:
-            if is_owned:
-                st.markdown("<div class='stButton owned'>", unsafe_allow_html=True)
-                st.button("✓ Capturado", key="btn_owned", disabled=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div class='stButton capture'>", unsafe_allow_html=True)
-                if st.button("⚡ Capturar", key="btn_capture"):
-                    if capture_pokemon(user_id, pid):
-                        st.success("Pokémon capturado!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao capturar.")
-                st.markdown("</div>", unsafe_allow_html=True)
-
     # Center: Image
     with col_img:
         if sprite_url:
-            active_url = sprite_shiny_url if (show_shiny and sprite_shiny_url) else sprite_url
-            # sprite_shiny_url still points to PokéAPI — show via URL; HQ only for normal
-            if show_shiny and sprite_shiny_url:
-                st.image(sprite_shiny_url, width=280)
-            else:
-                hq = _hq_path(sprite_url)
-                try:
-                    st.image(hq, width=280)
-                except Exception:
-                    st.image(sprite_url, width=280)
-
-        # Shiny toggle
-        if sprite_shiny_url:
-            new_shiny = st.toggle("✨ Shiny", value=show_shiny, key="shiny_toggle")
-            if new_shiny != show_shiny:
-                st.session_state.show_shiny = new_shiny
-                st.rerun()
+            hq = _hq_path(sprite_url)
+            try:
+                st.image(hq, width=280)
+            except Exception:
+                local_sp = os.path.join(BASE_DIR, sprite_url.lstrip("/\\"))
+                st.image(_resolve_asset(local_sp), width=280)
 
     # Right: Moves
     with col_moves:
@@ -339,9 +317,9 @@ def _render_pokedex(pid: int, user_id: str | None):
                     unsafe_allow_html=True)
         st.markdown("<div class='evo-container'>", unsafe_allow_html=True)
 
-        # Build stage tree
-        nodes = {e[0]: e[1] for e in evolutions}
-        nodes.update({e[2]: e[3] for e in evolutions})
+        # Build stage tree — nodes: {id: (name, sprite_url)}
+        nodes = {e[0]: (e[1], e[7]) for e in evolutions}
+        nodes.update({e[2]: (e[3], e[8]) for e in evolutions})
         to_ids = {e[2] for e in evolutions}
         root_id = next((i for i in nodes if i not in to_ids), list(nodes.keys())[0])
 
@@ -370,11 +348,12 @@ def _render_pokedex(pid: int, user_id: str | None):
         for i, stage in enumerate(stages):
             with evo_cols[i * 2]:
                 for p_id in stage:
-                    b64 = get_image_as_base64(_thumb_path(p_id))
+                    p_name, p_sprite = nodes[p_id]
+                    b64 = get_image_as_base64(_thumb_for(p_id, p_sprite))
                     img = _img_tag(b64, 80) if b64 else "❓"
                     active_cls = "active" if p_id == pid else ""
-                    p_name = nodes[p_id].upper()
-                    color = "#78C850" if p_id == pid else "#8b949e"
+                    p_name = p_name.upper()
+                    color = "#B8F82F" if p_id == pid else "#8b949e"
                     st.markdown(
                         f"<div class='evo-node {active_cls}'>"
                         f"{img}"
@@ -417,6 +396,5 @@ _inject_global_css()
 pokemon_list = get_all_pokemon()
 pokemon_dict = {f"#{str(p[0]).zfill(3)} {p[1]}": p[0] for p in pokemon_list}
 
-user_id = st.session_state.get("user_id")
 selected_id = _render_sidebar(pokemon_dict)
-_render_pokedex(selected_id, user_id)
+_render_pokedex(selected_id)

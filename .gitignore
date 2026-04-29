@@ -9,6 +9,8 @@ pnpm-lock.yaml
 .vscode/
 .idea/
 .DS_Store
+.claude/
+.design
 
 # Build outputs
 dist/

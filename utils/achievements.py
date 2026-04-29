@@ -1,0 +1,188 @@
+"""Achievement catalog and badge URL helpers."""
+import urllib.parse
+
+# Category display metadata
+CATEGORY_META: dict[str, dict] = {
+    "treino":   {"label": "TREINO",   "display": "Treino",    "icon": "🏋️", "color": "22c55e"},
+    "colecao":  {"label": "DEX",      "display": "Coleção",   "icon": "📦", "color": "3b82f6"},
+    "checkin":  {"label": "CHECK-IN", "display": "Check-in",  "icon": "📅", "color": "f97316"},
+    "batalha":  {"label": "ARENA",    "display": "Arena",     "icon": "⚔️", "color": "ef4444"},
+    "especial": {"label": "ESPECIAL", "display": "Especial",  "icon": "✨", "color": "a855f7"},
+}
+
+# Full achievement catalog
+# Each entry: slug → {name, description, category, icon, badge_color, check: stats→bool}
+CATALOG: dict[str, dict] = {
+
+    # ── Treino ────────────────────────────────────────────────────────────────
+    "first_workout": {
+        "name": "Primeiro Treino",
+        "description": "Complete sua primeira sessão de treino",
+        "category": "treino", "icon": "🏋️", "badge_color": "22c55e",
+        "check": lambda s: s["workout_count"] >= 1,
+    },
+    "workouts_10": {
+        "name": "Iniciante",
+        "description": "Complete 10 sessões de treino",
+        "category": "treino", "icon": "💪", "badge_color": "22c55e",
+        "check": lambda s: s["workout_count"] >= 10,
+    },
+    "workouts_50": {
+        "name": "Dedicado",
+        "description": "Complete 50 sessões de treino",
+        "category": "treino", "icon": "💪", "badge_color": "16a34a",
+        "check": lambda s: s["workout_count"] >= 50,
+    },
+    "workouts_100": {
+        "name": "Elite",
+        "description": "Complete 100 sessões de treino",
+        "category": "treino", "icon": "🏆", "badge_color": "15803d",
+        "check": lambda s: s["workout_count"] >= 100,
+    },
+    "workout_streak_7": {
+        "name": "Semana de Ferro",
+        "description": "7 dias consecutivos de treino",
+        "category": "treino", "icon": "🔥", "badge_color": "22c55e",
+        "check": lambda s: s["workout_streak"] >= 7,
+    },
+    "workout_streak_30": {
+        "name": "Mes de Ferro",
+        "description": "30 dias consecutivos de treino",
+        "category": "treino", "icon": "🔥", "badge_color": "16a34a",
+        "check": lambda s: s["workout_streak"] >= 30,
+    },
+
+    # ── Coleção ───────────────────────────────────────────────────────────────
+    "first_capture": {
+        "name": "Primeira Captura",
+        "description": "Capture seu primeiro Pokemon",
+        "category": "colecao", "icon": "🎮", "badge_color": "3b82f6",
+        "check": lambda s: s["pokemon_count"] >= 1,
+    },
+    "dex_10": {
+        "name": "Colecionador",
+        "description": "Tenha 10 Pokemon diferentes",
+        "category": "colecao", "icon": "📦", "badge_color": "3b82f6",
+        "check": lambda s: s["pokemon_count"] >= 10,
+    },
+    "dex_50": {
+        "name": "Grande Colecionador",
+        "description": "Tenha 50 Pokemon diferentes",
+        "category": "colecao", "icon": "📦", "badge_color": "2563eb",
+        "check": lambda s: s["pokemon_count"] >= 50,
+    },
+    "dex_100": {
+        "name": "Centuria",
+        "description": "Tenha 100 Pokemon diferentes",
+        "category": "colecao", "icon": "🌟", "badge_color": "1d4ed8",
+        "check": lambda s: s["pokemon_count"] >= 100,
+    },
+    "dex_200": {
+        "name": "Enciclopedia",
+        "description": "Tenha 200 Pokemon diferentes",
+        "category": "colecao", "icon": "🌟", "badge_color": "1e40af",
+        "check": lambda s: s["pokemon_count"] >= 200,
+    },
+    "dex_500": {
+        "name": "Mestre Pokemon",
+        "description": "Tenha 500 Pokemon diferentes",
+        "category": "colecao", "icon": "👑", "badge_color": "1e3a8a",
+        "check": lambda s: s["pokemon_count"] >= 500,
+    },
+    "dex_complete": {
+        "name": "Lenda",
+        "description": "Complete a Pokedex Nacional com 1025 especies",
+        "category": "colecao", "icon": "🏆", "badge_color": "172554",
+        "check": lambda s: s["pokemon_count"] >= 1025,
+    },
+
+    # ── Check-in ──────────────────────────────────────────────────────────────
+    "checkin_streak_7": {
+        "name": "Pontual",
+        "description": "7 dias consecutivos de check-in",
+        "category": "checkin", "icon": "📅", "badge_color": "f97316",
+        "check": lambda s: s["checkin_streak_max"] >= 7,
+    },
+    "checkin_streak_30": {
+        "name": "Assiduo",
+        "description": "30 dias consecutivos de check-in",
+        "category": "checkin", "icon": "🗓️", "badge_color": "ea580c",
+        "check": lambda s: s["checkin_streak_max"] >= 30,
+    },
+    "checkin_streak_100": {
+        "name": "Centuriao",
+        "description": "100 dias consecutivos de check-in",
+        "category": "checkin", "icon": "🔥", "badge_color": "c2410c",
+        "check": lambda s: s["checkin_streak_max"] >= 100,
+    },
+    "checkin_streak_365": {
+        "name": "Imortal",
+        "description": "365 dias consecutivos de check-in",
+        "category": "checkin", "icon": "⚡", "badge_color": "9a3412",
+        "check": lambda s: s["checkin_streak_max"] >= 365,
+    },
+
+    # ── Batalha ───────────────────────────────────────────────────────────────
+    "first_win": {
+        "name": "Primeira Vitoria",
+        "description": "Venca sua primeira batalha PvP",
+        "category": "batalha", "icon": "⚔️", "badge_color": "ef4444",
+        "check": lambda s: s["battle_wins"] >= 1,
+    },
+    "wins_10": {
+        "name": "Gladiador",
+        "description": "Venca 10 batalhas PvP",
+        "category": "batalha", "icon": "🥊", "badge_color": "dc2626",
+        "check": lambda s: s["battle_wins"] >= 10,
+    },
+    "wins_50": {
+        "name": "Campeao",
+        "description": "Venca 50 batalhas PvP",
+        "category": "batalha", "icon": "🏆", "badge_color": "b91c1c",
+        "check": lambda s: s["battle_wins"] >= 50,
+    },
+
+    # ── Especial ──────────────────────────────────────────────────────────────
+    "first_evolution": {
+        "name": "Evolucao",
+        "description": "Tenha um Pokemon evoluido na sua colecao",
+        "category": "especial", "icon": "✨", "badge_color": "a855f7",
+        "check": lambda s: s["has_evolved_pokemon"],
+    },
+    "shiny_catch": {
+        "name": "Astro Raro",
+        "description": "Capture um Pokemon shiny",
+        "category": "especial", "icon": "⭐", "badge_color": "eab308",
+        "check": lambda s: s["has_shiny"],
+    },
+    "regional_form": {
+        "name": "Explorador",
+        "description": "Capture uma forma regional (Alola, Galar ou Hisui)",
+        "category": "especial", "icon": "🌏", "badge_color": "8b5cf6",
+        "check": lambda s: s["has_regional"],
+    },
+    "stone_evolution": {
+        "name": "Alquimista",
+        "description": "Evolua um Pokemon usando uma pedra",
+        "category": "especial", "icon": "💎", "badge_color": "7c3aed",
+        "check": lambda s: s["has_stone_evolved"],
+    },
+}
+
+
+def _encode(text: str) -> str:
+    """Encode text for shields.io path segment (spaces→_, -→--, _→__, then URL-encode)."""
+    text = text.replace("_", "__").replace("-", "--").replace(" ", "_")
+    return urllib.parse.quote(text, safe="_-")
+
+
+def badge_url(slug: str, unlocked: bool) -> str:
+    """Return a shields.io badge URL for the given achievement."""
+    ach = CATALOG[slug]
+    cat_label = CATEGORY_META[ach["category"]]["label"]
+    name = ach["name"]
+    color = ach["badge_color"] if unlocked else "555555"
+    return (
+        f"https://img.shields.io/badge/{_encode(cat_label)}-{_encode(name)}-{color}"
+        f"?style=for-the-badge"
+    )
