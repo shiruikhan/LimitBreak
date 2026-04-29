@@ -3273,10 +3273,74 @@ def _collect_achievement_stats(user_id: str, cur) -> dict:
     return stats
 
 
-def check_and_award_achievements(user_id: str) -> list[str]:
+_LOOT_VITAMINS = ["hp-up", "protein", "iron", "calcium", "zinc", "carbos"]
+_LOOT_STONES   = [
+    "fire-stone", "water-stone", "thunder-stone", "leaf-stone", "moon-stone",
+    "sun-stone", "shiny-stone", "dusk-stone", "dawn-stone", "ice-stone",
+]
+
+
+def _roll_loot_box(cur, user_id: str) -> dict:
+    """Roll loot table and apply coins/items in-transaction.
+
+    XP rewards are NOT applied here — caller must call award_xp after committing.
+    Returns a loot info dict: {type, amount?, slug?, name?, label, rarity}
+    """
+    roll = random.randint(1, 100)
+
+    if roll <= 50:                          # 50% — XP (common)
+        amount = random.randint(50, 150)
+        return {"type": "xp", "amount": amount, "label": f"+{amount} XP", "rarity": "common"}
+
+    if roll <= 80:                          # 30% — Coins (common)
+        amount = random.randint(50, 150)
+        cur.execute(
+            "UPDATE user_profiles SET coins = coins + %s WHERE id = %s",
+            (amount, user_id),
+        )
+        return {"type": "coins", "amount": amount, "label": f"+{amount} moedas", "rarity": "common"}
+
+    if roll <= 95:                          # 15% — Vitamin (rare)
+        slug = random.choice(_LOOT_VITAMINS)
+        cur.execute("SELECT id, name FROM shop_items WHERE slug = %s", (slug,))
+        row = cur.fetchone()
+        if row:
+            cur.execute("""
+                INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (%s, %s, 1)
+                ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1
+            """, (user_id, row[0]))
+            return {"type": "item", "slug": slug, "name": row[1], "label": f"1x {row[1]}", "rarity": "rare"}
+
+    if roll <= 99:                          # 4% — Evolution stone (ultra-rare)
+        slug = random.choice(_LOOT_STONES)
+        cur.execute("SELECT id, name FROM shop_items WHERE slug = %s", (slug,))
+        row = cur.fetchone()
+        if row:
+            cur.execute("""
+                INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (%s, %s, 1)
+                ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1
+            """, (user_id, row[0]))
+            return {"type": "item", "slug": slug, "name": row[1], "label": f"1x {row[1]}", "rarity": "ultra_rare"}
+
+    # 1% — XP Share (ultra-rare)
+    cur.execute("SELECT id, name FROM shop_items WHERE slug = 'xp-share'")
+    row = cur.fetchone()
+    if row:
+        cur.execute("""
+            INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (%s, %s, 1)
+            ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1
+        """, (user_id, row[0]))
+        return {"type": "item", "slug": "xp-share", "name": row[1], "label": f"1x {row[1]}", "rarity": "ultra_rare"}
+
+    # Fallback — always give coins
+    cur.execute("UPDATE user_profiles SET coins = coins + 50 WHERE id = %s", (user_id,))
+    return {"type": "coins", "amount": 50, "label": "+50 moedas", "rarity": "common"}
+
+
+def check_and_award_achievements(user_id: str) -> list[dict]:
     """Check every achievement condition and unlock newly eligible ones.
 
-    Returns slugs of achievements unlocked during this call (empty if none new).
+    Returns list of {slug, loot} for achievements unlocked during this call.
     """
     from utils.achievements import CATALOG
     try:
@@ -3290,7 +3354,7 @@ def check_and_award_achievements(user_id: str) -> list[str]:
 
             stats = _collect_achievement_stats(user_id, cur)
 
-            new_unlocks: list[str] = []
+            new_unlocks: list[dict] = []
             for slug, ach in CATALOG.items():
                 if slug not in already and ach["check"](stats):
                     cur.execute("""
@@ -3300,10 +3364,27 @@ def check_and_award_achievements(user_id: str) -> list[str]:
                         RETURNING achievement_slug;
                     """, (user_id, slug))
                     if cur.fetchone():
-                        new_unlocks.append(slug)
+                        loot = _roll_loot_box(cur, user_id)
+                        new_unlocks.append({"slug": slug, "loot": loot})
 
             if new_unlocks:
                 conn.commit()
+                # Apply any XP rewards (award_xp manages its own transaction)
+                xp_items = [item for item in new_unlocks if item["loot"]["type"] == "xp"]
+                if xp_items:
+                    try:
+                        with get_connection().cursor() as cur2:
+                            cur2.execute(
+                                "SELECT user_pokemon_id FROM user_team WHERE user_id = %s AND slot = 1",
+                                (user_id,),
+                            )
+                            slot1_row = cur2.fetchone()
+                        if slot1_row:
+                            for item in xp_items:
+                                award_xp(slot1_row[0], item["loot"]["amount"], "achievement")
+                    except Exception:
+                        pass
+
             return new_unlocks
     except Exception:
         return []

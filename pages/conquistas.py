@@ -49,14 +49,21 @@ st.markdown("""
 }
 .cq-new-banner-title {
     font-family: "Bebas Neue", sans-serif; font-size: 1.1rem;
-    color: #B8F82F; letter-spacing: 2px; margin-bottom: 8px;
+    color: #B8F82F; letter-spacing: 2px; margin-bottom: 10px;
 }
-.cq-new-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.cq-new-chip {
-    background: rgba(184,248,47,0.15); border: 1px solid rgba(184,248,47,0.4);
-    border-radius: 20px; padding: 4px 12px; font-size: 0.8rem;
-    color: #B8F82F; font-weight: 700;
+.cq-loot-rows { display: flex; flex-direction: column; gap: 8px; }
+.cq-loot-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 12px;
 }
+.cq-loot-ach { font-size: 0.85rem; color: #e6edf3; font-weight: 600; }
+.cq-loot-reward {
+    font-size: 0.8rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 20px; white-space: nowrap;
+}
+.cq-loot-common  { background: rgba(184,248,47,0.15); color: #B8F82F; border: 1px solid rgba(184,248,47,0.35); }
+.cq-loot-rare    { background: rgba(59,130,246,0.15);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.35); }
+.cq-loot-ultra   { background: rgba(168,85,247,0.15);  color: #c084fc; border: 1px solid rgba(168,85,247,0.35); }
 
 /* Achievement grid */
 .ach-grid {
@@ -101,11 +108,13 @@ st.markdown("""
 
 # ── Check for newly unlocked achievements ─────────────────────────────────────
 
-# Merge any achievements triggered by event pages
-pending = st.session_state.pop("new_achievements_pending", [])
+# Merge any achievements triggered by event pages (list[dict] with slug+loot)
+pending: list[dict] = st.session_state.pop("new_achievements_pending", [])
 # Also run a fresh check on page load (catches anything missed)
-fresh = check_and_award_achievements(user_id)
-all_new = list({*pending, *fresh})
+fresh: list[dict] = check_and_award_achievements(user_id)
+seen_slugs = {a["slug"] for a in pending}
+all_new: list[dict] = pending + [a for a in fresh if a["slug"] not in seen_slugs]
+all_new_slugs = {a["slug"] for a in all_new}
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 
@@ -133,14 +142,31 @@ st.markdown(f"""
 # ── New-unlock banner ─────────────────────────────────────────────────────────
 
 if all_new:
-    chips = "".join(
-        f'<span class="cq-new-chip">{CATALOG[s]["icon"]} {CATALOG[s]["name"]}</span>'
-        for s in all_new if s in CATALOG
-    )
+    _rarity_css = {"common": "cq-loot-common", "rare": "cq-loot-rare", "ultra_rare": "cq-loot-ultra"}
+    _rarity_icon = {"common": "🎁", "rare": "💙", "ultra_rare": "💜"}
+
+    rows_html = ""
+    for item in all_new:
+        slug = item["slug"]
+        if slug not in CATALOG:
+            continue
+        ach = CATALOG[slug]
+        loot = item.get("loot", {})
+        rarity = loot.get("rarity", "common")
+        loot_label = loot.get("label", "")
+        loot_icon = _rarity_icon.get(rarity, "🎁")
+        loot_css = _rarity_css.get(rarity, "cq-loot-common")
+        rows_html += (
+            f'<div class="cq-loot-row">'
+            f'<span class="cq-loot-ach">{ach["icon"]} {ach["name"]}</span>'
+            f'<span class="cq-loot-reward {loot_css}">{loot_icon} {loot_label}</span>'
+            f'</div>'
+        )
+
     st.markdown(f"""
     <div class="cq-new-banner">
-      <div class="cq-new-banner-title">🎉 NOVA CONQUISTA DESBLOQUEADA!</div>
-      <div class="cq-new-chips">{chips}</div>
+      <div class="cq-new-banner-title">🎉 NOVA CONQUISTA + LOOT BOX!</div>
+      <div class="cq-loot-rows">{rows_html}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -176,7 +202,7 @@ def _render_grid(slugs: list[str]) -> None:
             continue
         ach = CATALOG[slug]
         is_unlocked = slug in unlocked
-        is_new = slug in all_new
+        is_new = slug in all_new_slugs
         unlock_dt = unlocked.get(slug)
 
         card_cls = "unlocked" if is_unlocked else "locked"
@@ -219,7 +245,7 @@ for tab, cat_key in zip(tabs, cat_order):
             slugs = list(CATALOG.keys())
             # Sort: new first, then unlocked by date desc, then locked
             def _sort_key(s):
-                if s in all_new:
+                if s in all_new_slugs:
                     return (0, "")
                 if s in unlocked:
                     dt = unlocked[s]

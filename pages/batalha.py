@@ -348,7 +348,8 @@ else:
         new_ach = check_and_award_achievements(user_id)
         if new_ach:
             pending = st.session_state.get("new_achievements_pending", [])
-            st.session_state.new_achievements_pending = list({*pending, *new_ach})
+            seen = {a["slug"] for a in pending}
+            st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
 
     saved = st.session_state.get("battle_result", {})
     winner_id = bs["winner_id"]
