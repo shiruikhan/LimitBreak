@@ -2234,19 +2234,31 @@ _FIRST_WORKOUT_BONUS_XP = 50
 _EXERCISE_REP_XP_DIVISOR = 2
 _EXERCISE_WEIGHT_XP_DIVISOR = 20
 
-# body_parts (campo de exercises) → slug de tipo Pokémon para spawn temático
-_BODY_PART_TYPE: dict[str, str] = {
-    "Peitoral":         "fighting",
-    "Braços":           "fighting",
-    "Antebraços":       "normal",
-    "Costas":           "dark",
-    "Ombros":           "flying",
-    "Coxas":            "ground",
-    "Pernas":           "ground",
-    "Cintura":          "steel",
-    "Pescoço":          "rock",
-    "Cardio":           "water",
+# body_parts (campo de exercises) → slugs de tipo Pokémon para spawn temático.
+# Cada body_part pode mapear para múltiplos tipos; o spawn usa a lista agregada
+# de todos os exercícios da sessão, priorizando os tipos mais frequentes.
+_BODY_PART_TYPES: dict[str, list[str]] = {
+    "Peitoral":   ["fighting", "normal"],
+    "Braços":     ["fighting", "poison"],
+    "Antebraços": ["normal",   "fighting"],
+    "Costas":     ["dark",     "flying"],
+    "Ombros":     ["flying",   "psychic"],
+    "Coxas":      ["ground",   "fighting"],
+    "Pernas":     ["ground",   "rock"],
+    "Cintura":    ["steel",    "rock"],
+    "Pescoço":    ["rock",     "normal"],
+    "Cardio":     ["water",    "electric"],
 }
+
+
+def _ranked_spawn_types(exercises: list[dict], bp_map: dict[int, list[str]]) -> list[str]:
+    """Returns type slugs ordered by how frequently they appear across the session's body parts."""
+    type_counts: dict[str, int] = {}
+    for ex in exercises:
+        for bp in bp_map.get(ex["exercise_id"], []):
+            for t in _BODY_PART_TYPES.get(bp, []):
+                type_counts[t] = type_counts.get(t, 0) + 1
+    return sorted(type_counts, key=lambda t: type_counts[t], reverse=True)
 
 
 @st.cache_data(ttl=3600)
@@ -2536,6 +2548,43 @@ def _pick_spawn_species(
     return None
 
 
+def _spawn_multi_typed(cur, user_id: str, candidate_types: list[str], is_shiny: bool = False):
+    """Tries candidate_types in order, falls back to untyped. Returns (species_id, info) or (None, None)."""
+    for type_slug in candidate_types:
+        sid = _pick_spawn_species(cur, user_id, type_slug)
+        if sid:
+            break
+    else:
+        sid = _pick_spawn_species(cur, user_id, None)
+
+    if sid is None:
+        return None, None
+
+    up_id = _insert_user_pokemon(cur, user_id, sid, level=5, xp=0, is_shiny=is_shiny)
+    if up_id is None:
+        raise ValueError("Espécie sorteada não encontrada para calcular stats.")
+
+    cur.execute("SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;", (user_id,))
+    used = {r[0] for r in cur.fetchall()}
+    free = next((s for s in range(1, 7) if s not in used), None)
+    if free:
+        cur.execute(
+            "INSERT INTO user_team (user_id, slot, user_pokemon_id) VALUES (%s, %s, %s);",
+            (user_id, free, up_id)
+        )
+
+    cur.execute("""
+        SELECT p.id, p.name, p.sprite_url, p.sprite_shiny_url, t.name AS type1
+        FROM pokemon_species p
+        LEFT JOIN pokemon_types t ON p.type1_id = t.id
+        WHERE p.id = %s;
+    """, (sid,))
+    pdata = cur.fetchone()
+    sprite = (pdata[3] if is_shiny and pdata[3] else pdata[2])
+    return sid, {"id": pdata[0], "name": pdata[1], "sprite_url": sprite,
+                 "type1": pdata[4], "is_shiny": is_shiny}
+
+
 def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool = False):
     """Captura um Pokémon não capturado (tipo opcional) dentro de uma transação aberta.
 
@@ -2599,10 +2648,15 @@ def do_exercise_event(
         "capped":       False,
         "spawn_rolled": False,
         "spawned":      None,
+        "spawn_context": None,
         "xp_result":    None,
         "milestone":    None,
         "milestone_xp": 0,
         "streak":       0,
+        "prs":          [],
+        "eggs_granted": [],
+        "eggs_hatched": [],
+        "ability_effects": None,
         "error":        None,
     }
 
@@ -2637,12 +2691,7 @@ def do_exercise_event(
             )
             bp_map = {r[0]: (r[1] or []) for r in cur.fetchall()}
 
-            bp_counts: dict[str, int] = {}
-            for ex in exercises:
-                for bp in bp_map.get(ex["exercise_id"], []):
-                    bp_counts[bp] = bp_counts.get(bp, 0) + 1
-            dominant_bp = max(bp_counts, key=lambda k: bp_counts[k]) if bp_counts else None
-            type_slug   = _BODY_PART_TYPE.get(dominant_bp) if dominant_bp else None
+            candidate_types = _ranked_spawn_types(exercises, bp_map)
 
             # Insere sessão
             cur.execute("""
@@ -2692,14 +2741,21 @@ def do_exercise_event(
                 if result["milestone"] != "first_workout":
                     result["milestone"] = f"streak_{new_streak}"
 
-            # Spawn temático
+            # Spawn temático — tenta cada tipo candidato em ordem de frequência
             result["spawn_rolled"] = True
+            result["spawn_context"] = {
+                "candidate_types": candidate_types,
+                "chosen_type": None,
+            }
             should_spawn = force_spawn or (random.random() < 0.25)
             if should_spawn:
                 roll_shiny = force_shiny or _shiny_roll(new_streak)
-                species_id, spawn_info = _spawn_typed(cur, user_id, type_slug, is_shiny=roll_shiny)
+                species_id, spawn_info = _spawn_multi_typed(
+                    cur, user_id, candidate_types, is_shiny=roll_shiny
+                )
                 if species_id:
                     result["spawned"] = spawn_info
+                    result["spawn_context"]["chosen_type"] = spawn_info.get("type1")
                     cur.execute(
                         "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
                         (species_id, wl_id)
