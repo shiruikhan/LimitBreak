@@ -2268,10 +2268,6 @@ def do_exercise_event(
     remaining     = max(0, _EXERCISE_XP_DAILY_CAP - already_today)
     xp_to_award   = min(raw_xp, remaining)
 
-    if xp_to_award == 0:
-        result["capped"] = True
-        result["error"]  = f"Limite diário de {_EXERCISE_XP_DAILY_CAP} XP por exercício já atingido."
-        return result
     if xp_to_award < raw_xp:
         result["capped"] = True
 
@@ -2372,7 +2368,8 @@ def do_exercise_event(
                 row = cur2.fetchone()
             if row:
                 slot1_id = row[0]
-                result["xp_result"] = award_xp(slot1_id, xp_to_award, "exercise")
+                if xp_to_award > 0:
+                    result["xp_result"] = award_xp(slot1_id, xp_to_award, "exercise")
         except Exception:
             pass
 

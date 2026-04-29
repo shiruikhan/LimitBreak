@@ -275,13 +275,12 @@ st.divider()
 
 # ── register ──────────────────────────────────────────────────────────────────
 has_rows = len(st.session_state.workout_rows) > 0
-capped   = xp_today >= _DAILY_CAP
 
 if st.button(
     "✅ Registrar Treino",
     type="primary",
     use_container_width=True,
-    disabled=not has_rows or capped,
+    disabled=not has_rows,
 ):
     payload = []
     for row in st.session_state.workout_rows:
