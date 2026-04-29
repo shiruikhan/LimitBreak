@@ -146,7 +146,8 @@ elif st.session_state.needs_starter:
         position="hidden",
     )
 else:
-    pg = st.navigation([
+    from utils.db import is_admin as _is_admin
+    _pages = [
         st.Page("pages/equipe.py",          title="Minha Equipe",   icon="⚔️"),
         st.Page("pages/batalha.py",         title="Arena",          icon="🥊"),
         st.Page("pages/conquistas.py",      title="Conquistas",     icon="🏅"),
@@ -158,6 +159,9 @@ else:
         st.Page("pages/biblioteca.py",      title="Biblioteca",     icon="📚"),
         st.Page("pages/rotinas.py",         title="Rotinas",        icon="📋"),
         st.Page("pages/treino.py",          title="Treino",         icon="🏋️"),
-    ])
+    ]
+    if _is_admin(st.session_state.user_id):
+        _pages.append(st.Page("pages/admin.py", title="Admin", icon="⚙️"))
+    pg = st.navigation(_pages)
 
 pg.run()

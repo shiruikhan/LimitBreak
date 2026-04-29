@@ -3382,3 +3382,151 @@ def get_leaderboard_workout_xp(year: int, month: int, limit: int = 20) -> list[d
             return [dict(zip(cols, r)) for r in cur.fetchall()]
     except Exception:
         return []
+
+
+# ── Admin ──────────────────────────────────────────────────────────────────────
+
+def is_admin(user_id: str) -> bool:
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT is_admin FROM user_profiles WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+            return bool(row and row[0])
+    except Exception:
+        return False
+
+
+def get_all_users(search: str = "") -> list[dict]:
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            pattern = f"%{search}%"
+            cur.execute("""
+                SELECT up.id, up.username, up.coins, up.is_admin,
+                       au.email, au.created_at, au.last_sign_in_at,
+                       COUNT(DISTINCT upk.id) AS pokemon_count,
+                       COUNT(DISTINCT wl.id)  AS workout_count
+                FROM user_profiles up
+                JOIN auth.users au ON au.id = up.id
+                LEFT JOIN user_pokemon upk ON upk.user_id = up.id
+                LEFT JOIN workout_logs wl  ON wl.user_id  = up.id
+                WHERE (%s = '' OR up.username ILIKE %s OR au.email ILIKE %s)
+                GROUP BY up.id, up.username, up.coins, up.is_admin,
+                         au.email, au.created_at, au.last_sign_in_at
+                ORDER BY au.created_at DESC;
+            """, (search, pattern, pattern))
+            cols = ["id", "username", "coins", "is_admin", "email",
+                    "created_at", "last_sign_in_at", "pokemon_count", "workout_count"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def admin_update_user(target_user_id: str, username: str, coins: int) -> tuple[bool, str]:
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE user_profiles SET username = %s, coins = %s WHERE id = %s",
+                (username, coins, target_user_id),
+            )
+            conn.commit()
+            return True, "Usuário atualizado."
+    except Exception as e:
+        return False, str(e)
+
+
+def admin_delete_user(acting_admin_id: str, target_user_id: str) -> tuple[bool, str]:
+    if acting_admin_id == target_user_id:
+        return False, "Você não pode deletar a si mesmo."
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM user_profiles WHERE id = %s", (target_user_id,))
+            conn.commit()
+            log_admin_action(acting_admin_id, "delete_user",
+                             target_type="user", target_id=target_user_id)
+            return True, "Perfil deletado. Conta de auth requer remoção manual no Supabase."
+    except Exception as e:
+        return False, str(e)
+
+
+def set_admin_role(acting_admin_id: str, target_user_id: str, grant: bool) -> tuple[bool, str]:
+    if acting_admin_id == target_user_id and not grant:
+        return False, "Você não pode remover seu próprio acesso de admin."
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE user_profiles SET is_admin = %s WHERE id = %s",
+                (grant, target_user_id),
+            )
+            conn.commit()
+            action = "grant_admin" if grant else "revoke_admin"
+            log_admin_action(acting_admin_id, action,
+                             target_type="user", target_id=target_user_id)
+            label = "concedido" if grant else "revogado"
+            return True, f"Acesso admin {label}."
+    except Exception as e:
+        return False, str(e)
+
+
+def log_admin_action(user_id: str, action: str,
+                     target_type: str | None = None,
+                     target_id: str | None = None,
+                     details: dict | None = None) -> None:
+    try:
+        import json as _json
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO system_logs (user_id, action, target_type, target_id, details)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (user_id, action, target_type, target_id,
+                 _json.dumps(details) if details else None),
+            )
+            conn.commit()
+    except Exception:
+        pass
+
+
+def get_system_logs(limit: int = 200, action_filter: str = "",
+                    user_filter: str = "") -> list[dict]:
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT sl.id, sl.action, sl.target_type, sl.target_id,
+                       sl.details, sl.created_at, up.username
+                FROM system_logs sl
+                LEFT JOIN user_profiles up ON up.id = sl.user_id
+                WHERE (%s = '' OR sl.action ILIKE %s)
+                  AND (%s = '' OR up.username ILIKE %s)
+                ORDER BY sl.created_at DESC
+                LIMIT %s;
+            """, (action_filter, f"%{action_filter}%",
+                  user_filter, f"%{user_filter}%",
+                  limit))
+            cols = ["id", "action", "target_type", "target_id",
+                    "details", "created_at", "username"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_global_stats() -> dict:
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                  (SELECT COUNT(*) FROM user_profiles)                       AS total_users,
+                  (SELECT COUNT(*) FROM user_profiles WHERE is_admin = TRUE) AS total_admins,
+                  (SELECT COUNT(*) FROM user_pokemon)                        AS total_pokemon,
+                  (SELECT COUNT(*) FROM workout_logs)                        AS total_workouts,
+                  (SELECT COUNT(*) FROM user_checkins)                       AS total_checkins,
+                  (SELECT COUNT(*) FROM user_battles)                        AS total_battles,
+                  (SELECT COALESCE(SUM(coins),0) FROM user_profiles)         AS total_coins,
+                  (SELECT COUNT(DISTINCT user_id) FROM workout_logs
+                   WHERE completed_at >= NOW() - INTERVAL '7 days')          AS active_7d;
+            """)
+            row = cur.fetchone()
+            keys = ["total_users", "total_admins", "total_pokemon",
+                    "total_workouts", "total_checkins", "total_battles",
+                    "total_coins", "active_7d"]
+            return dict(zip(keys, row)) if row else {}
+    except Exception:
+        return {}
