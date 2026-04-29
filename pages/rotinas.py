@@ -50,13 +50,16 @@ if st.session_state.show_new_sheet_form:
             cancelled_sheet = st.form_submit_button("Cancelar", use_container_width=True)
     if submitted_sheet:
         if new_name.strip():
-            new_id = create_workout_sheet(user_id, new_name.strip())
+            new_id, err = create_workout_sheet(user_id, new_name.strip())
             if new_id:
                 st.success(f"Rotina **{new_name.strip()}** criada!")
+                st.session_state.show_new_sheet_form = False
+                st.rerun()
             else:
-                st.error("Erro ao criar rotina.")
-        st.session_state.show_new_sheet_form = False
-        st.rerun()
+                st.error(f"Erro ao criar rotina: {err}")
+        else:
+            st.session_state.show_new_sheet_form = False
+            st.rerun()
     elif cancelled_sheet:
         st.session_state.show_new_sheet_form = False
         st.rerun()
@@ -160,7 +163,10 @@ for sheet in sheets:
                         with ec5:
                             cancelled_ex = st.form_submit_button("✕", use_container_width=True)
                     if saved_ex:
-                        update_day_exercise(wid, int(new_sets), int(new_reps))
+                        _, err = update_day_exercise(wid, int(new_sets), int(new_reps))
+                        if err:
+                            st.error(f"Erro ao salvar: {err}")
+                            st.stop()
                         st.session_state.editing_wde = None
                         st.rerun()
                     elif cancelled_ex:
@@ -179,7 +185,10 @@ for sheet in sheets:
                             st.rerun()
                     with dc4:
                         if st.button("🗑", key=f"rm_{wid}", help="Remover"):
-                            remove_exercise_from_day(wid)
+                            _, err = remove_exercise_from_day(wid)
+                            if err:
+                                st.error(f"Erro ao remover: {err}")
+                                st.stop()
                             st.rerun()
 
             # ── add exercise form ─────────────────────────────────────────────
@@ -201,7 +210,10 @@ for sheet in sheets:
                     with af2:
                         cancel_ex = st.form_submit_button("Cancelar", use_container_width=True)
                 if ok_ex:
-                    add_exercise_to_day(did, int(sel_ex_id), int(add_sets), int(add_reps))
+                    _, err = add_exercise_to_day(did, int(sel_ex_id), int(add_sets), int(add_reps))
+                    if err:
+                        st.error(f"Erro ao adicionar exercício: {err}")
+                        st.stop()
                     st.session_state.adding_ex_to = None
                     st.rerun()
                 elif cancel_ex:
@@ -225,7 +237,10 @@ for sheet in sheets:
                     cancel_day = st.form_submit_button("Cancelar", use_container_width=True)
             if ok_day:
                 if new_day_name.strip():
-                    create_workout_day(sid, new_day_name.strip())
+                    new_did, err = create_workout_day(sid, new_day_name.strip())
+                    if err:
+                        st.error(f"Erro ao criar dia: {err}")
+                        st.stop()
                 st.session_state.adding_day_to = None
                 st.rerun()
             elif cancel_day:

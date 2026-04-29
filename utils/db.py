@@ -1921,16 +1921,16 @@ _FIRST_WORKOUT_BONUS_XP = 50
 
 # body_parts (campo de exercises) → slug de tipo Pokémon para spawn temático
 _BODY_PART_TYPE: dict[str, str] = {
-    "chest":      "fighting",
-    "upper arms": "fighting",
-    "lower arms": "normal",
-    "back":       "dark",
-    "shoulders":  "flying",
-    "upper legs": "ground",
-    "lower legs": "ground",
-    "waist":      "steel",
-    "neck":       "rock",
-    "cardio":     "water",
+    "Peitoral":         "fighting",
+    "Braços":           "fighting",
+    "Antebraços":       "normal",
+    "Costas":           "dark",
+    "Ombros":           "flying",
+    "Coxas":            "ground",
+    "Pernas":           "ground",
+    "Cintura":          "steel",
+    "Pescoço":          "rock",
+    "Cardio":           "water",
 }
 
 
@@ -2424,8 +2424,8 @@ def get_workout_sheets(user_id: str) -> list[dict]:
         return []
 
 
-def create_workout_sheet(user_id: str, name: str) -> str | None:
-    """INSERT into workout_sheets; returns new UUID or None on error."""
+def create_workout_sheet(user_id: str, name: str) -> tuple[str | None, str | None]:
+    """INSERT into workout_sheets; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -2435,10 +2435,10 @@ def create_workout_sheet(user_id: str, name: str) -> str | None:
             )
             new_id = cur.fetchone()[0]
         conn.commit()
-        return str(new_id)
-    except Exception:
+        return str(new_id), None
+    except Exception as e:
         get_connection().rollback()
-        return None
+        return None, str(e)
 
 
 def delete_workout_sheet(sheet_id: str) -> bool:
@@ -2454,8 +2454,8 @@ def delete_workout_sheet(sheet_id: str) -> bool:
         return False
 
 
-def create_workout_day(sheet_id: str, name: str) -> str | None:
-    """INSERT into workout_days; returns new UUID or None on error."""
+def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None]:
+    """INSERT into workout_days; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -2465,10 +2465,10 @@ def create_workout_day(sheet_id: str, name: str) -> str | None:
             )
             new_id = cur.fetchone()[0]
         conn.commit()
-        return str(new_id)
-    except Exception:
+        return str(new_id), None
+    except Exception as e:
         get_connection().rollback()
-        return None
+        return None, str(e)
 
 
 def delete_workout_day(day_id: str) -> bool:
@@ -2484,8 +2484,8 @@ def delete_workout_day(day_id: str) -> bool:
         return False
 
 
-def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> str | None:
-    """INSERT into workout_day_exercises; returns new UUID or None on error."""
+def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> tuple[str | None, str | None]:
+    """INSERT into workout_day_exercises; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -2495,14 +2495,14 @@ def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> 
             )
             new_id = cur.fetchone()[0]
         conn.commit()
-        return str(new_id)
-    except Exception:
+        return str(new_id), None
+    except Exception as e:
         get_connection().rollback()
-        return None
+        return None, str(e)
 
 
-def update_day_exercise(wde_id: str, sets: int, reps: int) -> bool:
-    """UPDATE sets/reps for a prescribed exercise."""
+def update_day_exercise(wde_id: str, sets: int, reps: int) -> tuple[bool, str | None]:
+    """UPDATE sets/reps for a prescribed exercise; returns (True, None) or (False, error_msg)."""
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -2511,23 +2511,23 @@ def update_day_exercise(wde_id: str, sets: int, reps: int) -> bool:
                 (sets, reps, wde_id),
             )
         conn.commit()
-        return True
-    except Exception:
+        return True, None
+    except Exception as e:
         get_connection().rollback()
-        return False
+        return False, str(e)
 
 
-def remove_exercise_from_day(wde_id: str) -> bool:
-    """DELETE a prescribed exercise from a day."""
+def remove_exercise_from_day(wde_id: str) -> tuple[bool, str | None]:
+    """DELETE a prescribed exercise; returns (True, None) or (False, error_msg)."""
     try:
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("DELETE FROM workout_day_exercises WHERE id = %s;", (wde_id,))
         conn.commit()
-        return True
-    except Exception:
+        return True, None
+    except Exception as e:
         get_connection().rollback()
-        return False
+        return False, str(e)
 
 
 def get_sheet_days(sheet_id: str) -> list[dict]:
@@ -2758,8 +2758,8 @@ def get_leaderboard_workout_xp(year: int, month: int, limit: int = 20) -> list[d
                 LEFT JOIN user_team ut ON ut.user_id = pr.id AND ut.slot = 1
                 LEFT JOIN user_pokemon up2 ON up2.id = ut.user_pokemon_id
                 LEFT JOIN pokemon_species ps ON ps.id = up2.species_id
-                WHERE EXTRACT(YEAR  FROM wl.logged_at AT TIME ZONE 'America/Sao_Paulo') = %s
-                  AND EXTRACT(MONTH FROM wl.logged_at AT TIME ZONE 'America/Sao_Paulo') = %s
+                WHERE EXTRACT(YEAR  FROM wl.completed_at AT TIME ZONE 'America/Sao_Paulo') = %s
+                  AND EXTRACT(MONTH FROM wl.completed_at AT TIME ZONE 'America/Sao_Paulo') = %s
                 GROUP BY pr.id, pr.username, ps.name, ps.sprite_url, up2.level
                 ORDER BY value DESC
                 LIMIT %s;
