@@ -51,6 +51,18 @@ CATALOG: dict[str, dict] = {
         "category": "treino", "icon": "🔥", "badge_color": "16a34a",
         "check": lambda s: s["workout_streak"] >= 30,
     },
+    "pr_first": {
+        "name": "Novo Recorde",
+        "description": "Quebre seu primeiro recorde pessoal em um exercício",
+        "category": "treino", "icon": "🏅", "badge_color": "ca8a04",
+        "check": lambda s: s.get("pr_count", 0) >= 1,
+    },
+    "pr_10": {
+        "name": "Máquina de PRs",
+        "description": "Quebre 10 recordes pessoais",
+        "category": "treino", "icon": "⚡", "badge_color": "a16207",
+        "check": lambda s: s.get("pr_count", 0) >= 10,
+    },
 
     # ── Coleção ───────────────────────────────────────────────────────────────
     "first_capture": {

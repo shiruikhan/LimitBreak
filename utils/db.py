@@ -2624,6 +2624,87 @@ def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool
     }
 
 
+_PR_XP_BONUS       = 50   # XP awarded per personal record
+_PR_MAX_PER_SESSION = 3   # cap on how many PR bonuses can fire in one session
+
+
+def _get_exercise_bests(cur, user_id: str, exercise_ids: list[int]) -> dict[int, tuple[float, int]]:
+    """Returns {exercise_id: (best_weight, best_reps_at_best_weight)} from historical logs.
+
+    Only considers sessions before the current one (caller inserts before comparing).
+    The tuple represents the user's personal best: highest weight ever lifted for that
+    exercise, and the highest rep count achieved at that exact weight.
+    """
+    if not exercise_ids:
+        return {}
+    cur.execute("""
+        SELECT el.exercise_id,
+               MAX((s->>'weight')::float)                       AS best_weight,
+               MAX((s->>'reps')::int)                           AS best_reps
+        FROM exercise_logs el
+        JOIN workout_logs wl ON wl.id = el.workout_log_id
+        JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
+        WHERE wl.user_id = %s
+          AND el.exercise_id = ANY(%s)
+          AND (s->>'weight') IS NOT NULL
+          AND (s->>'reps') IS NOT NULL
+        GROUP BY el.exercise_id, (s->>'weight')::float
+        ORDER BY el.exercise_id, best_weight DESC;
+    """, (user_id, exercise_ids))
+    # For each exercise keep the row with the highest weight (first row due to ORDER BY)
+    bests: dict[int, tuple[float, int]] = {}
+    for eid, bw, br in cur.fetchall():
+        if eid not in bests:
+            bests[eid] = (float(bw), int(br))
+    return bests
+
+
+def _detect_prs(
+    exercises: list[dict],
+    historical_bests: dict[int, tuple[float, int]],
+    exercise_names: dict[int, str],
+) -> list[dict]:
+    """Compares current session sets against historical bests.
+
+    Returns a list of PR dicts (at most one per exercise):
+      {exercise_id, exercise_name, old_weight, new_weight, new_reps}
+
+    PR rules:
+    - Primary: any set's weight exceeds the previous best weight.
+    - Tie-break: same weight, more reps than previous best at that weight.
+    """
+    prs: list[dict] = []
+    seen: set[int] = set()
+    for ex in exercises:
+        eid = ex["exercise_id"]
+        if eid in seen:
+            continue
+        sets_data = ex.get("sets_data") or []
+        if not sets_data:
+            continue
+        cur_best_w = max((float(s.get("weight") or 0) for s in sets_data), default=0.0)
+        cur_best_r = max(
+            (int(s.get("reps") or 0) for s in sets_data if float(s.get("weight") or 0) == cur_best_w),
+            default=0,
+        )
+        if cur_best_w <= 0:
+            continue
+
+        old_w, old_r = historical_bests.get(eid, (0.0, 0))
+
+        is_pr = (cur_best_w > old_w) or (cur_best_w == old_w and cur_best_r > old_r)
+        if is_pr:
+            prs.append({
+                "exercise_id":   eid,
+                "exercise_name": exercise_names.get(eid, f"Exercício #{eid}"),
+                "old_weight":    old_w,
+                "new_weight":    cur_best_w,
+                "new_reps":      cur_best_r,
+            })
+            seen.add(eid)
+    return prs
+
+
 def do_exercise_event(
     user_id: str,
     exercises: list[dict],
@@ -2683,15 +2764,20 @@ def do_exercise_event(
             cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
             is_first_workout = cur.fetchone()[0] == 0
 
-            # Busca body_parts dos exercícios para determinar tipo de spawn
+            # Busca body_parts e nomes dos exercícios (spawn affinity + PR names)
             ex_ids = [ex["exercise_id"] for ex in exercises]
             cur.execute(
-                "SELECT id, body_parts FROM exercises WHERE id = ANY(%s);",
+                "SELECT id, body_parts, COALESCE(name_pt, name) FROM exercises WHERE id = ANY(%s);",
                 (ex_ids,)
             )
-            bp_map = {r[0]: (r[1] or []) for r in cur.fetchall()}
+            ex_rows = cur.fetchall()
+            bp_map       = {r[0]: (r[1] or []) for r in ex_rows}
+            ex_name_map  = {r[0]: r[2] for r in ex_rows}
 
             candidate_types = _ranked_spawn_types(exercises, bp_map)
+
+            # Detecta PRs antes do INSERT (histórico exclui sessão atual)
+            historical_bests = _get_exercise_bests(cur, user_id, ex_ids)
 
             # Insere sessão
             cur.execute("""
@@ -2779,6 +2865,30 @@ def do_exercise_event(
                     result["xp_result"] = award_xp(slot1_id, xp_to_award, "exercise")
         except Exception:
             pass
+
+        # Detecta PRs e concede bônus de XP (fora do cap diário, máx _PR_MAX_PER_SESSION)
+        detected_prs = _detect_prs(exercises, historical_bests, ex_name_map)
+        capped_prs   = detected_prs[:_PR_MAX_PER_SESSION]
+        result["prs"] = capped_prs
+        if capped_prs and slot1_id:
+            try:
+                pr_xp_total = len(capped_prs) * _PR_XP_BONUS
+                pr_res = award_xp(slot1_id, pr_xp_total, "pr_bonus")
+                result["milestone_xp"] = result.get("milestone_xp", 0) + pr_xp_total
+                if result["xp_result"] and not result["xp_result"].get("error"):
+                    result["xp_result"]["levels_gained"] = (
+                        result["xp_result"].get("levels_gained", 0)
+                        + pr_res.get("levels_gained", 0)
+                    )
+                    result["xp_result"]["new_level"] = pr_res.get("new_level", result["xp_result"].get("new_level"))
+                    result["xp_result"]["new_xp"]    = pr_res.get("new_xp",    result["xp_result"].get("new_xp"))
+                    evos = result["xp_result"].get("evolutions", [])
+                    evos.extend(pr_res.get("evolutions", []))
+                    result["xp_result"]["evolutions"] = evos
+                else:
+                    result["xp_result"] = pr_res
+            except Exception:
+                pass
 
         # Bônus de primeiro treino (+50 XP fora do cap diário)
         if is_first_workout and slot1_id:
@@ -3072,6 +3182,38 @@ def _collect_achievement_stats(user_id: str, cur) -> dict:
 
     cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
     stats["workout_count"] = cur.fetchone()[0]
+
+    # PR count — one per exercise per session where a PR was achieved.
+    # Derived by counting distinct (workout_log_id, exercise_id) pairs whose
+    # best set weight exceeds all prior sessions' best for that exercise.
+    cur.execute("""
+        WITH ranked AS (
+            SELECT el.workout_log_id,
+                   el.exercise_id,
+                   MAX((s->>'weight')::float) AS session_best,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY el.exercise_id
+                       ORDER BY wl.completed_at
+                   ) AS rn
+            FROM exercise_logs el
+            JOIN workout_logs wl ON wl.id = el.workout_log_id
+            JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
+            WHERE wl.user_id = %s
+              AND (s->>'weight') IS NOT NULL
+            GROUP BY el.workout_log_id, el.exercise_id, wl.completed_at
+        ),
+        with_prev AS (
+            SELECT exercise_id,
+                   session_best,
+                   LAG(session_best) OVER (
+                       PARTITION BY exercise_id ORDER BY rn
+                   ) AS prev_best
+            FROM ranked
+        )
+        SELECT COUNT(*) FROM with_prev
+        WHERE prev_best IS NOT NULL AND session_best > prev_best;
+    """, (user_id,))
+    stats["pr_count"] = cur.fetchone()[0]
 
     cur.execute(
         "SELECT COUNT(*) FROM user_battles WHERE winner_id = %s;",

@@ -72,6 +72,10 @@ st.markdown("""
 .result-card.levelup   { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.5); }
 .result-card.evolution { background: #1f0f2e; border-color: #BC8CFF; }
 .result-card.milestone { background: rgba(255,179,71,0.12); border-color: rgba(255,179,71,0.55); }
+.result-card.pr       { background: rgba(234,179,8,0.10);  border-color: rgba(234,179,8,0.55); }
+.pr-row { display:flex; justify-content:space-between; align-items:center; margin:4px 0; font-size:0.85rem; }
+.pr-name { color:#e6edf3; font-weight:600; }
+.pr-weight { color:#FDE047; font-weight:700; }
 .result-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 6px; }
 .result-body  { color: #8b949e; font-size: 0.85rem; }
 .spawn-name   { font-size: 1.15rem; font-weight: 800; color: #A27DFA; }
@@ -322,6 +326,30 @@ if res:
             f"</div>",
             unsafe_allow_html=True,
         )
+
+        # PR celebration card
+        prs = res.get("prs") or []
+        if prs:
+            pr_rows_html = ""
+            for pr in prs:
+                old_w = pr["old_weight"]
+                new_w = pr["new_weight"]
+                reps  = pr["new_reps"]
+                arrow = f"{old_w:.1f} → {new_w:.1f} kg" if old_w > 0 else f"{new_w:.1f} kg (primeiro registro)"
+                pr_rows_html += (
+                    f"<div class='pr-row'>"
+                    f"<span class='pr-name'>{pr['exercise_name']}</span>"
+                    f"<span class='pr-weight'>{arrow} &nbsp;×{reps}</span>"
+                    f"</div>"
+                )
+            pr_xp_note = f"+{len(prs) * 50} XP bônus"
+            st.markdown(
+                f"<div class='result-card pr'>"
+                f"<div class='result-title'>🏅 Recorde Pessoal! {pr_xp_note}</div>"
+                f"{pr_rows_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
         # Milestone banners
         milestone = res.get("milestone")
