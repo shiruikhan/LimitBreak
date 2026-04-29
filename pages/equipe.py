@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import extra_streamlit_components as stx
 from utils.db import (
     get_user_team, get_user_bench, get_user_profile, swap_team_slots,
     remove_from_team, add_to_team, get_image_as_base64,
@@ -10,6 +11,8 @@ from utils.type_colors import get_type_color
 
 BASE_DIR   = os.getcwd()
 XP_PER_LV  = 100   # XP needed = level * XP_PER_LV
+
+_cookie_manager = stx.CookieManager(key="lb_cookies_logout")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -261,11 +264,7 @@ with st.sidebar:
         st.markdown(f"<small style='color:#8b949e'>👤 {email.email}</small>", unsafe_allow_html=True)
     st.markdown("---")
     if st.button("Sair", use_container_width=True):
-        # Apaga o cookie de sessão do browser
-        import extra_streamlit_components as stx
-        _cm = stx.CookieManager(key="lb_cookies_logout")
-        _cm.delete("lb_refresh_token", key="delete_on_logout")
-        # Limpa o session state
+        _cookie_manager.delete("lb_refresh_token", key="delete_on_logout")
         for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter"]:
             st.session_state[k] = None
         st.rerun()

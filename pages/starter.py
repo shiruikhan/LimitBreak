@@ -91,10 +91,10 @@ if not easter_unlocked:
     var par = window.parent;
 
     // Apply the data attribute to the hidden button so CSS can hide it
+    // (Note: `kind` attribute no longer exists on <button> in Streamlit \u22651.36;
+    //  querying all buttons inside stButton wrappers is version-agnostic.)
     function tagEasterButton() {
-        var btns = par.document.querySelectorAll(
-            '[data-testid="stButton"] button[kind="secondary"]'
-        );
+        var btns = par.document.querySelectorAll('[data-testid="stButton"] button');
         btns.forEach(function (btn) {
             var p = btn.querySelector('p');
             if (p && p.textContent === '\u2800') {
@@ -105,9 +105,7 @@ if not easter_unlocked:
 
     // Programmatically click the hidden easter button
     function fireEasterBtn() {
-        var btns = par.document.querySelectorAll(
-            '[data-testid="stButton"] button[kind="secondary"]'
-        );
+        var btns = par.document.querySelectorAll('[data-testid="stButton"] button');
         for (var i = 0; i < btns.length; i++) {
             var p = btns[i].querySelector('p');
             if (p && p.textContent === '\u2800') {

@@ -125,6 +125,15 @@ if st.session_state.user is None:
             # Refresh token inválido ou expirado — limpa o cookie
             cookie_manager.delete("lb_refresh_token", key="delete_on_fail")
 
+# ── Starter gate (re-evaluated every render) ───────────────────────────────────
+# Guards against bypasses where needs_starter is False but the user has no
+# Pokémon (e.g., direct URL navigation, DB row deleted mid-session, or a signup
+# flow where the session was restored before needs_starter was written).
+if st.session_state.user is not None and not st.session_state.needs_starter:
+    from utils.db import get_user_pokemon_ids as _gpids
+    if not _gpids(st.session_state.user_id):
+        st.session_state.needs_starter = True
+
 # ── Navegação ──────────────────────────────────────────────────────────────────
 if st.session_state.user is None:
     pg = st.navigation(
