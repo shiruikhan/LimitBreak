@@ -1122,7 +1122,7 @@ _LOOT_BOX_ITEM = {
     "name": "Loot Box",
     "description": "Abra na Mochila para receber uma recompensa aleatoria.",
     "category": "other",
-    "price": 0,
+    "price": 1,
     "icon": "🎁",
 }
 
@@ -1401,9 +1401,16 @@ def open_loot_box(user_id: str, item_id: int) -> tuple[bool, str, dict | None]:
                     )
                     slot1 = cur2.fetchone()
                 if slot1:
-                    award_xp(slot1[0], loot["amount"], "loot_box_open")
-            except Exception:
-                pass
+                    xp_result = award_xp(slot1[0], loot["amount"], "loot_box_open")
+                    loot["xp_result"] = xp_result
+                    if xp_result.get("error"):
+                        return False, f"Loot Box aberta, mas houve erro ao aplicar o XP: {xp_result['error']}", loot
+                else:
+                    loot["xp_result"] = {"error": "Sem Pokémon no slot 1 para receber o XP."}
+                    return False, "Loot Box aberta, mas você não tem Pokémon no slot 1 para receber o XP.", loot
+            except Exception as e:
+                loot["xp_result"] = {"error": str(e)}
+                return False, f"Loot Box aberta, mas houve erro ao aplicar o XP: {e}", loot
 
         return True, f"🎁 **{item_name}** aberta com sucesso! Recompensa: {loot['label']}", loot
     except Exception as e:

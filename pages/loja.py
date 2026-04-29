@@ -380,7 +380,19 @@ with tab_bag:
                         type="primary",
                         use_container_width=True,
                     ):
-                        ok, msg, _loot = open_loot_box(user_id, iid)
+                        ok, msg, loot = open_loot_box(user_id, iid)
+                        xp_res = (loot or {}).get("xp_result", {})
+                        evolutions = xp_res.get("evolutions", [])
+                        if evolutions:
+                            evo = next((e for e in evolutions if not e.get("shed")), evolutions[0])
+                            st.session_state.team_evo_notice = {
+                                "from_name": evo["from_name"],
+                                "to_name": evo["to_name"],
+                                "sprite_url": evo.get("sprite_url", ""),
+                            }
+                        xp_shared = xp_res.get("xp_share_distributed", [])
+                        if xp_shared:
+                            st.session_state.xp_share_log = xp_shared
                         st.session_state.shop_msg = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()

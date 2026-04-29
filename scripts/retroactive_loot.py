@@ -31,7 +31,7 @@ LOOT_BOX_ITEM = {
     "name": "Loot Box",
     "description": "Abra na Mochila para receber uma recompensa aleatoria.",
     "category": "other",
-    "price": 0,
+    "price": 1,
     "icon": "🎁",
 }
 
