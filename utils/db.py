@@ -68,6 +68,25 @@ def get_connection():
     return st.session_state._db_conn
 
 
+def _table_has_column(table_name: str, column_name: str) -> bool:
+    """Checks column existence to stay compatible with small schema drifts."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = %s
+                  AND column_name = %s
+                LIMIT 1;
+                """,
+                (table_name, column_name),
+            )
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 _STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
 _GENETIC_COLUMNS = (
     "iv_hp", "iv_attack", "iv_defense", "iv_sp_attack", "iv_sp_defense", "iv_speed",
@@ -2621,20 +2640,37 @@ def get_workout_sheets(user_id: str) -> list[dict]:
         return []
 
 
-def create_workout_sheet(user_id: str, name: str) -> tuple[str | None, str | None]:
+def create_workout_sheet(
+    user_id: str,
+    name: str,
+    created_by: str | None = None,
+) -> tuple[str | None, str | None]:
     """INSERT into workout_sheets; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
+        actor_id = created_by or user_id
+        has_created_by = _table_has_column("workout_sheets", "created_by")
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO workout_sheets (user_id, name) VALUES (%s, %s) RETURNING id;",
-                (user_id, name.strip()),
-            )
+            if has_created_by:
+                cur.execute(
+                    """
+                    INSERT INTO workout_sheets (user_id, created_by, name)
+                    VALUES (%s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (user_id, actor_id, name.strip()),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO workout_sheets (user_id, name) VALUES (%s, %s) RETURNING id;",
+                    (user_id, name.strip()),
+                )
             new_id = cur.fetchone()[0]
         conn.commit()
         return str(new_id), None
     except Exception as e:
-        get_connection().rollback()
+        if "conn" in locals():
+            conn.rollback()
         return None, str(e)
 
 
