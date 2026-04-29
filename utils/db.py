@@ -1404,17 +1404,8 @@ def do_checkin(user_id: str) -> dict:
             if streak % 3 == 0:
                 result["spawn_rolled"] = True
                 if random.random() < 0.25:
-                    # Pokémon que o usuário ainda não possui
-                    cur.execute("""
-                        SELECT id FROM pokemon_species
-                        WHERE id NOT IN (
-                            SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
-                        )
-                        ORDER BY RANDOM() LIMIT 1;
-                    """, (user_id,))
-                    spawn_row = cur.fetchone()
-                    if spawn_row:
-                        spawned_species_id = spawn_row[0]
+                    spawned_species_id = _pick_spawn_species(cur, user_id)
+                    if spawned_species_id is not None:
                         checkin_shiny = _shiny_roll(streak)
 
                         # Captura o Pokémon (nível 5, fórmula padrão)
@@ -2474,45 +2465,87 @@ def _shiny_roll(streak: int) -> bool:
     return random.random() < (1 / odds)
 
 
+# Weighted spawn tiers — legendary/mythical are excluded via is_spawnable=FALSE in DB.
+# Weights are relative; uncommon ~3× rarer than common, rare ~10× rarer.
+_SPAWN_TIER_WEIGHTS: dict[str, int] = {
+    "common":   60,
+    "uncommon": 30,
+    "rare":      9,
+}
+
+
+def _pick_spawn_species(
+    cur,
+    user_id: str,
+    type_slug: str | None = None,
+) -> int | None:
+    """Picks a spawnable species_id using weighted tier sampling.
+
+    Tries typed filter first (if type_slug given), falls back to any type.
+    Returns species_id or None if pool exhausted.
+    """
+    tiers = list(_SPAWN_TIER_WEIGHTS.keys())
+    weights = [_SPAWN_TIER_WEIGHTS[t] for t in tiers]
+
+    # Shuffle tier order by weighted random pick (sample without replacement)
+    tier_order: list[str] = random.choices(tiers, weights=weights, k=len(tiers))
+    # Deduplicate while preserving weighted order
+    seen: set[str] = set()
+    tier_order = [t for t in tier_order if not (t in seen or seen.add(t))]  # type: ignore[func-returns-value]
+
+    def _query(tier: str, with_type: bool) -> int | None:
+        base_filter = """
+            ps.is_spawnable = TRUE
+            AND ps.rarity_tier = %s
+            AND ps.id NOT IN (
+                SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
+            )
+        """
+        if with_type:
+            cur.execute(f"""
+                SELECT ps.id
+                FROM pokemon_species ps
+                JOIN pokemon_types pt1 ON ps.type1_id = pt1.id
+                WHERE {base_filter}
+                  AND (pt1.slug = %s
+                       OR EXISTS (
+                           SELECT 1 FROM pokemon_types pt2
+                           WHERE pt2.id = ps.type2_id AND pt2.slug = %s
+                       ))
+                ORDER BY RANDOM() LIMIT 1;
+            """, (tier, user_id, type_slug, type_slug))
+        else:
+            cur.execute(f"""
+                SELECT ps.id FROM pokemon_species ps
+                WHERE {base_filter}
+                ORDER BY RANDOM() LIMIT 1;
+            """, (tier, user_id))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    # Try each tier in weighted order, typed first then untyped fallback
+    for tier in tier_order:
+        if type_slug:
+            sid = _query(tier, with_type=True)
+            if sid:
+                return sid
+        sid = _query(tier, with_type=False)
+        if sid:
+            return sid
+
+    return None
+
+
 def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool = False):
     """Captura um Pokémon não capturado (tipo opcional) dentro de uma transação aberta.
 
     Tenta primeiro com filtro de tipo; se não encontrar, usa qualquer espécie.
     Retorna (species_id, {id, name, sprite_url, type1, is_shiny}) ou (None, None).
     """
-    def _query_species(with_type: bool):
-        if with_type:
-            cur.execute("""
-                SELECT ps.id
-                FROM pokemon_species ps
-                JOIN pokemon_types pt1 ON ps.type1_id = pt1.id
-                WHERE ps.id NOT IN (
-                    SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
-                )
-                AND (pt1.slug = %s
-                     OR EXISTS (
-                         SELECT 1 FROM pokemon_types pt2
-                         WHERE pt2.id = ps.type2_id AND pt2.slug = %s
-                     ))
-                ORDER BY RANDOM() LIMIT 1;
-            """, (user_id, type_slug, type_slug))
-        else:
-            cur.execute("""
-                SELECT id FROM pokemon_species
-                WHERE id NOT IN (
-                    SELECT DISTINCT species_id FROM user_pokemon WHERE user_id = %s
-                )
-                ORDER BY RANDOM() LIMIT 1;
-            """, (user_id,))
-        return cur.fetchone()
-
-    row = _query_species(with_type=bool(type_slug))
-    if not row and type_slug:
-        row = _query_species(with_type=False)
-    if not row:
+    species_id = _pick_spawn_species(cur, user_id, type_slug)
+    if species_id is None:
         return None, None
 
-    species_id = row[0]
     up_id = _insert_user_pokemon(
         cur, user_id, species_id, level=5, xp=0, is_shiny=is_shiny
     )
