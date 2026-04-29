@@ -250,7 +250,7 @@ Date-specific workout session logging.
 ## Phase 3 — Progression Depth (Long-term)
 
 ### 3.1 Competitive Improvements
-- [ ] Implement seasonal leaderboard (top trainers by wins or Pokémon count)
+- [x] Implement seasonal leaderboard (top trainers by wins or Pokémon count)
 
 ### 3.2 Pokémon Interaction
 - [ ] Add a "Happiness" mechanic — increases with check-ins and battles; unlocks friendship evolutions earlier than bypass level 36
@@ -258,8 +258,8 @@ Date-specific workout session logging.
 - [ ] Held items (e.g., Metal Coat triggers Steel-type evolutions in battle context)
 
 ### 3.3 Collection & Colecionismo
-- [ ] Shininess odds refinement — current implementation is flat; consider streak-based boosts
-- [ ] Achievements / badges (e.g., "Caught 100 Pokémon", "Won 50 battles")
+- [x] Shininess odds refinement — streak-based rates: 1/128 base → 1/64 (7d) → 1/32 (15d) → 1/16 (30d) → 1/8 (60d); applied to both checkin and exercise spawns
+- [x] Achievements / badges (e.g., "Caught 100 Pokémon", "Won 50 battles")
 - [ ] Trade system between users (future — requires multi-user session coordination)
 
 ---

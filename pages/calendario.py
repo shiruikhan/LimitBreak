@@ -252,12 +252,15 @@ if res:
                 f"<img src='data:image/png;base64,{b64}' style='width:96px;image-rendering:pixelated'>"
                 if b64 else "<div style='font-size:3rem'>❓</div>"
             )
+            is_shiny_spawn = pk.get("is_shiny", False)
+            spawn_title = "🌟 Pokémon Shiny apareceu!" if is_shiny_spawn else "✨ Pokémon apareceu!"
+            shiny_badge = "<span style='background:#FFD700;color:#000;font-size:0.65rem;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;letter-spacing:1px'>SHINY</span>" if is_shiny_spawn else ""
             st.markdown(
                 f"<div class='result-card spawned' style='display:flex;align-items:center;gap:20px'>"
                 f"<div>{img_html}</div>"
                 f"<div>"
-                f"<div class='result-title'>✨ Pokémon apareceu!</div>"
-                f"<div class='spawn-name'>{pk['name']}</div>"
+                f"<div class='result-title'>{spawn_title}</div>"
+                f"<div class='spawn-name'>{pk['name']}{shiny_badge}</div>"
                 f"<div class='result-body' style='margin-top:4px'>"
                 f"#{str(pk['id']).zfill(4)} foi capturado automaticamente e adicionado à sua coleção!"
                 f"</div></div></div>",

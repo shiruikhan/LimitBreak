@@ -1033,15 +1033,16 @@ def do_checkin(user_id: str) -> dict:
                     spawn_row = cur.fetchone()
                     if spawn_row:
                         spawned_species_id = spawn_row[0]
+                        checkin_shiny = _shiny_roll(streak)
 
                         # Captura o Pokémon (nível 5, stats escalados)
                         cur.execute("""
                             INSERT INTO user_pokemon (
-                                user_id, species_id, level, xp,
+                                user_id, species_id, level, xp, is_shiny,
                                 stat_hp, stat_attack, stat_defense,
                                 stat_sp_attack, stat_sp_defense, stat_speed
                             )
-                            SELECT %s, %s, 5, 0,
+                            SELECT %s, %s, 5, 0, %s,
                                 GREATEST(1, 2*base_hp         *5/100 + 5 + 10),
                                 GREATEST(1, 2*base_attack     *5/100 + 5),
                                 GREATEST(1, 2*base_defense    *5/100 + 5),
@@ -1050,7 +1051,7 @@ def do_checkin(user_id: str) -> dict:
                                 GREATEST(1, 2*base_speed      *5/100 + 5)
                             FROM pokemon_species WHERE id = %s
                             RETURNING id;
-                        """, (user_id, spawned_species_id, spawned_species_id))
+                        """, (user_id, spawned_species_id, checkin_shiny, spawned_species_id))
                         up_id = cur.fetchone()[0]
 
                         # Slot de equipe livre, se houver
@@ -1074,7 +1075,7 @@ def do_checkin(user_id: str) -> dict:
 
                         # Busca dados do Pokémon para o resultado
                         cur.execute("""
-                            SELECT p.id, p.name, p.sprite_url,
+                            SELECT p.id, p.name, p.sprite_url, p.sprite_shiny_url,
                                    t1.name AS type1
                             FROM pokemon_species p
                             LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
@@ -1082,9 +1083,11 @@ def do_checkin(user_id: str) -> dict:
                         """, (spawned_species_id,))
                         pdata = cur.fetchone()
                         if pdata:
+                            sprite = (pdata[3] if checkin_shiny and pdata[3] else pdata[2])
                             result["spawned"] = {
                                 "id": pdata[0], "name": pdata[1],
-                                "sprite_url": pdata[2], "type1": pdata[3],
+                                "sprite_url": sprite, "type1": pdata[4],
+                                "is_shiny": checkin_shiny,
                             }
 
         conn.commit()
@@ -2126,6 +2129,21 @@ def _calc_exercise_xp(exercises: list[dict]) -> int:
     return max(0, total)
 
 
+def _shiny_roll(streak: int) -> bool:
+    """Retorna True com probabilidade crescente baseada no streak."""
+    if streak >= 60:
+        odds = 8
+    elif streak >= 30:
+        odds = 16
+    elif streak >= 15:
+        odds = 32
+    elif streak >= 7:
+        odds = 64
+    else:
+        odds = 128
+    return random.random() < (1 / odds)
+
+
 def _spawn_typed(cur, user_id: str, type_slug: str | None = None, is_shiny: bool = False):
     """Captura um Pokémon não capturado (tipo opcional) dentro de uma transação aberta.
 
@@ -2331,7 +2349,8 @@ def do_exercise_event(
             result["spawn_rolled"] = True
             should_spawn = force_spawn or (random.random() < 0.25)
             if should_spawn:
-                species_id, spawn_info = _spawn_typed(cur, user_id, type_slug, is_shiny=force_shiny)
+                roll_shiny = force_shiny or _shiny_roll(new_streak)
+                species_id, spawn_info = _spawn_typed(cur, user_id, type_slug, is_shiny=roll_shiny)
                 if species_id:
                     result["spawned"] = spawn_info
                     cur.execute(
