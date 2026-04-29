@@ -87,6 +87,14 @@ def _table_has_column(table_name: str, column_name: str) -> bool:
         return False
 
 
+def _first_existing_column(table_name: str, *column_names: str) -> str | None:
+    """Returns the first existing column name from the provided candidates."""
+    for column_name in column_names:
+        if _table_has_column(table_name, column_name):
+            return column_name
+    return None
+
+
 _STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
 _GENETIC_COLUMNS = (
     "iv_hp", "iv_attack", "iv_defense", "iv_sp_attack", "iv_sp_defense", "iv_speed",
@@ -2625,11 +2633,14 @@ def do_exercise_event(
 def get_workout_sheets(user_id: str) -> list[dict]:
     """Sheets owned by the user with day count."""
     try:
+        day_sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
+        if day_sheet_fk is None:
+            return []
         with get_connection().cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT ws.id, ws.name, COUNT(wd.id) AS day_count
                 FROM workout_sheets ws
-                LEFT JOIN workout_days wd ON wd.workout_sheet_id = ws.id
+                LEFT JOIN workout_days wd ON wd.{day_sheet_fk} = ws.id
                 WHERE ws.user_id = %s
                 GROUP BY ws.id, ws.name
                 ORDER BY ws.name;
@@ -2691,9 +2702,12 @@ def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None
     """INSERT into workout_days; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
+        sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
+        if sheet_fk is None:
+            return None, "Nenhuma coluna de vínculo de rotina foi encontrada em workout_days."
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO workout_days (workout_sheet_id, name) VALUES (%s, %s) RETURNING id;",
+                f"INSERT INTO workout_days ({sheet_fk}, name) VALUES (%s, %s) RETURNING id;",
                 (sheet_id, name.strip()),
             )
             new_id = cur.fetchone()[0]
@@ -2721,9 +2735,12 @@ def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> 
     """INSERT into workout_day_exercises; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
+        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        if day_fk is None:
+            return None, "Nenhuma coluna de vínculo de dia foi encontrada em workout_day_exercises."
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO workout_day_exercises (workout_day_id, exercise_id, sets, reps) VALUES (%s, %s, %s, %s) RETURNING id;",
+                f"INSERT INTO workout_day_exercises ({day_fk}, exercise_id, sets, reps) VALUES (%s, %s, %s, %s) RETURNING id;",
                 (day_id, exercise_id, sets, reps),
             )
             new_id = cur.fetchone()[0]
@@ -2766,12 +2783,16 @@ def remove_exercise_from_day(wde_id: str) -> tuple[bool, str | None]:
 def get_sheet_days(sheet_id: str) -> list[dict]:
     """Days for a specific workout sheet with exercise count."""
     try:
+        sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
+        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        if sheet_fk is None or day_fk is None:
+            return []
         with get_connection().cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT wd.id, wd.name, COUNT(wde.id) AS exercise_count
                 FROM workout_days wd
-                LEFT JOIN workout_day_exercises wde ON wde.workout_day_id = wd.id
-                WHERE wd.workout_sheet_id = %s
+                LEFT JOIN workout_day_exercises wde ON wde.{day_fk} = wd.id
+                WHERE wd.{sheet_fk} = %s
                 GROUP BY wd.id, wd.name
                 ORDER BY wd.name;
             """, (sheet_id,))
@@ -2783,14 +2804,17 @@ def get_sheet_days(sheet_id: str) -> list[dict]:
 def get_day_exercises_for_builder(day_id: str) -> list[dict]:
     """Prescribed exercises for a day, including wde.id for edit/delete."""
     try:
+        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        if day_fk is None:
+            return []
         with get_connection().cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT wde.id, e.id AS exercise_id,
                        COALESCE(e.name_pt, e.name) AS display_name,
                        wde.sets, wde.reps
                 FROM workout_day_exercises wde
                 JOIN exercises e ON e.id = wde.exercise_id
-                WHERE wde.workout_day_id = %s
+                WHERE wde.{day_fk} = %s
                 ORDER BY wde.id;
             """, (day_id,))
             return [
