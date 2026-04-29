@@ -301,6 +301,112 @@ def _load_pokemon_genetics(cur, user_pokemon_id: int) -> tuple[dict, dict, dict]
     return ivs, evs, nature_mods
 
 
+def _stored_user_pokemon_stats(cur, user_pokemon_id: int) -> list[int] | None:
+    cur.execute("""
+        SELECT stat_hp, stat_attack, stat_defense,
+               stat_sp_attack, stat_sp_defense, stat_speed
+        FROM user_pokemon
+        WHERE id = %s;
+    """, (user_pokemon_id,))
+    row = cur.fetchone()
+    return list(row) if row else None
+
+
+def _flat_stat_boosts(cur, user_pokemon_id: int) -> dict:
+    boosts = {stat: 0 for stat in _STAT_ORDER}
+    cur.execute("""
+        SELECT stat, COALESCE(SUM(delta), 0)
+        FROM user_pokemon_stat_boosts
+        WHERE user_pokemon_id = %s
+        GROUP BY stat;
+    """, (user_pokemon_id,))
+    for stat, total in cur.fetchall():
+        if stat in boosts:
+            boosts[stat] = total or 0
+    return boosts
+
+
+def _expected_user_pokemon_stats(
+    cur,
+    user_pokemon_id: int,
+    *,
+    species_id: int | None = None,
+    level: int | None = None,
+) -> list[int] | None:
+    if species_id is None or level is None:
+        cur.execute("""
+            SELECT species_id, level
+            FROM user_pokemon
+            WHERE id = %s;
+        """, (user_pokemon_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        if species_id is None:
+            species_id = row[0]
+        if level is None:
+            level = row[1]
+
+    bases = _get_species_bases(cur, species_id)
+    if not bases:
+        return None
+
+    ivs, evs, nature_mods = _load_pokemon_genetics(cur, user_pokemon_id)
+    return _build_pokemon_stats(
+        bases,
+        level,
+        ivs=ivs,
+        evs=evs,
+        nature_modifiers=nature_mods,
+        flat_boosts=_flat_stat_boosts(cur, user_pokemon_id),
+    )
+
+
+def _sync_user_pokemon_stats(
+    cur,
+    user_pokemon_id: int,
+    *,
+    species_id: int | None = None,
+    level: int | None = None,
+) -> bool:
+    """Regrava stat_* usando a espécie atual como fonte única de verdade."""
+    expected = _expected_user_pokemon_stats(
+        cur,
+        user_pokemon_id,
+        species_id=species_id,
+        level=level,
+    )
+    if expected is None:
+        return False
+
+    stored = _stored_user_pokemon_stats(cur, user_pokemon_id)
+    if stored == expected:
+        return False
+
+    set_parts = ", ".join(f"stat_{stat} = %s" for stat in _STAT_ORDER)
+    cur.execute(
+        f"UPDATE user_pokemon SET {set_parts} WHERE id = %s;",
+        expected + [user_pokemon_id],
+    )
+    return True
+
+
+def _audit_and_sync_user_team_stats(cur, user_id: str) -> list[int]:
+    """Audita a equipe ativa do usuário e corrige quaisquer stats divergentes."""
+    cur.execute("""
+        SELECT up.id
+        FROM user_team ut
+        JOIN user_pokemon up ON up.id = ut.user_pokemon_id
+        WHERE ut.user_id = %s
+        ORDER BY ut.slot ASC;
+    """, (user_id,))
+    changed_ids = []
+    for (user_pokemon_id,) in cur.fetchall():
+        if _sync_user_pokemon_stats(cur, user_pokemon_id):
+            changed_ids.append(user_pokemon_id)
+    return changed_ids
+
+
 def _insert_user_pokemon(
     cur,
     user_id: str,
@@ -553,7 +659,10 @@ def create_user_profile(user_id: str, username: str, starter_id: int) -> bool:
 
 def get_user_team(user_id: str) -> list[dict]:
     try:
-        with get_connection().cursor() as cur:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            if _audit_and_sync_user_team_stats(cur, user_id):
+                conn.commit()
             nature_select = _nature_select_sql(cur)
             cur.execute(f"""
                 SELECT ut.slot, up.id, up.species_id, p.name, p.sprite_url,
@@ -1400,39 +1509,17 @@ def _recalc_stats_for_level(
     Deve ser chamada após level-ups e evoluções para manter os stats
     individuais em sincronia com o nível atual e a espécie atual.
     """
-    cur.execute("""
-        SELECT stat, COALESCE(SUM(delta), 0)
-        FROM user_pokemon_stat_boosts
-        WHERE user_pokemon_id = %s
-        GROUP BY stat;
-    """, (user_pokemon_id,))
-    boosts = {r[0]: r[1] for r in cur.fetchall()}
-
-    bases = _get_species_bases(cur, species_id)
-    if not bases:
-        return
-
-    ivs, evs, nature_mods = _load_pokemon_genetics(cur, user_pokemon_id)
-    values = _build_pokemon_stats(
-        bases,
-        level,
-        ivs=ivs,
-        evs=evs,
-        nature_modifiers=nature_mods,
-        flat_boosts=boosts,
-    )
-    set_parts = ", ".join(f"stat_{stat} = %s" for stat in _STAT_ORDER)
-    cur.execute(
-        f"UPDATE user_pokemon SET {set_parts} WHERE id = %s;",
-        values + [user_pokemon_id],
+    _sync_user_pokemon_stats(
+        cur,
+        user_pokemon_id,
+        species_id=species_id,
+        level=level,
     )
 
 
-def _recalc_stats_on_evolution(
-    cur, user_pokemon_id: int, new_species_id: int, level: int
-) -> None:
-    """Troca o bloco de base stats para a espécie evoluída e recalcula tudo."""
-    _recalc_stats_for_level(cur, user_pokemon_id, new_species_id, level)
+def _recalc_stats_on_evolution(cur, user_pokemon_id: int) -> None:
+    """Força recálculo completo após evolução usando a nova espécie persistida."""
+    _sync_user_pokemon_stats(cur, user_pokemon_id)
 
 
 def get_xp_share_status(user_id: str) -> dict:
@@ -1651,9 +1738,8 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
 
             # ── Recalcula stats por nível e/ou evolução ──────────────────────
             if result["evolutions"]:
-                # Nova espécie + novo nível → usa _recalc_stats_on_evolution
-                # (que delega para _recalc_stats_for_level com new_species_id)
-                _recalc_stats_on_evolution(cur, user_pokemon_id, species_id, level)
+                # Após persistir a espécie evoluída, recalcula a partir dela.
+                _recalc_stats_on_evolution(cur, user_pokemon_id)
             elif result["levels_gained"] > 0:
                 # Sem evolução, mas subiu de nível → escala stats pela fórmula
                 _recalc_stats_for_level(cur, user_pokemon_id, species_id, level)
@@ -1786,7 +1872,7 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
                 (to_id, user_pokemon_id)
             )
             # A evolução passa a usar o bloco de base stats da nova espécie.
-            _recalc_stats_on_evolution(cur, user_pokemon_id, to_id, poke_level)
+            _recalc_stats_on_evolution(cur, user_pokemon_id)
 
             # Debita pedra do inventário
             cur.execute("""
@@ -1957,6 +2043,11 @@ def start_battle(challenger_id: str, opponent_id: str) -> dict:
     conn = get_connection()
     cur = conn.cursor()
     try:
+        if _audit_and_sync_user_team_stats(cur, challenger_id):
+            conn.commit()
+        if opponent_id != challenger_id and _audit_and_sync_user_team_stats(cur, opponent_id):
+            conn.commit()
+
         def _load_fighter(uid):
             cur.execute("""
                 SELECT up.id, up.level,
