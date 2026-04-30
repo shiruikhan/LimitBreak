@@ -395,7 +395,6 @@ if res:
 
 st.markdown("---")
 
-@st.fragment
 def _calendar_view():
     # ── Navegação de mês ──────────────────────────────────────────────────────
 

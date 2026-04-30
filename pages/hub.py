@@ -159,7 +159,6 @@ SECTION_CARDS = [
 ]
 
 
-@st.fragment
 def _render_snapshot() -> None:
     team = get_cached_user_team(user_id)
     streak = get_cached_checkin_streak(user_id)
@@ -229,7 +228,6 @@ def _render_snapshot() -> None:
         )
 
 
-@st.fragment
 def _render_sections() -> None:
     cols = st.columns(2)
     for idx, section in enumerate(SECTION_CARDS):
