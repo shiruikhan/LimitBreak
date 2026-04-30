@@ -147,13 +147,14 @@ SECTION_CARDS = [
         ],
     },
     {
-        "title": "Pokédex",
-        "desc": "Explore espécies e acompanhe a coleção pessoal.",
+        "title": "Pokédex e Itens",
+        "desc": "Explore espécies, acompanhe a coleção e abra sua mochila direto do hub.",
         "icon": "📖",
         "links": [
             ("Pokédex", "pages/pokedex.py"),
             ("Minha Pokédex", "pages/pokedex_pessoal.py"),
             ("Loja", "pages/loja.py"),
+            ("Mochila", "pages/mochila.py"),
         ],
     },
 ]
@@ -204,7 +205,7 @@ def _render_snapshot() -> None:
 """,
             unsafe_allow_html=True,
         )
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
             if st.button("📅 Fazer check-in", use_container_width=True):
                 st.switch_page("pages/calendario.py")
@@ -214,6 +215,9 @@ def _render_snapshot() -> None:
         with col_c:
             if st.button("🥊 Ir para arena", use_container_width=True):
                 st.switch_page("pages/batalha.py")
+        with col_d:
+            if st.button("🎒 Abrir mochila", use_container_width=True):
+                st.switch_page("pages/mochila.py")
     with right:
         st.markdown(
             f"""

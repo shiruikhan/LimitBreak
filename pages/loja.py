@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 from utils.app_cache import (
     clear_user_cache,
@@ -8,21 +7,9 @@ from utils.app_cache import (
     get_cached_xp_share_status,
 )
 from utils.db import (
-    get_shop_items, buy_item, use_stat_item,
-    get_stone_targets, evolve_with_stone, get_image_as_base64,
-    open_loot_box, use_xp_share_item,
-    use_nature_mint,
+    get_shop_items, buy_item,
 )
-
-_ALL_NATURES = (
-    "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
-    "Bold", "Docile", "Relaxed", "Impish", "Lax",
-    "Timid", "Hasty", "Serious", "Jolly", "Naive",
-    "Modest", "Mild", "Quiet", "Bashful", "Rash",
-    "Calm", "Gentle", "Sassy", "Careful", "Quirky",
-)
-
-BASE_DIR = os.getcwd()
+from utils.bag_ui import ensure_bag_session_state, render_bag_view
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 
@@ -93,9 +80,11 @@ st.markdown("""
 
 # ── Estado de sessão ───────────────────────────────────────────────────────────
 
-for key, val in [("shop_using_item", None), ("shop_msg", None), ("shop_msg_type", "success")]:
+for key, val in [("shop_using_item", None)]:
     if key not in st.session_state:
         st.session_state[key] = val
+
+ensure_bag_session_state()
 
 
 def _clear_msg():
@@ -255,258 +244,4 @@ with tab_shop:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_bag:
-
-    if not inventory:
-        st.info("Sua mochila está vazia. Compre itens na aba Loja!")
-    else:
-        # Mapa item_id → detalhes
-        item_map = {i["id"]: i for i in items}
-
-        # Separa por categoria para exibição organizada
-        inv_stat        = [(iid, qty) for iid, qty in inventory.items()
-                           if item_map.get(iid, {}).get("category") == "stat_boost"]
-        inv_nature_mint = [(iid, qty) for iid, qty in inventory.items()
-                           if item_map.get(iid, {}).get("category") == "nature_mint"]
-        inv_stones      = [(iid, qty) for iid, qty in inventory.items()
-                           if item_map.get(iid, {}).get("category") == "stone"]
-        inv_loot_boxes = [(iid, qty) for iid, qty in inventory.items()
-                          if item_map.get(iid, {}).get("slug") == "loot-box"
-                          or item_map.get(iid, {}).get("category") == "loot_box"]
-        inv_others = [(iid, qty) for iid, qty in inventory.items()
-                      if item_map.get(iid, {}).get("category") == "other"
-                      and item_map.get(iid, {}).get("slug") != "loot-box"]
-
-        # ── Vitaminas (usáveis) ────────────────────────────────────────────────
-        if inv_stat:
-            st.markdown("<div class='section-title'>💊 Vitaminas</div>", unsafe_allow_html=True)
-
-            # Seletor de Pokémon alvo (compartilhado para todas as vitaminas)
-            if team:
-                team_options = {
-                    f"{p['name']} (Nv. {p['level']}) — Slot {p['slot']}": p["user_pokemon_id"]
-                    for p in team
-                }
-                target_label = st.selectbox(
-                    "Aplicar em qual Pokémon da equipe?",
-                    options=list(team_options.keys()),
-                    key="bag_target_pokemon",
-                )
-                target_id = team_options[target_label]
-            else:
-                st.warning("Você não tem Pokémon na equipe para usar vitaminas.")
-                target_id = None
-
-            st.write("")
-            cols = st.columns(3)
-            for idx, (iid, qty) in enumerate(inv_stat):
-                item = item_map[iid]
-                with cols[idx % 3]:
-                    st.markdown(
-                        f"<div class='inv-card'>"
-                        f"<div class='inv-icon'>{item['icon']}</div>"
-                        f"<div class='inv-info'>"
-                        f"<div class='inv-name'>{item['name']}</div>"
-                        f"<div class='inv-qty'>Quantidade: {qty}</div>"
-                        f"</div></div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.write("")
-                    if st.button(
-                        f"Usar em {target_label.split(' —')[0] if team else '—'}",
-                        key=f"use_{iid}",
-                        disabled=not team or not target_id,
-                        use_container_width=True,
-                    ):
-                        ok, msg = use_stat_item(user_id, iid, target_id)
-                        clear_user_cache()
-                        st.session_state.shop_msg      = msg
-                        st.session_state.shop_msg_type = "success" if ok else "error"
-                        st.rerun()
-
-        # ── Nature Mint ───────────────────────────────────────────────────────
-        if inv_nature_mint:
-            st.markdown("<div class='section-title'>🌿 Nature Mint</div>", unsafe_allow_html=True)
-
-            if not team:
-                st.warning("Você não tem Pokémon na equipe para usar Nature Mint.")
-            else:
-                mint_team_options = {
-                    f"{p['name']} (Nv. {p['level']}) — Slot {p['slot']}": p
-                    for p in team
-                }
-                mint_target_label = st.selectbox(
-                    "Aplicar em qual Pokémon da equipe?",
-                    options=list(mint_team_options.keys()),
-                    key="bag_mint_target_pokemon",
-                )
-                mint_target = mint_team_options[mint_target_label]
-                mint_target_id = mint_target["user_pokemon_id"]
-                current_nature = mint_target.get("nature_name") or "Desconhecida"
-
-                st.caption(f"Natureza atual: **{current_nature}**")
-
-                available_natures = [n for n in _ALL_NATURES if n != current_nature]
-                new_nature = st.selectbox(
-                    "Nova natureza:",
-                    options=available_natures,
-                    key="bag_mint_new_nature",
-                )
-
-                st.write("")
-                cols_mint = st.columns(min(len(inv_nature_mint), 4))
-                for idx, (iid, qty) in enumerate(inv_nature_mint):
-                    item = item_map[iid]
-                    with cols_mint[idx % 4]:
-                        st.markdown(
-                            f"<div class='inv-card'>"
-                            f"<div class='inv-icon'>{item['icon']}</div>"
-                            f"<div class='inv-info'>"
-                            f"<div class='inv-name'>{item['name']}</div>"
-                            f"<div class='inv-qty'>Quantidade: {qty}</div>"
-                            f"</div></div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.write("")
-                        if st.button(
-                            f"Usar em {mint_target['name']}",
-                            key=f"use_mint_{iid}",
-                            use_container_width=True,
-                        ):
-                            ok, msg = use_nature_mint(user_id, iid, mint_target_id, new_nature)
-                            clear_user_cache()
-                            st.session_state.shop_msg      = msg
-                            st.session_state.shop_msg_type = "success" if ok else "error"
-                            st.rerun()
-
-        # ── Pedras de Evolução ─────────────────────────────────────────────────
-        if inv_stones:
-            st.markdown("<div class='section-title'>🪨 Pedras de Evolução</div>", unsafe_allow_html=True)
-
-            for iid, qty in inv_stones:
-                item       = item_map[iid]
-                stone_slug = item["slug"]
-                targets    = get_stone_targets(user_id, stone_slug)
-
-                with st.expander(f"{item['icon']} {item['name']}  ·  Qtd: {qty}", expanded=bool(targets)):
-                    if not targets:
-                        st.info("Nenhum dos seus Pokémon evolui com esta pedra.", icon="ℹ️")
-                    else:
-                        options = {
-                            f"{t['from_name']} → {t['to_name']} (Lv.{t['level']}"
-                            f"{' · equipe' if t['in_team'] else ''})": t
-                            for t in targets
-                        }
-                        chosen_label = st.selectbox(
-                            "Pokémon para evoluir:",
-                            list(options.keys()),
-                            key=f"stone_target_{iid}",
-                        )
-                        chosen = options[chosen_label]
-
-                        # Preview da evolução
-                        b64 = None
-                        if chosen["sprite_url"]:
-                            sp = os.path.join(BASE_DIR, chosen["sprite_url"].lstrip("/\\"))
-                            hq = sp.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-                            b64 = get_image_as_base64(hq) or get_image_as_base64(sp)
-
-                        col_img, col_info = st.columns([1, 3])
-                        with col_img:
-                            if b64:
-                                st.markdown(
-                                    f"<img src='data:image/png;base64,{b64}' "
-                                    f"style='width:80px;image-rendering:pixelated'>",
-                                    unsafe_allow_html=True,
-                                )
-                        with col_info:
-                            st.markdown(
-                                f"<div style='font-size:.85rem;color:#8b949e;margin-top:8px'>"
-                                f"<b style='color:#e6edf3'>{chosen['from_name']}</b> "
-                                f"<span style='color:#7038F8'>→</span> "
-                                f"<b style='color:#A27DFA'>{chosen['to_name']}</b>"
-                                f"</div>",
-                                unsafe_allow_html=True,
-                            )
-
-                        if st.button(
-                            f"✨ Usar {item['name']} em {chosen['from_name']}",
-                            key=f"use_stone_{iid}_{chosen['user_pokemon_id']}",
-                            type="primary",
-                        ):
-                            ok, msg, evo_data = evolve_with_stone(user_id, iid, chosen["user_pokemon_id"])
-                            clear_user_cache()
-                            st.session_state.shop_msg      = msg
-                            st.session_state.shop_msg_type = "success" if ok else "error"
-                            if ok and evo_data:
-                                st.session_state.team_evo_notice = evo_data
-                            st.rerun()
-
-        # ── Loot Boxes ────────────────────────────────────────────────────────
-        if inv_loot_boxes:
-            st.markdown("<div class='section-title'>🎁 Loot Boxes</div>", unsafe_allow_html=True)
-            cols_loot = st.columns(4)
-            for idx, (iid, qty) in enumerate(inv_loot_boxes):
-                item = item_map[iid]
-                with cols_loot[idx % 4]:
-                    st.markdown(
-                        f"<div class='inv-card' style='flex-direction:column;text-align:center'>"
-                        f"<div class='inv-icon'>{item['icon']}</div>"
-                        f"<div class='inv-name'>{item['name']}</div>"
-                        f"<div class='inv-qty'>Qtd: {qty}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.write("")
-                    if st.button(
-                        "Abrir",
-                        key=f"open_loot_box_{iid}",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-                        ok, msg, loot = open_loot_box(user_id, iid)
-                        clear_user_cache()
-                        xp_res = (loot or {}).get("xp_result", {})
-                        evolutions = xp_res.get("evolutions", [])
-                        if evolutions:
-                            evo = next((e for e in evolutions if not e.get("shed")), evolutions[0])
-                            st.session_state.team_evo_notice = {
-                                "from_name": evo["from_name"],
-                                "to_name": evo["to_name"],
-                                "sprite_url": evo.get("sprite_url", ""),
-                            }
-                        xp_shared = xp_res.get("xp_share_distributed", [])
-                        if xp_shared:
-                            st.session_state.xp_share_log = xp_shared
-                        st.session_state.shop_msg = msg
-                        st.session_state.shop_msg_type = "success" if ok else "error"
-                        st.rerun()
-
-        # ── Outros ────────────────────────────────────────────────────────────
-        if inv_others:
-            st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
-            cols_inv_oth = st.columns(4)
-            for idx, (iid, qty) in enumerate(inv_others):
-                item = item_map[iid]
-                with cols_inv_oth[idx % 4]:
-                    st.markdown(
-                        f"<div class='inv-card' style='flex-direction:column;text-align:center'>"
-                        f"<div class='inv-icon'>{item['icon']}</div>"
-                        f"<div class='inv-name'>{item['name']}</div>"
-                        f"<div class='inv-qty'>Qtd: {qty}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.write("")
-                    if item["slug"] == "xp-share":
-                        if st.button(
-                            "Ativar",
-                            key=f"use_other_{iid}",
-                            use_container_width=True,
-                        ):
-                            ok, msg = use_xp_share_item(user_id, iid)
-                            clear_user_cache()
-                            st.session_state.shop_msg = msg
-                            st.session_state.shop_msg_type = "success" if ok else "error"
-                            st.rerun()
-                    else:
-                        st.markdown("<div class='soon-badge' style='display:block;text-align:center;margin-top:4px'>Em breve</div>", unsafe_allow_html=True)
+    render_bag_view(user_id)

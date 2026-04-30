@@ -237,6 +237,7 @@ def _build_app_pages(user_id: str) -> tuple[dict, list[tuple[str, list[dict]]]]:
         ]),
         ("Loja", [
             _page_meta("pages/loja.py", "Loja", "🛒"),
+            _page_meta("pages/mochila.py", "Mochila", "🎒"),
         ]),
     ]
     if get_cached_is_admin(user_id):
