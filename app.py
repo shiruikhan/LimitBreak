@@ -249,7 +249,6 @@ def _build_app_pages(user_id: str) -> tuple[dict, list[tuple[str, list[dict]]]]:
     return nav_pages, groups
 
 
-@st.fragment
 def _render_sidebar_shell(groups: list[tuple[str, list[dict]]], user_id: str) -> None:
     with st.sidebar:
         st.markdown(
