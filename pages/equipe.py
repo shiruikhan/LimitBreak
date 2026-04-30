@@ -22,6 +22,11 @@ XP_PER_LV  = 100   # XP needed = level * XP_PER_LV
 
 _cookie_manager = stx.CookieManager(key="lb_cookies_logout")
 
+user_id = st.session_state.get("user_id")
+if not user_id:
+    st.error("Sessão expirada. Faça login novamente.")
+    st.stop()
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _thumb(pokemon_id: int) -> str | None:
@@ -451,11 +456,6 @@ if xp_share_log:
     st.session_state.xp_share_log = None
 
 # ── Data ───────────────────────────────────────────────────────────────────────
-user_id = st.session_state.get("user_id")
-if not user_id:
-    st.error("Sessão expirada. Faça login novamente.")
-    st.stop()
-
 with st.spinner("Carregando equipe..."):
     profile      = get_cached_user_profile(user_id)
     team         = get_cached_user_team(user_id)
