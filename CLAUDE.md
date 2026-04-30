@@ -91,6 +91,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── pokedex_pessoal.py       # Pokédex pessoal — capturados vs não capturados
 │   ├── loja.py                  # Loja de itens + mochila com uso de itens (inclui loot box e nature mint)
 │   ├── calendario.py            # Check-in diário + calendário mensal
+│   ├── missoes.py               # Missões diárias (3) e semanal (1) com coleta de recompensas
 │   ├── biblioteca.py            # Biblioteca de exercícios — catálogo Pokédex-style (152 exercícios)
 │   ├── rotinas.py               # Workout Builder — criar/editar fichas e dias de treino
 │   ├── treino.py                # Routine Log — registro de sessão com Import Default
@@ -100,6 +101,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
 │   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, badge_url)
 │   ├── abilities.py             # Registro de habilidades passivas de treino (Release 3A)
+│   ├── missions.py              # Catálogo de missões diárias/semanais (DAILY_POOL, WEEKLY_POOL)
 │   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
 │   └── supabase_client.py       # Supabase client (somente Auth) — lê st.secrets
 └── scripts/
@@ -113,6 +115,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── seed_species_abilities.py             # Popula abilities em pokemon_species via PokéAPI (Release 3A)
     ├── audit_team_stats.py                   # Audita e sincroniza stat_* da equipe ativa (--dry-run / --user-id)
     ├── retroactive_loot.py                   # Concede loot boxes retroativos a usuários existentes
+    ├── migrate_missions.sql                  # Cria user_missions (executar no Supabase)
     ├── migrate_drop_regional_catalog.sql     # Remove pokemon_regional_forms e user_pokemon_forms (executar no Supabase)
     ├── migrate_battles.sql                   # Cria user_battles e user_battle_turns (executar no Supabase)
     ├── migrate_regional_forms.sql            # Migração auxiliar de formas regionais (executar no Supabase)
@@ -365,6 +368,22 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | sets_data | JSONB | `[{"reps": int, "weight": float}]` |
 | notes | TEXT | Anotação livre (nullable) |
 
+#### `user_missions`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_id | UUID FK | → user_profiles.id ON DELETE CASCADE |
+| mission_slug | TEXT | Slug do catálogo (`DAILY_POOL` / `WEEKLY_POOL` em `utils/missions.py`) |
+| mission_type | TEXT | `'daily'` ou `'weekly'` |
+| period_start | DATE | Para daily: a data do dia; para weekly: a segunda-feira da semana |
+| target | INT | Meta de progresso |
+| progress | INT | Progresso atual (incrementado por `update_mission_progress()`) |
+| completed | BOOL | `TRUE` quando `progress >= target` |
+| reward_claimed | BOOL | `TRUE` após `claim_mission_reward()` ser chamado |
+| created_at | TIMESTAMPTZ | |
+
+> Constraint UNIQUE: `(user_id, mission_slug, period_start)` — garante uma instância por missão por período.
+
 ---
 
 ## Funções de `utils/db.py`
@@ -528,6 +547,23 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `admin_create_exercise(name, name_pt, ...)` | Cria exercício no catálogo |
 | `get_global_stats()` | Métricas do sistema: total usuários, treinos, batalhas, Pokémon capturados |
 
+### Missões
+| Função | Descrição |
+|---|---|
+| `get_user_missions(user_id)` | Retorna `{'daily': [...], 'weekly': [...]}` para o período atual; gera missões se ausentes via `_ensure_missions()` |
+| `update_mission_progress(user_id, event_type, data=None)` | Incrementa progresso nas missões ativas que correspondem ao `event_type`; retorna lista de missões recém-concluídas. Chamado em `treino.py`, `batalha.py`, `calendario.py` após cada evento |
+| `claim_mission_reward(user_id, mission_id)` | Consome a recompensa de uma missão completa; retorna `(bool, msg, reward_dict)`. Tipos de recompensa: `xp`, `coins`, `stone`, `vitamin`, `loot_box` |
+
+**`event_type` e dados esperados:**
+- `"workout"` — `{sets_total, max_weight, xp_earned}` → atualiza `register_workout`, `log_5_sets`, `log_heavy_set`, `weekly_workout_3`, `weekly_xp_200`
+- `"pr"` — `{count}` → atualiza `beat_pr`
+- `"battle_win"` — `{}` → atualiza `win_battle`, `weekly_wins_3`
+- `"checkin"` — `{}` → atualiza `daily_checkin`, `weekly_checkin_5`
+
+**Geração de períodos:**
+- Daily: 3 slugs sorteados de `DAILY_POOL` (6 opções) no primeiro acesso do dia
+- Weekly: 1 slug sorteado de `WEEKLY_POOL` (4 opções) na segunda-feira de cada semana
+
 ---
 
 ## Fluxo de Autenticação e Sessão Persistente
@@ -591,7 +627,8 @@ def _resolve_asset(local_path: str) -> str:
 9. `pages/biblioteca.py` — Biblioteca 📚
 10. `pages/rotinas.py` — Rotinas 📋
 11. `pages/treino.py` — Treino 🏋️
-12. `pages/admin.py` — Admin 🛠️ *(oculto para não-admins)*
+12. `pages/missoes.py` — Missões 🎯
+13. `pages/admin.py` — Admin 🛠️ *(oculto para não-admins)*
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -686,6 +723,14 @@ def _resolve_asset(local_path: str) -> str:
 - Grade de 27 iniciais + 2 secretos (Cubone, Mimikyu) via easter egg (7 cliques em área vazia)
 - Easter egg usa botão invisível `\u2800` + JS que escuta cliques no `window.parent.document`
 - Ao confirmar: `create_user_profile()` → perfil + user_pokemon (stats copiados) + slot 1
+
+### `pages/missoes.py`
+- Header "Missões" com subtítulo "Progressão diária"
+- Seção **Missões Diárias** (3 cards): cada card mostra ícone + label + barra de progresso (progress/target) + badge de recompensa + botão "Coletar recompensa" (quando `completed=True` e `reward_claimed=False`)
+- Seção **Missão Semanal** (1 card): período exibido como "Semana de DD/MM a DD/MM" em `st.caption`
+- Ao coletar: chama `claim_mission_reward(user_id, mission_id)`; exibe card de resultado com `_show_claim_result()` (mensagem varia por tipo: xp/coins/stone/vitamin/loot_box)
+- Nota de rodapé: "Missões diárias renovam à meia-noite (BRT). Semanal renova toda segunda-feira."
+- Estado de missão `completed` exibe badge verde "✅ Completa"; `reward_claimed` exibe badge cinza "✓ Coletada" e opacidade reduzida
 
 ### `pages/admin.py`
 - Acesso restrito: exibe aviso de "Acesso negado" se `is_admin(user_id)` retornar `False`
@@ -989,6 +1034,14 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - **Release 4.0 — Painel Admin:**
   - `pages/admin.py` com 5 tabs: Visão Geral, Usuários, Gift Loot Box, Exercícios, Logs
   - Funções admin em `db.py`: `is_admin()`, `get_all_users()`, `admin_update_user()`, `admin_delete_user()`, `set_admin_role()`, `log_admin_action()`, `get_system_logs()`, `admin_gift_loot_box()`, `admin_create_exercise()`, `get_global_stats()`
+- **Priority B — Missões Diárias e Semanais:**
+  - `utils/missions.py`: catálogo com 6 missões diárias + 4 missões semanais
+  - `user_missions` table: progresso por período (daily=data, weekly=segunda-feira da semana)
+  - `get_user_missions()`, `update_mission_progress()`, `claim_mission_reward()` em `db.py`
+  - `pages/missoes.py`: página com 3 cards diários + 1 card semanal; botão de coleta de recompensa
+  - Hooks em `treino.py` (workout + pr), `batalha.py` (battle_win), `calendario.py` (checkin)
+  - Recompensas: xp, coins, pedra aleatória, vitamina aleatória, loot box
+  - Migration: `scripts/migrate_missions.sql`
 
 ### A implementar
 

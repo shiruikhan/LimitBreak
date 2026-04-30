@@ -7,9 +7,11 @@ from utils.db import (
     get_exercises, do_exercise_event,
     get_daily_xp_from_exercise, get_workout_streak, get_workout_history,
     get_image_as_base64, _today_brt, check_and_award_achievements,
+    update_mission_progress,
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc, WORKOUT_ABILITIES as _WORKOUT_ABILITIES
+from utils.quest_tracker import render_quest_sidebar
 
 if not st.session_state.get("user"):
     st.warning("Faça login para acessar esta página.")
@@ -30,6 +32,10 @@ for _k, _v in [
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
+
+# ── sidebar quest tracker ─────────────────────────────────────────────────────
+with st.sidebar:
+    render_quest_sidebar(user_id)
 
 # ── catalog ───────────────────────────────────────────────────────────────────
 all_exercises = get_exercises()
@@ -310,6 +316,26 @@ if st.button(
             pending = st.session_state.get("new_achievements_pending", [])
             seen = {a["slug"] for a in pending}
             st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
+        # Mission progress
+        sets_total = sum(
+            int(st.session_state.get(f"w_sets_{r['row_id']}", r.get("sets", 1)))
+            for r in st.session_state.workout_rows
+        )
+        max_weight = max(
+            (float(st.session_state.get(f"w_weight_{r['row_id']}", r.get("weight", 0.0)))
+             for r in st.session_state.workout_rows),
+            default=0.0,
+        )
+        newly_done = update_mission_progress(user_id, "workout", {
+            "sets_total": sets_total,
+            "max_weight": max_weight,
+            "xp_earned":  res.get("xp_earned", 0),
+        })
+        prs = res.get("prs") or []
+        if prs:
+            update_mission_progress(user_id, "pr", {"count": len(prs)})
+        if newly_done:
+            st.session_state["missions_newly_done"] = newly_done
         for row in st.session_state.workout_rows:
             rid = row["row_id"]
             for suf in ("sets", "reps", "weight"):
@@ -594,6 +620,23 @@ if res:
             xp_shared = xp_res.get("xp_share_distributed", [])
             if xp_shared:
                 st.session_state.xp_share_log = xp_shared
+
+        # Mission completion banner
+        newly_done = st.session_state.pop("missions_newly_done", None)
+        if newly_done:
+            for md in newly_done:
+                micon  = md.get("icon", "🎯")
+                mlabel = md.get("label", md.get("slug", ""))
+                mreward = md.get("reward_label", "")
+                st.markdown(
+                    f"<div style='background:rgba(184,248,47,0.08);border:1px solid rgba(184,248,47,0.35);"
+                    f"border-radius:12px;padding:12px 18px;margin-top:8px'>"
+                    f"<span style='font-weight:700;color:#B8F82F'>🎯 Missão concluída!</span> "
+                    f"{micon} {mlabel}"
+                    f"<span style='float:right;font-size:0.75rem;color:#8b949e'>Recompensa: {mreward}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.session_state.workout_result = None
 

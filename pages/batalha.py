@@ -3,8 +3,9 @@ from utils.db import (
     get_battle_opponents, get_daily_battle_count, start_battle, finalize_battle,
     get_battle_history, get_battle_detail, get_user_profile, get_user_team,
     get_image_as_base64, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
-    _type_effectiveness, check_and_award_achievements,
+    _type_effectiveness, check_and_award_achievements, update_mission_progress,
 )
+from utils.quest_tracker import render_quest_sidebar
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -77,6 +78,10 @@ st.markdown("""
 user_id = st.session_state.user_id
 profile = get_user_profile(user_id)
 coins   = profile["coins"] if profile else 0
+
+# ── Sidebar quest tracker ──────────────────────────────────────────────────────
+with st.sidebar:
+    render_quest_sidebar(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 daily_count = get_daily_battle_count(user_id)
@@ -350,6 +355,10 @@ else:
             pending = st.session_state.get("new_achievements_pending", [])
             seen = {a["slug"] for a in pending}
             st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
+        if saved and saved.get("winner_id") == user_id:
+            _m_done = update_mission_progress(user_id, "battle_win")
+            for _md in (_m_done or []):
+                st.toast(f"🎯 Missão concluída: {_md.get('icon','')} {_md.get('label','')} — {_md.get('reward_label','')}", icon="✅")
 
     saved = st.session_state.get("battle_result", {})
     winner_id = bs["winner_id"]

@@ -4067,3 +4067,282 @@ def get_global_stats() -> dict:
             return dict(zip(keys, row)) if row else {}
     except Exception:
         return {}
+
+
+# ── Missões ────────────────────────────────────────────────────────────────────
+
+def _week_start(d: datetime.date) -> datetime.date:
+    """Return the Monday of the week containing date d (BRT)."""
+    return d - datetime.timedelta(days=d.weekday())
+
+
+def _ensure_missions(cur, user_id: str) -> None:
+    """Generate daily (3) and weekly (1) missions for the current period if absent."""
+    from utils.missions import pick_daily_slugs, pick_weekly_slug, get_mission
+    today = _today_brt()
+    week_start = _week_start(today)
+
+    # Daily: check how many missions already exist for today
+    cur.execute(
+        "SELECT mission_slug FROM user_missions WHERE user_id = %s AND mission_type = 'daily' AND period_start = %s;",
+        (user_id, today),
+    )
+    existing_daily = {r[0] for r in cur.fetchall()}
+    if len(existing_daily) < 3:
+        needed = 3 - len(existing_daily)
+        # pick from full pool, avoid duplicates with what's already assigned today
+        pool = [m for m in pick_daily_slugs(n=6) if m not in existing_daily]
+        for slug in pool[:needed]:
+            m = get_mission(slug)
+            if not m:
+                continue
+            cur.execute("""
+                INSERT INTO user_missions (user_id, mission_slug, mission_type, period_start, target)
+                VALUES (%s, %s, 'daily', %s, %s)
+                ON CONFLICT (user_id, mission_slug, period_start) DO NOTHING;
+            """, (user_id, slug, today, m["target"]))
+
+    # Weekly: check if one exists for this week
+    cur.execute(
+        "SELECT mission_slug FROM user_missions WHERE user_id = %s AND mission_type = 'weekly' AND period_start = %s;",
+        (user_id, week_start),
+    )
+    if not cur.fetchone():
+        slug = pick_weekly_slug()
+        if slug:
+            m = get_mission(slug)
+            if m:
+                cur.execute("""
+                    INSERT INTO user_missions (user_id, mission_slug, mission_type, period_start, target)
+                    VALUES (%s, %s, 'weekly', %s, %s)
+                    ON CONFLICT (user_id, mission_slug, period_start) DO NOTHING;
+                """, (user_id, slug, week_start, m["target"]))
+
+
+def get_user_missions(user_id: str) -> dict:
+    """Return {'daily': [...], 'weekly': [...]} for the current period.
+
+    Generates missions for today/this week on first call of each period.
+    Each mission dict includes all catalog fields plus db state:
+    {slug, label, icon, target, event, reward_type, reward_amount, reward_label,
+     id, progress, completed, reward_claimed, period_start}
+    """
+    from utils.missions import get_mission
+    today = _today_brt()
+    week_start = _week_start(today)
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            _ensure_missions(cur, user_id)
+            conn.commit()
+
+            cur.execute("""
+                SELECT id, mission_slug, mission_type, period_start,
+                       target, progress, completed, reward_claimed
+                FROM user_missions
+                WHERE user_id = %s
+                  AND ((mission_type = 'daily'  AND period_start = %s)
+                    OR (mission_type = 'weekly' AND period_start = %s))
+                ORDER BY mission_type, id;
+            """, (user_id, today, week_start))
+            rows = cur.fetchall()
+
+        result: dict[str, list] = {"daily": [], "weekly": []}
+        for mid, slug, mtype, pstart, target, progress, completed, claimed in rows:
+            catalog = get_mission(slug) or {}
+            result[mtype].append({
+                **catalog,
+                "id":             mid,
+                "slug":           slug,
+                "progress":       progress,
+                "target":         target,
+                "completed":      completed,
+                "reward_claimed": claimed,
+                "period_start":   pstart,
+            })
+        return result
+    except Exception:
+        return {"daily": [], "weekly": []}
+
+
+def update_mission_progress(user_id: str, event_type: str, data: dict | None = None) -> list[dict]:
+    """Increment progress on active missions that match event_type.
+
+    event_type values and expected data keys:
+      "workout"       — data: {sets_total: int, max_weight: float, xp_earned: int}
+      "battle_win"    — data: {} (just the event)
+      "checkin"       — data: {} (just the event)
+      "pr"            — data: {count: int} (number of PRs in session)
+
+    Returns list of mission dicts that were newly completed by this call.
+    """
+    from utils.missions import get_mission
+    if data is None:
+        data = {}
+
+    today = _today_brt()
+    week_start = _week_start(today)
+
+    # Map event_type → {mission_event_key: increment_value}
+    # A single workout call can contribute to multiple event keys simultaneously.
+    increments: dict[str, int] = {}
+    if event_type == "workout":
+        increments["workout"] = 1
+        sets_total = int(data.get("sets_total", 0))
+        if sets_total:
+            increments["workout_sets"] = sets_total
+        max_weight = float(data.get("max_weight", 0.0))
+        if max_weight >= 50.0:
+            increments["workout_heavy"] = 1
+        xp_earned = int(data.get("xp_earned", 0))
+        if xp_earned:
+            increments["workout_xp"] = xp_earned
+    elif event_type == "battle_win":
+        increments["battle_win"] = 1
+    elif event_type == "checkin":
+        increments["checkin"] = 1
+    elif event_type == "pr":
+        increments["pr"] = int(data.get("count", 1))
+    else:
+        return []
+
+    try:
+        conn = get_connection()
+        newly_completed: list[dict] = []
+        with conn.cursor() as cur:
+            # Fetch all active uncompleted missions for this period
+            cur.execute("""
+                SELECT id, mission_slug, mission_type, target, progress
+                FROM user_missions
+                WHERE user_id = %s
+                  AND completed = FALSE
+                  AND ((mission_type = 'daily'  AND period_start = %s)
+                    OR (mission_type = 'weekly' AND period_start = %s));
+            """, (user_id, today, week_start))
+            missions = cur.fetchall()
+
+            for mid, slug, mtype, target, current_progress in missions:
+                catalog = get_mission(slug)
+                if not catalog:
+                    continue
+                mission_event = catalog.get("event", "")
+                delta = increments.get(mission_event, 0)
+                if delta <= 0:
+                    continue
+
+                new_progress = min(current_progress + delta, target)
+                now_complete = new_progress >= target
+                cur.execute("""
+                    UPDATE user_missions
+                    SET progress = %s, completed = %s
+                    WHERE id = %s;
+                """, (new_progress, now_complete, mid))
+                if now_complete:
+                    newly_completed.append({**catalog, "id": mid, "mission_type": mtype})
+
+        conn.commit()
+        return newly_completed
+    except Exception:
+        return []
+
+
+def claim_mission_reward(user_id: str, mission_id: int) -> tuple[bool, str, dict | None]:
+    """Claim the reward for a completed mission.
+
+    Returns (success, message, reward_info_dict).
+    reward_info_dict keys: type, label, amount (for xp/coins), xp_result (for xp rewards)
+    """
+    from utils.missions import get_mission
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT mission_slug, completed, reward_claimed
+                FROM user_missions
+                WHERE id = %s AND user_id = %s
+                FOR UPDATE;
+            """, (mission_id, user_id))
+            row = cur.fetchone()
+            if not row:
+                return False, "Missão não encontrada.", None
+            slug, completed, claimed = row
+            if not completed:
+                return False, "Missão ainda não concluída.", None
+            if claimed:
+                return False, "Recompensa já coletada.", None
+
+            catalog = get_mission(slug)
+            if not catalog:
+                return False, "Missão inválida.", None
+
+            reward_type   = catalog["reward_type"]
+            reward_amount = catalog["reward_amount"]
+            reward_label  = catalog["reward_label"]
+            reward_info: dict = {"type": reward_type, "label": reward_label}
+
+            if reward_type == "coins":
+                cur.execute(
+                    "UPDATE user_profiles SET coins = coins + %s WHERE id = %s;",
+                    (reward_amount, user_id),
+                )
+                reward_info["amount"] = reward_amount
+
+            elif reward_type == "xp":
+                # Apply after commit — fetch slot 1 first
+                cur.execute(
+                    "SELECT user_pokemon_id FROM user_team WHERE user_id = %s AND slot = 1;",
+                    (user_id,),
+                )
+                slot1 = cur.fetchone()
+                reward_info["slot1_pokemon_id"] = slot1[0] if slot1 else None
+                reward_info["amount"] = reward_amount
+
+            elif reward_type == "stone":
+                stone_slug = random.choice(_LOOT_STONES)
+                cur.execute("SELECT id FROM shop_items WHERE slug = %s;", (stone_slug,))
+                item_row = cur.fetchone()
+                if item_row:
+                    _add_inventory_item(cur, user_id, item_row[0])
+                    reward_info["slug"] = stone_slug
+                else:
+                    # Fallback: give coins
+                    cur.execute(
+                        "UPDATE user_profiles SET coins = coins + 10 WHERE id = %s;", (user_id,)
+                    )
+                    reward_info = {"type": "coins", "label": "+10 moedas", "amount": 10}
+
+            elif reward_type == "vitamin":
+                vitamin_slug = random.choice(_LOOT_VITAMINS)
+                cur.execute("SELECT id FROM shop_items WHERE slug = %s;", (vitamin_slug,))
+                item_row = cur.fetchone()
+                if item_row:
+                    _add_inventory_item(cur, user_id, item_row[0])
+                    reward_info["slug"] = vitamin_slug
+                else:
+                    cur.execute(
+                        "UPDATE user_profiles SET coins = coins + 10 WHERE id = %s;", (user_id,)
+                    )
+                    reward_info = {"type": "coins", "label": "+10 moedas", "amount": 10}
+
+            elif reward_type == "loot_box":
+                loot_box_info = _grant_loot_box(cur, user_id)
+                reward_info["granted"] = loot_box_info
+
+            cur.execute(
+                "UPDATE user_missions SET reward_claimed = TRUE WHERE id = %s;",
+                (mission_id,),
+            )
+        conn.commit()
+
+        # Apply XP post-commit (avoids nesting connections)
+        if reward_type == "xp" and reward_info.get("slot1_pokemon_id"):
+            xp_result = award_xp(reward_info["slot1_pokemon_id"], reward_amount, "mission_reward")
+            reward_info["xp_result"] = xp_result
+
+        return True, f"Recompensa coletada: {reward_label}!", reward_info
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False, f"Erro ao coletar recompensa: {e}", None

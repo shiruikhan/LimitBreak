@@ -9,6 +9,7 @@ from utils.db import (
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc
+from utils.quest_tracker import render_quest_sidebar
 
 BASE_DIR   = os.getcwd()
 XP_PER_LV  = 100   # XP needed = level * XP_PER_LV
@@ -301,6 +302,7 @@ with st.sidebar:
     email = st.session_state.get("user")
     if hasattr(email, "email"):
         st.markdown(f"<small style='color:#8b949e'>👤 {email.email}</small>", unsafe_allow_html=True)
+    render_quest_sidebar(user_id)
     st.markdown("---")
     if st.button("Sair", use_container_width=True):
         _cookie_manager.delete("lb_refresh_token", key="delete_on_logout")

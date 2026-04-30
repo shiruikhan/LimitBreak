@@ -5,9 +5,10 @@ import streamlit as st
 from utils.db import (
     get_monthly_checkins, get_checkin_streak,
     do_checkin, get_user_profile, get_image_as_base64,
-    _today_brt, check_and_award_achievements,
+    _today_brt, check_and_award_achievements, update_mission_progress,
 )
 from utils.type_colors import get_type_color
+from utils.quest_tracker import render_quest_sidebar
 
 BASE_DIR = os.getcwd()
 
@@ -122,6 +123,10 @@ user_id = st.session_state.user_id
 profile = get_user_profile(user_id)
 coins   = profile["coins"] if profile else 0
 
+# ── Sidebar quest tracker ──────────────────────────────────────────────────────
+with st.sidebar:
+    render_quest_sidebar(user_id)
+
 # ── Header ────────────────────────────────────────────────────────────────────
 
 col_title, col_coins = st.columns([3, 1])
@@ -192,6 +197,9 @@ else:
                 pending = st.session_state.get("new_achievements_pending", [])
                 seen = {a["slug"] for a in pending}
                 st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
+            _m_done = update_mission_progress(user_id, "checkin")
+            for _md in (_m_done or []):
+                st.toast(f"🎯 Missão concluída: {_md.get('icon','')} {_md.get('label','')} — {_md.get('reward_label','')}", icon="✅")
         st.rerun()
 
 # ── Resultado do check-in ─────────────────────────────────────────────────────
