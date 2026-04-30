@@ -89,15 +89,17 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── leaderboard.py           # Ranking — XP de treino / streak de check-in / coleção Pokémon
 │   ├── pokedex.py               # Pokédex nacional completo
 │   ├── pokedex_pessoal.py       # Pokédex pessoal — capturados vs não capturados
-│   ├── loja.py                  # Loja de itens + mochila com uso de itens
+│   ├── loja.py                  # Loja de itens + mochila com uso de itens (inclui loot box e nature mint)
 │   ├── calendario.py            # Check-in diário + calendário mensal
 │   ├── biblioteca.py            # Biblioteca de exercícios — catálogo Pokédex-style (152 exercícios)
 │   ├── rotinas.py               # Workout Builder — criar/editar fichas e dias de treino
-│   └── treino.py                # Routine Log — registro de sessão com Import Default
+│   ├── treino.py                # Routine Log — registro de sessão com Import Default
+│   └── admin.py                 # Painel administrativo — restrito a is_admin(); 5 tabs
 ├── utils/
 │   ├── __init__.py
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
 │   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, badge_url)
+│   ├── abilities.py             # Registro de habilidades passivas de treino (Release 3A)
 │   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
 │   └── supabase_client.py       # Supabase client (somente Auth) — lê st.secrets
 └── scripts/
@@ -108,7 +110,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── seed_shop_items.py                    # Popula/atualiza nomes e descrições de shop_items via PokéAPI
     ├── seed_regional_species.py              # Popula pokemon_species + moves para as 42 formas regionais
     ├── seed_pokemon_instances.py             # Semeia IV/EV/Nature para todos os user_pokemon; recalcula stat_* (idempotente)
+    ├── seed_species_abilities.py             # Popula abilities em pokemon_species via PokéAPI (Release 3A)
     ├── audit_team_stats.py                   # Audita e sincroniza stat_* da equipe ativa (--dry-run / --user-id)
+    ├── retroactive_loot.py                   # Concede loot boxes retroativos a usuários existentes
     ├── migrate_drop_regional_catalog.sql     # Remove pokemon_regional_forms e user_pokemon_forms (executar no Supabase)
     ├── migrate_battles.sql                   # Cria user_battles e user_battle_turns (executar no Supabase)
     ├── migrate_regional_forms.sql            # Migração auxiliar de formas regionais (executar no Supabase)
@@ -462,8 +466,11 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 |---|---|
 | `get_shop_items()` | Catálogo completo — cacheado (`@st.cache_data`) |
 | `get_user_inventory(user_id)` | `{item_id: qty}` |
-| `buy_item(user_id, item_id)` | Debita moedas (FOR UPDATE) + incrementa inventário; retorna `(bool, msg)` |
+| `buy_item(user_id, item_id)` | Debita moedas (FOR UPDATE) + incrementa inventário; retorna `(bool, msg)`; bloqueia slug `loot-box` |
 | `use_stat_item(user_id, item_id, user_pokemon_id)` | Debita inventário + aplica boost via `apply_stat_boost` |
+| `use_nature_mint(user_id, item_id, user_pokemon_id, new_nature)` | Troca natureza do Pokémon; valida `new_nature` contra `_ALL_NATURES`; recalcula stats; retorna `(bool, msg)` |
+| `open_loot_box(user_id, item_id)` | Consome 1 Loot Box do inventário; sorteia prêmio via `_roll_loot_box()`; aplica moedas/itens na transação; aplica XP pós-commit via `award_xp()`; retorna `(bool, msg, loot_dict)` |
+| `use_xp_share_item(user_id, item_id)` | Ativa/estende XP Share via item da mochila (alternativa ao fluxo de compra) |
 
 ### Calendário e check-in
 | Função | Descrição |
@@ -500,7 +507,26 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `get_daily_xp_from_exercise(user_id)` | XP total ganho de treinos hoje (para progress bar de cap) |
 | `get_workout_streak(user_id)` | Dias consecutivos com treino registrado |
 | `get_workout_history(user_id, limit=10)` | Últimas sessões `[{date, day_name, exercise_count, xp_earned, spawned_species_id}]` |
-| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, error}` |
+| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP (com efeito de habilidade passiva), detecta PRs, avança/choca ovos, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}` |
+
+### Ovos
+| Função | Descrição |
+|---|---|
+| `get_user_eggs(user_id)` | Retorna ovos pendentes (não chocados) do usuário, mais antigos primeiro |
+
+### Admin
+| Função | Descrição |
+|---|---|
+| `is_admin(user_id)` | Verifica coluna `is_admin` em `user_profiles`; retorna `bool` |
+| `get_all_users(search="")` | Lista todos os usuários com filtro de busca opcional |
+| `admin_update_user(target_id, username, coins)` | Edita username e coins |
+| `admin_delete_user(acting_admin_id, target_id)` | Deleta conta; proibido auto-deletar |
+| `set_admin_role(target_id, is_admin)` | Concede ou revoga papel admin |
+| `log_admin_action(admin_id, action, details)` | Registra ação no log de auditoria |
+| `get_system_logs(limit=50)` | Últimas entradas do log administrativo |
+| `admin_gift_loot_box(admin_id, target_id, count=1)` | Concede `count` loot boxes; retorna `(bool, msg, list[dict])` |
+| `admin_create_exercise(name, name_pt, ...)` | Cria exercício no catálogo |
+| `get_global_stats()` | Métricas do sistema: total usuários, treinos, batalhas, Pokémon capturados |
 
 ---
 
@@ -565,6 +591,7 @@ def _resolve_asset(local_path: str) -> str:
 9. `pages/biblioteca.py` — Biblioteca 📚
 10. `pages/rotinas.py` — Rotinas 📋
 11. `pages/treino.py` — Treino 🏋️
+12. `pages/admin.py` — Admin 🛠️ *(oculto para não-admins)*
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -603,9 +630,12 @@ def _resolve_asset(local_path: str) -> str:
 ### `pages/loja.py`
 - Tab **Loja**: grade de itens por categoria (Pedras / Vitaminas / Outros) com preço e indicador de estoque
   - **XP Share tem fluxo especial de compra:** botão "▶ Ativar" quando inativo; botão "✚ +15 dias" quando ativo (mostrando dias restantes via `get_xp_share_status()`)
+  - **Loot Box** não aparece na grade de compra (price=1, mas `buy_item()` bloqueia via slug `loot-box`)
 - Tab **Mochila**:
   - *Vitaminas:* selectbox de Pokémon da equipe + botão "Usar" → `use_stat_item()`
   - *Pedras:* expander por item → selectbox de Pokémon elegíveis → preview sprite → botão "✨ Usar" → `evolve_with_stone()`; após evolução define `st.session_state.team_evo_notice`
+  - *Nature Mint:* selectbox de Pokémon + selectbox de natureza destino → `use_nature_mint()`; exibe preview do modificador de nature antes de confirmar
+  - *Loot Box:* botão "🎁 Abrir" → `open_loot_box()`; exibe card com prêmio sorteado e raridade; se for XP, chama `award_xp()` pós-commit
   - *Outros (XP Share):* exibe status de ativação com dias restantes
 
 ### `pages/calendario.py`
@@ -657,6 +687,14 @@ def _resolve_asset(local_path: str) -> str:
 - Easter egg usa botão invisível `\u2800` + JS que escuta cliques no `window.parent.document`
 - Ao confirmar: `create_user_profile()` → perfil + user_pokemon (stats copiados) + slot 1
 
+### `pages/admin.py`
+- Acesso restrito: exibe aviso de "Acesso negado" se `is_admin(user_id)` retornar `False`
+- **Tab Visão Geral:** métricas do sistema via `get_global_stats()` (total usuários, treinos, batalhas, Pokémon capturados)
+- **Tab Usuários:** campo de busca + tabela de resultados; editar username/coins inline; botão de deletar conta (com confirmação); toggle de papel admin
+- **Tab Gift Loot Box:** selectbox de usuário alvo + número de loot boxes → `admin_gift_loot_box()`; exibe confirmação com lista de grants
+- **Tab Exercícios:** formulário de criação com todos os campos (`name`, `name_pt`, `body_parts`, `target_muscles`, `equipments`, `gif_url`) → `admin_create_exercise()`
+- **Tab Logs:** tabela das últimas ações admin via `get_system_logs()`; inclui timestamp, admin, ação, detalhes
+
 ---
 
 ## Sistema de XP e Evolução Automática
@@ -696,6 +734,132 @@ Preserva todos os boosts permanentes de vitaminas na forma evoluída.
 
 ---
 
+## Sistema de Habilidades Passivas (Release 3A)
+
+### Arquivo: `utils/abilities.py`
+
+Habilidades do Pokémon do **slot 1** têm efeito passivo durante eventos de treino (`do_exercise_event()`). Slugs não reconhecidos são no-op. A whitelist de habilidades suportadas é definida em `WORKOUT_ABILITIES`.
+
+| Ability slug | Efeito |
+|---|---|
+| `blaze` | +15% XP em sessões com ≥200 XP bruto (via `apply_blaze()`) |
+| `synchronize` | Aumenta distribuição do XP Share de 30% → 45% (via `apply_synchronize_multiplier()`) |
+| `pickup` | Pequena chance de ganhar item aleatório após o treino |
+| `pressure` | Aumenta chance de spawn do tipo mais frequente da sessão |
+| `compound-eyes` | Rerola uma tentativa de spawn sem sucesso antes de desistir |
+
+**Helpers públicos:**
+- `get_ability_description(ability_slug)` → `str | None` — descrição para exibição na UI
+- `is_supported(ability_slug)` → `bool` — True se o slug está na whitelist v1
+
+**Funções internas em `db.py`:**
+- `_get_slot1_ability(cur, user_id)` — retorna slug da habilidade do Pokémon do slot 1
+- `_ranked_spawn_types(exercises)` — ordena tipos por frequência nos exercícios da sessão
+- `_spawn_typed(cur, user_id, type_slug)` — spawn direcionado por tipo
+- `_spawn_multi_typed(cur, user_id, types)` — spawn com fallback entre tipos
+
+---
+
+## Sistema de Ovos (Release 3A)
+
+### Banco — `user_eggs`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_id | UUID FK | → user_profiles.id |
+| species_id | INT FK | Espécie que vai chocar (determinada no recebimento) |
+| rarity | TEXT | `"common"`, `"uncommon"` ou `"rare"` |
+| workouts_to_hatch | INT | Treinos necessários para chocar |
+| workouts_done | INT | Treinos concluídos desde o recebimento |
+| received_at | TIMESTAMPTZ | |
+| hatched_at | TIMESTAMPTZ | NULL enquanto não chocado |
+
+### Milestones de concessão (`_EGG_MILESTONES`)
+
+| Total de treinos | Raridade do ovo |
+|---|---|
+| 25 | uncommon |
+| 50 | rare |
+| 100 | rare |
+
+### Treinos para chocar (`_EGG_WORKOUTS_TO_HATCH`)
+
+| Raridade | Treinos para chocar |
+|---|---|
+| common | 5 |
+| uncommon | 8 |
+| rare | 12 |
+
+### Funções em `db.py`
+
+| Função | Descrição |
+|---|---|
+| `get_user_eggs(user_id)` | Retorna todos os ovos não chocados do usuário (`hatched_at IS NULL`) |
+| `_grant_eggs_if_milestone(cur, user_id, workout_count)` | Concede 1 ovo se `workout_count` bater exato em milestone; fallback para rarity `common` se sem espécie elegível; retorna `list[dict]` |
+| `_advance_and_hatch_eggs(cur, user_id)` | Incrementa `workouts_done` de todos os ovos pendentes; choca os que atingiram `workouts_to_hatch`; captura a espécie e adiciona ao banco/equipe; retorna `list[{species_id, name, sprite_url, type1, rarity}]` |
+| `_pick_egg_species(cur, user_id, rarity)` | Escolhe espécie spawnable com `rarity_tier = rarity` que o usuário ainda não possui |
+
+> Ambos `_grant_eggs_if_milestone` e `_advance_and_hatch_eggs` são chamados internamente por `do_exercise_event()` a cada sessão de treino concluída.
+
+---
+
+## Recordes Pessoais (Performance Records)
+
+### Constantes
+
+- `_PR_XP_BONUS = 50` — XP extra por PR detectado
+- `_PR_MAX_PER_SESSION = 3` — máximo de bônus de PR por sessão
+
+### Regras de detecção (`_detect_prs`)
+
+Um PR é detectado por exercício quando:
+- A maior carga da sessão **supera** o melhor histórico de carga, **ou**
+- A carga é igual ao histórico e as repetições máximas nessa carga **superam** o melhor histórico.
+
+### Funções em `db.py`
+
+| Função | Descrição |
+|---|---|
+| `_get_exercise_bests(cur, user_id, exercise_ids)` | Retorna `{exercise_id: (best_weight, best_reps)}` com o melhor histórico de carga/reps por exercício |
+| `_detect_prs(exercises, historical_bests, exercise_names)` | Compara sessão atual vs. histórico; retorna `list[{exercise_id, exercise_name, old_weight, new_weight, new_reps}]` (máx 1 PR por exercício) |
+
+> PRs são calculados e o bônus de XP é aplicado dentro de `do_exercise_event()`.
+
+---
+
+## Painel Administrativo (`pages/admin.py`)
+
+Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Release 4.0.
+
+### 5 Tabs
+
+| Tab | Conteúdo |
+|---|---|
+| Visão Geral | Estatísticas globais via `get_global_stats()` |
+| Usuários | Busca, edição de username/coins (`admin_update_user()`), exclusão (`admin_delete_user()`), concessão/revogação de admin (`set_admin_role()`) |
+| Gift Loot Box | Envio de loot boxes a usuários via `admin_gift_loot_box()` |
+| Exercícios | Criação de exercícios no catálogo via `admin_create_exercise()` |
+| Logs | Histórico de ações administrativas via `get_system_logs()` |
+
+### Funções em `db.py`
+
+| Função | Descrição |
+|---|---|
+| `is_admin(user_id)` | Verifica se `user_profiles.is_admin = TRUE` |
+| `get_all_users(search="")` | Lista todos os usuários com filtro opcional de busca |
+| `admin_update_user(target_id, username, coins)` | Edita username e coins de um usuário |
+| `admin_delete_user(acting_admin_id, target_id)` | Deleta conta (proibido auto-deletar) |
+| `set_admin_role(target_id, is_admin)` | Concede ou revoga papel de admin |
+| `log_admin_action(admin_id, action, details)` | Registra ação no log de auditoria |
+| `get_system_logs(limit=50)` | Retorna últimas entradas do log administrativo |
+| `admin_gift_loot_box(admin_id, target_id, count=1)` | Concede `count` loot boxes ao usuário alvo; retorna `(bool, msg, list[dict])` |
+| `admin_create_exercise(name, name_pt, ...)` | Cria exercício no catálogo com todos os campos |
+| `get_global_stats()` | Métricas do sistema: total de usuários, treinos, batalhas, etc. |
+
+> **Nota:** `is_admin` requer coluna `is_admin BOOLEAN DEFAULT FALSE` em `user_profiles`. Adicionar via migration se necessário.
+
+---
+
 ## Loja — Catálogo de Itens
 
 | Categoria (`category`) | Itens | Efeito |
@@ -703,6 +867,19 @@ Preserva todos os boosts permanentes de vitaminas na forma evoluída.
 | `stone` | 10 pedras de evolução (fire, water, thunder, leaf, moon, sun, shiny, dusk, dawn, ice) | Evolução permanente de espécie via `evolve_with_stone()` |
 | `stat_boost` | hp-up, protein, iron, calcium, zinc, carbos | Boost permanente de stat via `use_stat_item()` → `apply_stat_boost()`; cap de 5 usos por stat por Pokémon |
 | `other` | xp-share | Ativa/estende XP Share por 15 dias — distribui 30% do XP recebido pelo slot 1 para os demais Pokémon da equipe |
+| `other` | loot-box | **Não comprável na loja** (concedida via admin/milestone); aberta na Mochila via `open_loot_box()` — prêmio sorteado na tabela de raridade abaixo |
+| `nature_mint` | nature-mint | Troca a natureza de um Pokémon via `use_nature_mint()`; consome 1 item do inventário; pode ser obtida via loot box (5%) |
+
+### Tabela de Raridade — Loot Box (`_roll_loot_box`)
+
+| Probabilidade | Tipo | Prêmio |
+|---|---|---|
+| 50% | XP (common) | +50 a +150 XP para o Pokémon do slot 1 |
+| 30% | Moedas (common) | +50 a +150 moedas |
+| 10% | Vitamina (rare) | 1× vitamina aleatória (hp-up / protein / iron / calcium / zinc / carbos) |
+| 5% | Nature Mint (rare) | 1× nature-mint |
+| 4% | Pedra de evolução (ultra-rare) | 1× pedra aleatória |
+| 1% | XP Share (ultra-rare) | 1× xp-share |
 
 ---
 
@@ -787,7 +964,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - **`xp_share_distributed`** em `award_xp` return: lista `[{name, xp, user_pokemon_id}]` com o que cada Pokémon da equipe recebeu; exibido como chips azuis em `equipe.py`
 - Evolução por pedra: `evolve_with_stone()` com recálculo de stats e preservação de boosts
 - Cap de vitaminas: máximo 5 usos por stat por Pokémon (`_MAX_STAT_BOOSTS_PER_STAT = 5`)
-- Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; mochila funcional
+- Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; loot box (não-comprável, aberta na mochila); nature mint (troca de natureza); mochila funcional
 - **Formas regionais:** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1) como entidades padrão em `pokemon_species` (id > 10000); adquiridas pelas mesmas mecânicas de qualquer Pokémon (spawn, captura); sprites do CDN PokéAPI
 - XP Share: distribui 30% do XP do slot 1 para os demais membros da equipe; ativado por check-in ou comprado na loja; badge de status em equipe.py e loja.py
 - Calendário: check-in diário, streak, spawns nível 5 em streak ×3, extensão de XP Share nos dias 15/fim-de-mês
@@ -802,11 +979,22 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - Routine Log (`treino.py`): date picker, Import Default, tabela editável, cap diário 300 XP, streak de treino, histórico 7 dias, milestones de streak (7/30 dias)
   - XP e spawn do treino fluem para `equipe.py` via `team_spawn_notice`, `team_evo_notice`, `team_shed_notice`, `xp_share_log`
   - `workout_logs` usa coluna `completed_at` (não `logged_at`) e tem coluna `duration_minutes`
+- **Release 3A — Habilidades, Ovos e Loot Box:**
+  - Habilidades passivas: 5 abilities do slot 1 com efeito em treino (blaze, synchronize, pickup, pressure, compound-eyes)
+  - Sistema de ovos: concedidos em milestones de treino (25/50/100), chocam após N treinos, espécie determinada por raridade
+  - Loot box: sorteio de XP/moedas/vitamina/pedra/mint/xp-share com probabilidades fixas; concedida via admin ou script
+  - Nature Mint: troca de natureza de Pokémon via item consumível
+  - Recordes Pessoais: detecção automática de PR por exercício com bônus de +50 XP (máx 3/sessão)
+  - Spawn aprimorado: tipo-rankeado, multi-typed, shiny-roll por streak
+- **Release 4.0 — Painel Admin:**
+  - `pages/admin.py` com 5 tabs: Visão Geral, Usuários, Gift Loot Box, Exercícios, Logs
+  - Funções admin em `db.py`: `is_admin()`, `get_all_users()`, `admin_update_user()`, `admin_delete_user()`, `set_admin_role()`, `log_admin_action()`, `get_system_logs()`, `admin_gift_loot_box()`, `admin_create_exercise()`, `get_global_stats()`
 
 ### A implementar
 
 **Opcional**
 - [ ] Formas de Paldea — popular com `seed_regional_species.py`
+- [ ] Página de exibição de ovos pendentes para o usuário
 
 ---
 
