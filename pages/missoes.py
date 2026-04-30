@@ -1,4 +1,5 @@
 import datetime
+import html
 import streamlit as st
 from utils.app_cache import clear_user_cache, get_cached_user_missions
 from utils.db import (
@@ -163,9 +164,9 @@ weekly  = missions.get("weekly", [])
 
 def _mission_card_html(m: dict, mtype: str) -> str:
     slug        = m.get("slug", "")
-    icon        = m.get("icon", "🎯")
-    label       = m.get("label", slug)
-    reward_lbl  = m.get("reward_label", "")
+    icon        = html.escape(str(m.get("icon", "🎯")))
+    label       = html.escape(str(m.get("label", slug)))
+    reward_lbl  = html.escape(str(m.get("reward_label", "")))
     progress    = m.get("progress", 0)
     target      = m.get("target", 1)
     completed   = m.get("completed", False)
@@ -183,18 +184,18 @@ def _mission_card_html(m: dict, mtype: str) -> str:
     elif completed:
         status_badge = "<span style='float:right;font-size:0.7rem;color:#B8F82F;font-weight:700'>✅ Completa</span>"
 
-    return f"""
-<div class='{card_cls}'>
-    {status_badge}
-    <span class='mission-icon'>{icon}</span>
-    <span class='mission-label'>{label}</span>
-    <div class='mission-reward'>Recompensa: <span class='reward-badge'>{reward_lbl}</span></div>
-    <div class='progress-wrap'>
-        <div class='progress-fill {fill_cls}' style='width:{pct}%'></div>
-    </div>
-    <div class='progress-label'>{progress} / {target}</div>
-</div>
-"""
+    return (
+        f"<div class='{card_cls}'>"
+        f"{status_badge}"
+        f"<span class='mission-icon'>{icon}</span>"
+        f"<span class='mission-label'>{label}</span>"
+        f"<div class='mission-reward'>Recompensa: <span class='reward-badge'>{reward_lbl}</span></div>"
+        f"<div class='progress-wrap'>"
+        f"<div class='progress-fill {fill_cls}' style='width:{pct}%'></div>"
+        f"</div>"
+        f"<div class='progress-label'>{progress} / {target}</div>"
+        f"</div>"
+    )
 
 
 def _show_claim_result(result: dict) -> None:
