@@ -6,7 +6,7 @@ any page to show live mission progress without navigating away.
 from __future__ import annotations
 import datetime
 import streamlit as st
-from utils.db import get_user_missions
+from utils.app_cache import get_cached_user_missions
 
 _CSS = """
 <style>
@@ -123,7 +123,7 @@ def render_quest_sidebar(user_id: str) -> None:
     """Renders a compact mission tracker. Must be called inside `with st.sidebar:`."""
     st.markdown(_CSS, unsafe_allow_html=True)
 
-    missions = get_user_missions(user_id)
+    missions = get_cached_user_missions(user_id)
     daily = missions.get("daily", [])
     weekly = missions.get("weekly", [])
 

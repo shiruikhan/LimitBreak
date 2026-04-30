@@ -1,8 +1,8 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
+from utils.app_cache import clear_user_cache, get_cached_user_pokemon_ids
 from utils.supabase_client import get_supabase
-from utils.db import get_user_pokemon_ids
 
 # Mesmo key que app.py — acessa os mesmos cookies do browser
 cookie_manager = stx.CookieManager(key="lb_cookies_login")
@@ -108,7 +108,7 @@ with center:
                         st.session_state.refresh_token = res.session.refresh_token
                         _save_session(res.session)
 
-                        if not get_user_pokemon_ids(str(res.user.id)):
+                        if not get_cached_user_pokemon_ids(str(res.user.id)):
                             st.session_state.needs_starter = True
                         st.rerun()
                     except Exception as e:
@@ -137,6 +137,7 @@ with center:
                         res = client.auth.sign_up({"email": email_s, "password": senha_s})
 
                         if res.user:
+                            clear_user_cache()
                             st.session_state.user          = res.user
                             st.session_state.user_id       = str(res.user.id)
                             if res.session:

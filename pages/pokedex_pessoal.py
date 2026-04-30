@@ -1,7 +1,8 @@
 import os
 import re
 import streamlit as st
-from utils.db import get_all_pokemon_with_types, get_user_pokemon_ids, get_image_as_base64
+from utils.app_cache import get_cached_user_pokemon_ids
+from utils.db import get_all_pokemon_with_types, get_image_as_base64
 from utils.type_colors import TYPE_COLORS, get_type_color
 
 BASE_DIR = os.getcwd()
@@ -143,7 +144,7 @@ st.markdown("""
 
 with st.spinner("Carregando Pokédex..."):
     all_pokemon  = get_all_pokemon_with_types()
-    captured_ids = get_user_pokemon_ids(st.session_state.user_id)
+    captured_ids = get_cached_user_pokemon_ids(st.session_state.user_id)
 total        = len(all_pokemon)
 captured_n   = sum(1 for p in all_pokemon if p["id"] in captured_ids)
 pct          = (captured_n / total * 100) if total else 0

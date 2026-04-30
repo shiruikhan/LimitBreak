@@ -1,7 +1,15 @@
 import streamlit as st
+from utils.app_cache import (
+    clear_user_cache,
+    get_cached_battle_history,
+    get_cached_battle_opponents,
+    get_cached_daily_battle_count,
+    get_cached_user_profile,
+    get_cached_user_team,
+)
 from utils.db import (
-    get_battle_opponents, get_daily_battle_count, start_battle, finalize_battle,
-    get_battle_history, get_battle_detail, get_user_profile, get_user_team,
+    start_battle, finalize_battle,
+    get_battle_detail,
     get_image_as_base64, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
     _type_effectiveness, check_and_award_achievements, update_mission_progress,
 )
@@ -76,7 +84,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 user_id = st.session_state.user_id
-profile = get_user_profile(user_id)
+profile = get_cached_user_profile(user_id)
 coins   = profile["coins"] if profile else 0
 
 # ── Sidebar quest tracker ──────────────────────────────────────────────────────
@@ -84,7 +92,7 @@ with st.sidebar:
     render_quest_sidebar(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
-daily_count = get_daily_battle_count(user_id)
+daily_count = get_cached_daily_battle_count(user_id)
 remaining   = _MAX_BATTLES_PER_DAY - daily_count
 
 if remaining == 0:
@@ -258,13 +266,13 @@ if bs is None:
     if remaining == 0:
         st.warning("Você usou todas as batalhas de hoje. Volte amanhã!")
     else:
-        _team = get_user_team(user_id)
+        _team = get_cached_user_team(user_id)
         if not any(m["slot"] == 1 for m in _team):
             st.warning("Você precisa ter um Pokémon no slot 1 da equipe para batalhar.")
             st.stop()
 
         st.subheader("Desafiar oponente")
-        opponents = get_battle_opponents(user_id)
+        opponents = get_cached_battle_opponents(user_id)
 
         if not opponents:
             st.info("Nenhum outro treinador disponível ainda.")
@@ -348,6 +356,7 @@ else:
     # Salva no banco apenas uma vez
     if not st.session_state.get("battle_saved"):
         saved = finalize_battle(bs)
+        clear_user_cache()
         st.session_state.battle_saved  = True
         st.session_state.battle_result = saved
         new_ach = check_and_award_achievements(user_id)
@@ -418,7 +427,7 @@ else:
 
 # ── Histórico ──────────────────────────────────────────────────────────────────
 st.subheader("Histórico de batalhas")
-history = get_battle_history(user_id)
+history = get_cached_battle_history(user_id)
 
 if not history:
     st.info("Nenhuma batalha ainda.")

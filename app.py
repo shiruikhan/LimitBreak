@@ -1,5 +1,13 @@
 import streamlit as st
 from datetime import datetime, timedelta
+import extra_streamlit_components as stx
+
+from utils.app_cache import (
+    get_cached_is_admin,
+    get_cached_user_pokemon_ids,
+    get_cached_user_profile,
+)
+from utils.supabase_client import get_supabase
 
 st.set_page_config(
     page_title="LimitBreak",
@@ -22,12 +30,80 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
-    background-color: #0d1117 !important;
-    border-right: 1px solid #21262d;
+    background: linear-gradient(180deg, #0f172a 0%, #0d1117 100%) !important;
+    border-right: 1px solid rgba(148, 163, 184, 0.14);
 }
-[data-testid="stSidebarNav"] a { color: #e6edf3 !important; }
-[data-testid="stSidebarNav"] a:hover { color: #B8F82F !important; }
 [data-testid="stSidebar"] * { color: #e6edf3 !important; }
+.shell-brand {
+    background: linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96));
+    border: 1px solid rgba(184,248,47,0.18);
+    border-radius: 18px;
+    padding: 16px 16px 14px;
+    margin-bottom: 14px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+}
+.shell-brand-title {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 2rem;
+    letter-spacing: 0.18em;
+    color: #f8fafc;
+    margin: 0;
+}
+.shell-brand-sub {
+    color: #94a3b8;
+    font-size: 0.76rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.shell-section-label {
+    color: #94a3b8;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 8px 0 10px;
+}
+.shell-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(15,23,42,0.9);
+    border: 1px solid rgba(148,163,184,0.16);
+    border-radius: 16px;
+    padding: 12px 14px;
+    margin-top: 14px;
+}
+.shell-profile-name {
+    font-weight: 700;
+    font-size: 0.86rem;
+    color: #f8fafc;
+}
+.shell-profile-meta {
+    color: #b8f82f;
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+div[data-testid="stSidebar"] div.stButton > button {
+    justify-content: flex-start !important;
+    background: rgba(15, 23, 42, 0.92) !important;
+    border: 1px solid rgba(148, 163, 184, 0.16) !important;
+    color: #e2e8f0 !important;
+}
+div[data-testid="stSidebar"] div.stButton > button:hover {
+    border-color: rgba(184, 248, 47, 0.42) !important;
+    background: rgba(30, 41, 59, 0.98) !important;
+}
+div[data-testid="stSidebar"] details {
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 14px;
+    margin-bottom: 10px;
+    padding: 2px 4px;
+}
+div[data-testid="stSidebar"] details summary {
+    font-weight: 700;
+}
 
 /* ── Global buttons ──────────────────────────────────────────────────────── */
 .stButton > button {
@@ -89,7 +165,6 @@ div[data-testid="stTabs"] button[aria-selected="true"] {
 
 # ── Cookie manager ─────────────────────────────────────────────────────────────
 # Deve ser instanciado antes de qualquer lógica de estado.
-import extra_streamlit_components as stx
 cookie_manager = stx.CookieManager(key="lb_cookies")
 
 # ── Session state defaults ─────────────────────────────────────────────────────
@@ -105,8 +180,6 @@ if st.session_state.user is None:
     saved_refresh = cookie_manager.get("lb_refresh_token")
     if saved_refresh:
         try:
-            from utils.supabase_client import get_supabase
-            from utils.db import get_user_pokemon_ids
             client = get_supabase()
             res = client.auth.refresh_session(saved_refresh)
             if res and res.user and res.session:
@@ -119,7 +192,7 @@ if st.session_state.user is None:
                 cookie_manager.set("lb_refresh_token", res.session.refresh_token,
                                    expires_at=_exp, key="refresh_on_restore")
                 # Verifica se o usuário ainda precisa escolher starter
-                if not get_user_pokemon_ids(str(res.user.id)):
+                if not get_cached_user_pokemon_ids(str(res.user.id)):
                     st.session_state.needs_starter = True
         except Exception:
             # Refresh token inválido ou expirado — limpa o cookie
@@ -130,9 +203,89 @@ if st.session_state.user is None:
 # Pokémon (e.g., direct URL navigation, DB row deleted mid-session, or a signup
 # flow where the session was restored before needs_starter was written).
 if st.session_state.user is not None and not st.session_state.needs_starter:
-    from utils.db import get_user_pokemon_ids as _gpids
-    if not _gpids(st.session_state.user_id):
+    if not get_cached_user_pokemon_ids(st.session_state.user_id):
         st.session_state.needs_starter = True
+
+
+def _page_meta(path: str, title: str, icon: str) -> dict:
+    return {"path": path, "title": title, "icon": icon}
+
+
+def _build_app_pages(user_id: str) -> tuple[dict, list[tuple[str, list[dict]]]]:
+    groups: list[tuple[str, list[dict]]] = [
+        ("Hub", [
+            _page_meta("pages/hub.py", "Hub", "🏠"),
+        ]),
+        ("Treinador", [
+            _page_meta("pages/equipe.py", "Minha Equipe", "⚔️"),
+            _page_meta("pages/conquistas.py", "Conquistas", "🏅"),
+            _page_meta("pages/missoes.py", "Missões", "🎯"),
+        ]),
+        ("Batalha", [
+            _page_meta("pages/batalha.py", "Arena", "🥊"),
+            _page_meta("pages/leaderboard.py", "Ranking", "🏆"),
+        ]),
+        ("Treinos", [
+            _page_meta("pages/calendario.py", "Calendário", "📅"),
+            _page_meta("pages/treino.py", "Treino", "🏋️"),
+            _page_meta("pages/rotinas.py", "Rotinas", "📋"),
+            _page_meta("pages/biblioteca.py", "Biblioteca", "📚"),
+        ]),
+        ("Pokédex", [
+            _page_meta("pages/pokedex.py", "Pokédex", "📖"),
+            _page_meta("pages/pokedex_pessoal.py", "Minha Pokédex", "🗂️"),
+        ]),
+        ("Loja", [
+            _page_meta("pages/loja.py", "Loja", "🛒"),
+        ]),
+    ]
+    if get_cached_is_admin(user_id):
+        groups.append(("Admin", [_page_meta("pages/admin.py", "Admin", "⚙️")]))
+
+    nav_pages = {
+        label: [st.Page(page["path"], title=page["title"], icon=page["icon"]) for page in pages]
+        for label, pages in groups
+    }
+    return nav_pages, groups
+
+
+@st.fragment
+def _render_sidebar_shell(groups: list[tuple[str, list[dict]]], user_id: str) -> None:
+    with st.sidebar:
+        st.markdown(
+            """
+<div class="shell-brand">
+  <div class="shell-brand-sub">Unified Hub</div>
+  <div class="shell-brand-title">LIMITBREAK</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div class='shell-section-label'>Navigation</div>", unsafe_allow_html=True)
+        for label, pages in groups:
+            with st.expander(label, expanded=label in {"Hub", "Treinador", "Treinos"}):
+                for page in pages:
+                    if st.button(
+                        f"{page['icon']} {page['title']}",
+                        key=f"nav::{page['path']}",
+                        use_container_width=True,
+                    ):
+                        st.switch_page(page["path"])
+
+        profile = get_cached_user_profile(user_id)
+        if profile:
+            st.markdown(
+                f"""
+<div class="shell-profile">
+  <div style="font-size:1.35rem">🧢</div>
+  <div>
+    <div class="shell-profile-name">{profile['username']}</div>
+    <div class="shell-profile-meta">🪙 {profile['coins']:,}</div>
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
 
 # ── Navegação ──────────────────────────────────────────────────────────────────
 if st.session_state.user is None:
@@ -146,55 +299,8 @@ elif st.session_state.needs_starter:
         position="hidden",
     )
 else:
-    from utils.db import is_admin as _is_admin
-    _pages = {
-        "Treinador": [
-            st.Page("pages/equipe.py",     title="Minha Equipe", icon="⚔️"),
-            st.Page("pages/conquistas.py", title="Conquistas",   icon="🏅"),
-            st.Page("pages/missoes.py",    title="Missões",      icon="🎯"),
-        ],
-        "Batalha": [
-            st.Page("pages/batalha.py",    title="Arena",        icon="🥊"),
-            st.Page("pages/leaderboard.py",title="Ranking",      icon="🏆"),
-        ],
-        "Pokédex": [
-            st.Page("pages/pokedex.py",         title="Pokédex",      icon="📖"),
-            st.Page("pages/pokedex_pessoal.py", title="Minha Pokédex",icon="🗂️"),
-        ],
-        "Treinos": [
-            st.Page("pages/calendario.py", title="Calendário", icon="📅"),
-            st.Page("pages/treino.py",     title="Treino",     icon="🏋️"),
-            st.Page("pages/rotinas.py",    title="Rotinas",    icon="📋"),
-            st.Page("pages/biblioteca.py", title="Biblioteca", icon="📚"),
-        ],
-        "Loja": [
-            st.Page("pages/loja.py", title="Loja", icon="🛒"),
-        ],
-    }
-    if _is_admin(st.session_state.user_id):
-        _pages["Admin"] = [st.Page("pages/admin.py", title="Admin", icon="⚙️")]
-    pg = st.navigation(_pages)
+    nav_pages, nav_groups = _build_app_pages(st.session_state.user_id)
+    _render_sidebar_shell(nav_groups, st.session_state.user_id)
+    pg = st.navigation(nav_pages, position="hidden")
 
 pg.run()
-
-# ── Sidebar profile pill (shown for all authenticated pages) ──────────────────
-if st.session_state.get("user_id") and not st.session_state.get("needs_starter"):
-    try:
-        from utils.db import get_user_profile as _gup
-        _prof = _gup(st.session_state.user_id)
-        if _prof:
-            with st.sidebar:
-                st.markdown("---")
-                st.markdown(
-                    f"<div style='display:flex;align-items:center;gap:10px;"
-                    f"background:#161b22;border:1px solid #21262d;border-radius:12px;"
-                    f"padding:10px 14px;margin-top:4px'>"
-                    f"<span style='font-size:1.4rem'>🧢</span>"
-                    f"<div><div style='font-weight:700;font-size:0.85rem;color:#e6edf3'>"
-                    f"{_prof['username']}</div>"
-                    f"<div style='font-size:0.75rem;color:#B8F82F;font-weight:700'>"
-                    f"🪙 {_prof['coins']:,}</div></div></div>",
-                    unsafe_allow_html=True,
-                )
-    except Exception:
-        pass

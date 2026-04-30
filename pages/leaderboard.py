@@ -1,7 +1,7 @@
 import datetime
 import streamlit as st
+from utils.app_cache import get_cached_user_profile
 from utils.db import (
-    get_user_profile,
     get_image_as_base64,
     get_leaderboard_pokemon_count,
     get_leaderboard_checkin_streak,
@@ -97,7 +97,7 @@ if not user_id:
     st.warning("Faça login para ver o ranking.")
     st.stop()
 
-profile = get_user_profile(user_id)
+profile = get_cached_user_profile(user_id)
 
 # ── Session state ─────────────────────────────────────────────────────────────
 

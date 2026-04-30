@@ -1,11 +1,17 @@
 import os
 import streamlit as st
 import extra_streamlit_components as stx
+from utils.app_cache import (
+    clear_user_cache,
+    get_cached_user_profile,
+    get_cached_user_team,
+    get_cached_xp_share_status,
+)
 from utils.db import (
-    get_user_team, get_user_bench, get_user_profile, swap_team_slots,
+    get_user_bench, swap_team_slots,
     remove_from_team, add_to_team, get_image_as_base64,
     get_available_moves, get_active_moves, equip_move, unequip_move,
-    get_xp_share_status, get_user_eggs,
+    get_user_eggs,
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc
@@ -451,10 +457,10 @@ if not user_id:
     st.stop()
 
 with st.spinner("Carregando equipe..."):
-    profile      = get_user_profile(user_id)
-    team         = get_user_team(user_id)
+    profile      = get_cached_user_profile(user_id)
+    team         = get_cached_user_team(user_id)
     team_by_slot = {m["slot"]: m for m in team}
-    xp_share     = get_xp_share_status(user_id)
+    xp_share     = get_cached_xp_share_status(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 col_title, col_coins = st.columns([3, 1])
@@ -553,6 +559,7 @@ for slot in range(1, 7):
                 if slot > 1:
                     if st.button("↑ Main", key=f"promote_{slot}", use_container_width=True):
                         swap_team_slots(user_id, 1, slot)
+                        clear_user_cache()
                         if st.session_state.sel_team_slot == slot:
                             st.session_state.sel_team_slot = 1
                         st.session_state.replacing_move_id = None
@@ -560,6 +567,7 @@ for slot in range(1, 7):
             with b3:
                 if st.button("🗑", key=f"remove_{slot}", use_container_width=True):
                     remove_from_team(user_id, slot)
+                    clear_user_cache()
                     if st.session_state.sel_team_slot == slot:
                         st.session_state.sel_team_slot = None
                     st.rerun()
@@ -802,6 +810,7 @@ else:
                 use_container_width=True,
             ):
                 ok, msg = add_to_team(user_id, pk["user_pokemon_id"])
+                clear_user_cache()
                 if ok:
                     st.success(msg)
                 else:

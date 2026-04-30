@@ -1,10 +1,16 @@
 import os
 import streamlit as st
+from utils.app_cache import (
+    clear_user_cache,
+    get_cached_user_inventory,
+    get_cached_user_profile,
+    get_cached_user_team,
+    get_cached_xp_share_status,
+)
 from utils.db import (
-    get_shop_items, get_user_inventory, get_user_profile,
-    get_user_team, buy_item, use_stat_item,
+    get_shop_items, buy_item, use_stat_item,
     get_stone_targets, evolve_with_stone, get_image_as_base64,
-    get_xp_share_status, open_loot_box, use_xp_share_item,
+    open_loot_box, use_xp_share_item,
     use_nature_mint,
 )
 
@@ -99,12 +105,12 @@ def _clear_msg():
 # ── Dados ──────────────────────────────────────────────────────────────────────
 
 user_id      = st.session_state.user_id
-profile      = get_user_profile(user_id)
+profile      = get_cached_user_profile(user_id)
 coins        = profile["coins"] if profile else 0
 items        = get_shop_items()
-inventory    = get_user_inventory(user_id)
-team         = get_user_team(user_id)
-xp_share_st  = get_xp_share_status(user_id)
+inventory    = get_cached_user_inventory(user_id)
+team         = get_cached_user_team(user_id)
+xp_share_st  = get_cached_xp_share_status(user_id)
 
 # Catálogo por categoria
 stones        = [i for i in items if i["category"] == "stone"]
@@ -174,6 +180,7 @@ with tab_shop:
                         use_container_width=True,
                     ):
                         ok, msg = buy_item(user_id, item["id"])
+                        clear_user_cache()
                         st.session_state.shop_msg      = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
@@ -237,6 +244,7 @@ with tab_shop:
                 use_container_width=True,
             ):
                 ok, msg = buy_item(user_id, item["id"])
+                clear_user_cache()
                 st.session_state.shop_msg      = msg
                 st.session_state.shop_msg_type = "success" if ok else "error"
                 st.rerun()
@@ -310,6 +318,7 @@ with tab_bag:
                         use_container_width=True,
                     ):
                         ok, msg = use_stat_item(user_id, iid, target_id)
+                        clear_user_cache()
                         st.session_state.shop_msg      = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
@@ -364,6 +373,7 @@ with tab_bag:
                             use_container_width=True,
                         ):
                             ok, msg = use_nature_mint(user_id, iid, mint_target_id, new_nature)
+                            clear_user_cache()
                             st.session_state.shop_msg      = msg
                             st.session_state.shop_msg_type = "success" if ok else "error"
                             st.rerun()
@@ -424,6 +434,7 @@ with tab_bag:
                             type="primary",
                         ):
                             ok, msg, evo_data = evolve_with_stone(user_id, iid, chosen["user_pokemon_id"])
+                            clear_user_cache()
                             st.session_state.shop_msg      = msg
                             st.session_state.shop_msg_type = "success" if ok else "error"
                             if ok and evo_data:
@@ -453,6 +464,7 @@ with tab_bag:
                         use_container_width=True,
                     ):
                         ok, msg, loot = open_loot_box(user_id, iid)
+                        clear_user_cache()
                         xp_res = (loot or {}).get("xp_result", {})
                         evolutions = xp_res.get("evolutions", [])
                         if evolutions:
@@ -492,6 +504,7 @@ with tab_bag:
                             use_container_width=True,
                         ):
                             ok, msg = use_xp_share_item(user_id, iid)
+                            clear_user_cache()
                             st.session_state.shop_msg = msg
                             st.session_state.shop_msg_type = "success" if ok else "error"
                             st.rerun()

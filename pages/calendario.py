@@ -2,15 +2,24 @@ import calendar
 import datetime
 import os
 import streamlit as st
+from utils.app_cache import (
+    clear_user_cache,
+    get_cached_checkin_streak,
+    get_cached_monthly_checkins,
+    get_cached_user_profile,
+)
 from utils.db import (
-    get_monthly_checkins, get_checkin_streak,
-    do_checkin, get_user_profile, get_image_as_base64,
+    do_checkin, get_image_as_base64,
     _today_brt, check_and_award_achievements, update_mission_progress,
 )
 from utils.type_colors import get_type_color
 from utils.quest_tracker import render_quest_sidebar
 
 BASE_DIR = os.getcwd()
+
+if not st.session_state.get("user"):
+    st.warning("Faça login para acessar esta página.")
+    st.stop()
 
 MONTH_PT = [
     "", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -119,8 +128,12 @@ for k, v in [
     if k not in st.session_state:
         st.session_state[k] = v
 
-user_id = st.session_state.user_id
-profile = get_user_profile(user_id)
+user_id = st.session_state.get("user_id")
+if not user_id:
+    st.warning("Sessão inválida. Faça login novamente.")
+    st.stop()
+
+profile = get_cached_user_profile(user_id)
 coins   = profile["coins"] if profile else 0
 
 # ── Sidebar quest tracker ──────────────────────────────────────────────────────
@@ -145,10 +158,10 @@ with col_coins:
 
 # ── Stats de streak ───────────────────────────────────────────────────────────
 
-streak = get_checkin_streak(user_id)
+streak = get_cached_checkin_streak(user_id)
 
 # Calcula totais do mês exibido
-checkins_this_month = get_monthly_checkins(user_id, today.year, today.month)
+checkins_this_month = get_cached_monthly_checkins(user_id, today.year, today.month)
 month_total         = len(checkins_this_month)
 last_day            = calendar.monthrange(today.year, today.month)[1]
 is_bonus_day        = today.day in (15, last_day)
@@ -190,6 +203,7 @@ else:
     )
     if st.button("✔ Fazer Check-in", type="primary", use_container_width=False):
         res = do_checkin(user_id)
+        clear_user_cache()
         st.session_state.checkin_result = res
         if res.get("success"):
             new_ach = check_and_award_achievements(user_id)
@@ -417,71 +431,74 @@ def _calendar_view():
 
     disp_year  = st.session_state.cal_year
     disp_month = st.session_state.cal_month
-    checkins   = get_monthly_checkins(user_id, disp_year, disp_month)
-last_day_m = calendar.monthrange(disp_year, disp_month)[1]
-weeks      = calendar.monthcalendar(disp_year, disp_month)  # Mon=0 … Sun=6
+    checkins   = get_cached_monthly_checkins(user_id, disp_year, disp_month)
+    last_day_m = calendar.monthrange(disp_year, disp_month)[1]
+    weeks      = calendar.monthcalendar(disp_year, disp_month)  # Mon=0 … Sun=6
 
-# Cabeçalho de dias da semana
-header_html = "<div class='cal-grid'>"
-for wd in WEEKDAYS_PT:
-    header_html += f"<div class='cal-weekday'>{wd}</div>"
-header_html += "</div>"
-st.markdown(header_html, unsafe_allow_html=True)
+    # Cabeçalho de dias da semana
+    header_html = "<div class='cal-grid'>"
+    for wd in WEEKDAYS_PT:
+        header_html += f"<div class='cal-weekday'>{wd}</div>"
+    header_html += "</div>"
+    st.markdown(header_html, unsafe_allow_html=True)
 
-# Células dos dias
-grid_html = "<div class='cal-grid'>"
-for week in weeks:
-    for day in week:
-        if day == 0:
-            grid_html += "<div class='cal-day empty'></div>"
-            continue
+    # Células dos dias
+    grid_html = "<div class='cal-grid'>"
+    for week in weeks:
+        for day in week:
+            if day == 0:
+                grid_html += "<div class='cal-day empty'></div>"
+                continue
 
-        cell_date  = datetime.date(disp_year, disp_month, day)
-        is_today   = cell_date == today
-        is_future  = cell_date > today
-        is_special = day in (15, last_day_m)
-        ck         = checkins.get(day)
+            cell_date  = datetime.date(disp_year, disp_month, day)
+            is_today   = cell_date == today
+            is_future  = cell_date > today
+            is_special = day in (15, last_day_m)
+            ck         = checkins.get(day)
 
-        classes = ["cal-day"]
-        if is_future:
-            classes.append("future")
-        if is_today:
-            classes.append("today")
-        if ck:
-            classes.append("checked")
-            if ck["bonus_item"]:
-                classes.append("bonus")
-            if ck["spawned_species_id"]:
-                classes.append("spawned")
+            classes = ["cal-day"]
+            if is_future:
+                classes.append("future")
+            if is_today:
+                classes.append("today")
+            if ck:
+                classes.append("checked")
+                if ck["bonus_item"]:
+                    classes.append("bonus")
+                if ck["spawned_species_id"]:
+                    classes.append("spawned")
 
-        num_cls  = "day-num today-num" if is_today else "day-num"
-        icons    = ""
-        if ck:
-            icons += "<span class='day-icon'>🪙</span>"
-            if ck["bonus_item"]:
-                icons += "<span class='day-icon'>📡</span>"
-            if ck["spawned_species_id"]:
-                icons += "<span class='day-icon'>🌟</span>"
-        elif not is_future and is_special:
-            icons += "<span class='day-icon' style='opacity:.35'>🎁</span>"
+            num_cls = "day-num today-num" if is_today else "day-num"
+            icons   = ""
+            if ck:
+                icons += "<span class='day-icon'>🪙</span>"
+                if ck["bonus_item"]:
+                    icons += "<span class='day-icon'>📡</span>"
+                if ck["spawned_species_id"]:
+                    icons += "<span class='day-icon'>🌟</span>"
+            elif not is_future and is_special:
+                icons += "<span class='day-icon' style='opacity:.35'>🎁</span>"
 
-        special_html = "<span class='special-marker'>★</span>" if is_special else ""
-        streak_html  = (
-            f"<span class='streak-pip'>🔥{ck['streak']}</span>"
-            if ck and ck["streak"] >= 2 else ""
-        )
+            special_html = "<span class='special-marker'>★</span>" if is_special else ""
+            streak_html  = (
+                f"<span class='streak-pip'>🔥{ck['streak']}</span>"
+                if ck and ck["streak"] >= 2 else ""
+            )
 
-        grid_html += (
-            f"<div class='{' '.join(classes)}'>"
-            f"{special_html}"
-            f"<span class='{num_cls}'>{day}</span>"
-            f"<div class='day-icons'>{icons}</div>"
-            f"{streak_html}"
-            f"</div>"
-        )
+            grid_html += (
+                f"<div class='{' '.join(classes)}'>"
+                f"{special_html}"
+                f"<span class='{num_cls}'>{day}</span>"
+                f"<div class='day-icons'>{icons}</div>"
+                f"{streak_html}"
+                f"</div>"
+            )
 
-grid_html += "</div>"
-st.markdown(grid_html, unsafe_allow_html=True)
+    grid_html += "</div>"
+    st.markdown(grid_html, unsafe_allow_html=True)
+
+
+_calendar_view()
 
 # ── Legenda ───────────────────────────────────────────────────────────────────
 

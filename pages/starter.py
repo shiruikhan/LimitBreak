@@ -1,6 +1,7 @@
 import os
 import streamlit as st
 import streamlit.components.v1 as components
+from utils.app_cache import clear_user_cache
 from utils.db import create_user_profile, get_image_as_base64
 
 BASE_DIR = os.getcwd()
@@ -213,6 +214,7 @@ if st.button("Começar jornada →", disabled=not can_confirm, use_container_wid
             username.strip(),
             st.session_state.selected_starter,
         )
+        clear_user_cache()
         st.session_state.needs_starter    = False
         st.session_state.selected_starter = None
         st.session_state.easter_clicks    = 0

@@ -1,7 +1,8 @@
 import datetime
 import streamlit as st
+from utils.app_cache import clear_user_cache, get_cached_user_missions
 from utils.db import (
-    get_user_missions, claim_mission_reward,
+    claim_mission_reward,
     get_image_as_base64, get_user_team,
 )
 
@@ -155,7 +156,7 @@ st.markdown("""
 
 # ── Load missions ─────────────────────────────────────────────────────────────
 
-missions = get_user_missions(user_id)
+missions = get_cached_user_missions(user_id)
 daily   = missions.get("daily", [])
 weekly  = missions.get("weekly", [])
 
@@ -301,6 +302,7 @@ else:
             ):
                 ok, msg, reward = claim_mission_reward(user_id, mid)
                 if ok and reward:
+                    clear_user_cache()
                     st.toast("🎉 Recompensa coletada!", icon="✅")
                     _show_claim_result(reward)
                     st.rerun()
@@ -341,6 +343,7 @@ else:
             ):
                 ok, msg, reward = claim_mission_reward(user_id, mid)
                 if ok and reward:
+                    clear_user_cache()
                     st.toast("🎉 Recompensa semanal coletada!", icon="✅")
                     _show_claim_result(reward)
                     st.rerun()
