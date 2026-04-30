@@ -11,6 +11,9 @@ pnpm-lock.yaml
 .DS_Store
 .claude/
 .design
+__pycache__/
+.pytest_cache/
+
 
 # Build outputs
 dist/
