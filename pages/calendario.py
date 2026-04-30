@@ -152,7 +152,7 @@ checkins_this_month = get_monthly_checkins(user_id, today.year, today.month)
 month_total         = len(checkins_this_month)
 last_day            = calendar.monthrange(today.year, today.month)[1]
 is_bonus_day        = today.day in (15, last_day)
-already_checked     = today.day in get_monthly_checkins(user_id, today.year, today.month)
+already_checked     = today.day in checkins_this_month
 next_milestone      = 3 - (streak % 3) if streak % 3 != 0 else 3
 
 st.markdown(f"""
@@ -381,42 +381,43 @@ if res:
 
 st.markdown("---")
 
-# ── Navegação de mês ──────────────────────────────────────────────────────────
+@st.fragment
+def _calendar_view():
+    # ── Navegação de mês ──────────────────────────────────────────────────────
 
-c_prev, c_label, c_next = st.columns([1, 4, 1])
-with c_prev:
-    if st.button("◀", use_container_width=True):
-        m = st.session_state.cal_month - 1
-        y = st.session_state.cal_year
-        if m < 1:
-            m, y = 12, y - 1
-        st.session_state.cal_month = m
-        st.session_state.cal_year  = y
-        st.rerun()
-with c_label:
-    st.markdown(
-        f"<div style='text-align:center;font-size:1.1rem;font-weight:700;color:#e6edf3;"
-        f"padding:6px 0'>{MONTH_PT[st.session_state.cal_month]} {st.session_state.cal_year}</div>",
-        unsafe_allow_html=True,
-    )
-with c_next:
-    # Não permitir navegar para o futuro além do mês atual
-    is_current = (st.session_state.cal_year == today.year and
-                  st.session_state.cal_month == today.month)
-    if st.button("▶", disabled=is_current, use_container_width=True):
-        m = st.session_state.cal_month + 1
-        y = st.session_state.cal_year
-        if m > 12:
-            m, y = 1, y + 1
-        st.session_state.cal_month = m
-        st.session_state.cal_year  = y
-        st.rerun()
+    c_prev, c_label, c_next = st.columns([1, 4, 1])
+    with c_prev:
+        if st.button("◀", use_container_width=True):
+            m = st.session_state.cal_month - 1
+            y = st.session_state.cal_year
+            if m < 1:
+                m, y = 12, y - 1
+            st.session_state.cal_month = m
+            st.session_state.cal_year  = y
+            st.rerun(scope="fragment")
+    with c_label:
+        st.markdown(
+            f"<div style='text-align:center;font-size:1.1rem;font-weight:700;color:#e6edf3;"
+            f"padding:6px 0'>{MONTH_PT[st.session_state.cal_month]} {st.session_state.cal_year}</div>",
+            unsafe_allow_html=True,
+        )
+    with c_next:
+        is_current = (st.session_state.cal_year == today.year and
+                      st.session_state.cal_month == today.month)
+        if st.button("▶", disabled=is_current, use_container_width=True):
+            m = st.session_state.cal_month + 1
+            y = st.session_state.cal_year
+            if m > 12:
+                m, y = 1, y + 1
+            st.session_state.cal_month = m
+            st.session_state.cal_year  = y
+            st.rerun(scope="fragment")
 
-# ── Grade do calendário ───────────────────────────────────────────────────────
+    # ── Grade do calendário ───────────────────────────────────────────────────
 
-disp_year  = st.session_state.cal_year
-disp_month = st.session_state.cal_month
-checkins   = get_monthly_checkins(user_id, disp_year, disp_month)
+    disp_year  = st.session_state.cal_year
+    disp_month = st.session_state.cal_month
+    checkins   = get_monthly_checkins(user_id, disp_year, disp_month)
 last_day_m = calendar.monthrange(disp_year, disp_month)[1]
 weeks      = calendar.monthcalendar(disp_year, disp_month)  # Mon=0 … Sun=6
 

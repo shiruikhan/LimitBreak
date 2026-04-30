@@ -147,22 +147,54 @@ elif st.session_state.needs_starter:
     )
 else:
     from utils.db import is_admin as _is_admin
-    _pages = [
-        st.Page("pages/equipe.py",          title="Minha Equipe",   icon="⚔️"),
-        st.Page("pages/batalha.py",         title="Arena",          icon="🥊"),
-        st.Page("pages/conquistas.py",      title="Conquistas",     icon="🏅"),
-        st.Page("pages/missoes.py",         title="Missões",        icon="🎯"),
-        st.Page("pages/leaderboard.py",     title="Ranking",        icon="🏆"),
-        st.Page("pages/pokedex.py",         title="Pokédex",        icon="📖"),
-        st.Page("pages/pokedex_pessoal.py", title="Minha Pokédex",  icon="🗂️"),
-        st.Page("pages/loja.py",            title="Loja",           icon="🛒"),
-        st.Page("pages/calendario.py",      title="Calendário",     icon="📅"),
-        st.Page("pages/biblioteca.py",      title="Biblioteca",     icon="📚"),
-        st.Page("pages/rotinas.py",         title="Rotinas",        icon="📋"),
-        st.Page("pages/treino.py",          title="Treino",         icon="🏋️"),
-    ]
+    _pages = {
+        "Treinador": [
+            st.Page("pages/equipe.py",     title="Minha Equipe", icon="⚔️"),
+            st.Page("pages/conquistas.py", title="Conquistas",   icon="🏅"),
+            st.Page("pages/missoes.py",    title="Missões",      icon="🎯"),
+        ],
+        "Batalha": [
+            st.Page("pages/batalha.py",    title="Arena",        icon="🥊"),
+            st.Page("pages/leaderboard.py",title="Ranking",      icon="🏆"),
+        ],
+        "Pokédex": [
+            st.Page("pages/pokedex.py",         title="Pokédex",      icon="📖"),
+            st.Page("pages/pokedex_pessoal.py", title="Minha Pokédex",icon="🗂️"),
+        ],
+        "Treinos": [
+            st.Page("pages/calendario.py", title="Calendário", icon="📅"),
+            st.Page("pages/treino.py",     title="Treino",     icon="🏋️"),
+            st.Page("pages/rotinas.py",    title="Rotinas",    icon="📋"),
+            st.Page("pages/biblioteca.py", title="Biblioteca", icon="📚"),
+        ],
+        "Loja": [
+            st.Page("pages/loja.py", title="Loja", icon="🛒"),
+        ],
+    }
     if _is_admin(st.session_state.user_id):
-        _pages.append(st.Page("pages/admin.py", title="Admin", icon="⚙️"))
+        _pages["Admin"] = [st.Page("pages/admin.py", title="Admin", icon="⚙️")]
     pg = st.navigation(_pages)
 
 pg.run()
+
+# ── Sidebar profile pill (shown for all authenticated pages) ──────────────────
+if st.session_state.get("user_id") and not st.session_state.get("needs_starter"):
+    try:
+        from utils.db import get_user_profile as _gup
+        _prof = _gup(st.session_state.user_id)
+        if _prof:
+            with st.sidebar:
+                st.markdown("---")
+                st.markdown(
+                    f"<div style='display:flex;align-items:center;gap:10px;"
+                    f"background:#161b22;border:1px solid #21262d;border-radius:12px;"
+                    f"padding:10px 14px;margin-top:4px'>"
+                    f"<span style='font-size:1.4rem'>🧢</span>"
+                    f"<div><div style='font-weight:700;font-size:0.85rem;color:#e6edf3'>"
+                    f"{_prof['username']}</div>"
+                    f"<div style='font-size:0.75rem;color:#B8F82F;font-weight:700'>"
+                    f"🪙 {_prof['coins']:,}</div></div></div>",
+                    unsafe_allow_html=True,
+                )
+    except Exception:
+        pass

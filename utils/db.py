@@ -546,6 +546,7 @@ def get_all_pokemon_with_types() -> list[dict]:
         ]
 
 
+@st.cache_data(show_spinner=False)
 def get_pokemon_details(pokemon_id: int) -> tuple | None:
     with get_connection().cursor() as cur:
         cur.execute("""
@@ -3848,6 +3849,7 @@ def admin_create_exercise(
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_leaderboard_pokemon_count(limit: int = 20) -> list[dict]:
     """Ranks all users by total Pokémon owned (all-time collection size)."""
     try:
@@ -3871,6 +3873,7 @@ def get_leaderboard_pokemon_count(limit: int = 20) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_leaderboard_checkin_streak(year: int, month: int, limit: int = 20) -> list[dict]:
     """Ranks users by their best check-in streak reached in the given month."""
     try:
@@ -3896,6 +3899,7 @@ def get_leaderboard_checkin_streak(year: int, month: int, limit: int = 20) -> li
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_leaderboard_workout_xp(year: int, month: int, limit: int = 20) -> list[dict]:
     """Ranks users by total workout XP earned in the given month."""
     try:
