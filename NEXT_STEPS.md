@@ -25,6 +25,7 @@ Also shipped (not in original plan):
 | Nature Mint | 3A | ✅ `use_nature_mint()` with stat recalc |
 | Admin Panel | 4.0 | ✅ `pages/admin.py` with 5 tabs; restricted to `is_admin()` |
 | Daily & Weekly Missions | B | ✅ `pages/missoes.py`; `user_missions` table; 6 daily + 4 weekly options; hooks in treino/batalha/calendario |
+| UI/UX + Performance Shell | 4.1 | ✅ grouped sidebar, `pages/hub.py`, shared cache layer, targeted `st.fragment` use |
 
 ---
 
@@ -42,6 +43,14 @@ Every call to `do_exercise_event()` can produce:
 - Egg grant at milestone workout counts (25/50/100)
 - XP Share distribution to the rest of the team
 
+### What the app shell delivers today
+
+- Hidden Streamlit navigation with grouped custom sidebar in `app.py`
+- Central authenticated landing page in `pages/hub.py`
+- Shared cached user reads in `utils/app_cache.py`
+- Resource-cached Supabase client in `utils/supabase_client.py`
+- Fragment-based partial rerenders in isolated UI sections like hub and calendar
+
 ### Known gaps still open
 
 - No friendship/happiness system → bypass `_BYPASS_LEVEL = 36` still used for trade/friendship evolutions
@@ -56,7 +65,7 @@ Every call to `do_exercise_event()` can produce:
 
 ### Priority A — Happiness / Friendship System
 
-**Why now:** resolves an existing technical debt (`_BYPASS_LEVEL = 36`) semantically and adds an emotional dimension to the Pokémon bond. Blocksevolution accuracy for Gengar, Alakazam, Chansey, Eevee branches.
+**Why now:** resolves an existing technical debt (`_BYPASS_LEVEL = 36`) semantically and adds an emotional dimension to the Pokémon bond. It also restores evolution accuracy for Gengar, Alakazam, Chansey, and Eevee branches.
 
 **Design:**
 - Add `happiness SMALLINT DEFAULT 70` to `user_pokemon`
@@ -153,7 +162,7 @@ These remain valuable but depend on the core loop being deeper first.
 | Feature | Effort | Impact | Next? |
 |---|---|---|---|
 | Daily & weekly missions | Medium | Very High | ✅ Shipped |
-| Rest Day mechanic | Low | Medium | ✅ Quick win |
+| Rest Day mechanic | Low | Medium | 🟡 Candidate |
 | Gym Badges | Medium | High | 🔴 Yes |
 | Happiness / friendship | Medium | High | 🔴 Yes |
 | Workout analytics | Medium | High | 🟠 Yes |

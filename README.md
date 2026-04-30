@@ -1,59 +1,87 @@
-# 🏋️‍♂️ LimitBreak
+# LimitBreak
 
-Aplicativo web de acompanhamento de treinos de musculação com sistema de gamificação inspirado em Pokémon. O usuário progride no mundo real (treinos, frequência, carga) e isso reflete diretamente em sua jornada virtual — XP, evoluções, capturas e colecionismo.
-
----
-
-## 🎮 O que já funciona
-
-- **Autenticação completa** — login, cadastro e sessão persistente via Supabase Auth
-- **Seleção de Pokémon inicial** — 27 iniciais (Gen 1–9) com um easter egg secreto desbloqueável
-- **Pokédex interativo** — 1.025 Pokémon com sprites, tipos, base stats, moveset por nível e cadeia evolutiva completa
-- **Gerenciamento de equipe** — até 6 Pokémon com moveset equipável (4 slots por Pokémon, respeitando nível)
+Aplicativo web em Streamlit para acompanhamento de treinos com gamificação inspirada em Pokemon. O progresso do mundo real alimenta XP, evolucoes, capturas, check-ins, colecao, missoes e batalhas.
 
 ---
 
-## 🗺️ Próximas funcionalidades
+## Estado atual
 
-| Funcionalidade | Status |
-|---|---|
-| XP por exercício realizado | ⏳ Aguarda módulo de treinos |
-| Evolução automática por nível | 🔜 A implementar |
-| Sistema de encontros e captura | 🔜 A implementar |
-| Pokédex pessoal (capturados vs não capturados) | 🔜 A implementar |
-| Calendário de presença com moedas | 🔜 A implementar |
-| Loja virtual (XP Share, skins regionais) | 🔜 A implementar |
+### Fluxo principal
+
+- Autenticacao completa com Supabase Auth, cookies de sessao e restauracao automatica por refresh token
+- Onboarding com escolha de Pokemon inicial e easter egg secreto
+- Hub central (`pages/hub.py`) para acesso rapido a equipe, treino, calendario, arena, Pokédex e loja
+- Sidebar organizada por grupos com navegacao customizada e menos ruido visual
+
+### Sistemas live
+
+- Equipe com 6 slots, moves equipaveis, XP Share, evolucoes e banco de Pokemon
+- Pokédex nacional e Pokédex pessoal com filtros e progresso de captura
+- Calendario de check-in com streak, moedas, bonus de XP Share e chance de spawn
+- Loja e mochila com pedras, vitaminas, XP Share, Loot Box e Nature Mint
+- Arena PvP assíncrona com limite diario, log de turnos, XP e moedas
+- Modulo de treino com rotinas, biblioteca de exercicios, registro de sessoes, PRs, ovos e habilidades passivas
+- Missoes diarias e semanais
+- Conquistas e leaderboard
+- Painel admin para operacoes do sistema
+
+### Performance e UX
+
+- Cache compartilhado em `utils/app_cache.py` com `@st.cache_data` para leituras repetidas por usuario
+- Cliente Supabase cacheado com `@st.cache_resource`
+- Uso de `st.fragment` em areas isoladas como hub e calendario para reduzir reruns completos
 
 ---
 
-## ⚙️ Stack
+## Stack
 
-- **Frontend/Backend:** Python + Streamlit
-- **Banco de dados:** PostgreSQL (Supabase)
-- **Autenticação:** Supabase Auth
-- **Dados Pokémon:** PokéAPI
+- Frontend/Backend: Python + Streamlit
+- Banco de dados: PostgreSQL no Supabase
+- Autenticacao: Supabase Auth
+- Acesso SQL: `psycopg2`
+- Persistencia de sessao: `extra-streamlit-components`
+- Dados Pokemon: PokéAPI + assets locais/CDN
 
 ---
 
-## 🚀 Como rodar localmente
+## Como rodar localmente
 
 ```bash
-# 1. Instalar dependências
 pip install -r requirements.txt
-
-# 2. Criar .env com as credenciais PostgreSQL
-# 3. Criar .streamlit/secrets.toml com as credenciais Supabase Auth
-# 4. (Primeira vez) Executar scripts/create_user_tables.sql no Supabase
-# 5. (Primeira vez) Rodar os scripts de seed
-
 streamlit run app.py
 ```
 
-Veja o `CLAUDE.md` para documentação técnica completa — schema do banco, ordem dos seeds, detalhes de arquitetura e convenções de código.
+### Configuracao necessaria
+
+1. Criar `.streamlit/secrets.toml` com as secoes `[supabase]` e `[database]`
+2. Opcionalmente criar `.env` como fallback para a conexao PostgreSQL
+3. Executar `scripts/create_user_tables.sql` no Supabase
+4. Rodar os seeds principais:
+
+```bash
+python scripts/seed_types.py
+python scripts/seed_pokedex.py
+python scripts/seed_evolutions.py
+python scripts/seed_stats.py
+python scripts/seed_shop_items.py
+python scripts/seed_regional_species.py
+```
 
 ---
 
-## 🔀 Divisão de responsabilidades
+## Documentacao
 
-Este repositório é responsável exclusivamente pela **gamificação** (Pokédex, XP, capturas, equipe, loja).  
-O módulo de treinos (exercícios, planos, biomecânica, GIFs) é desenvolvido separadamente — a integração ocorre via banco de dados.
+- `CLAUDE.md`: arquitetura, schema, funcoes importantes, navegacao atual e convencoes
+- `NEXT_STEPS.md`: roadmap atualizado e prioridades de produto
+
+---
+
+## Escopo do repositorio
+
+Este repositorio cobre o app completo de gamificacao e treino em Streamlit:
+
+- autenticacao
+- navegação e shell da aplicacao
+- equipe, Pokédex, loja, calendario, batalha
+- biblioteca, rotinas e registro de treino
+- missoes, conquistas, leaderboard e admin

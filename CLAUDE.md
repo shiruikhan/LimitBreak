@@ -76,14 +76,15 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 
 ```
 /
-├── app.py                       # Entry point — auth gate, restauração de sessão via cookie, navegação
+├── app.py                       # Entry point — auth gate, restauração de sessão, shell da UI e navegação agrupada
 ├── app_pokedex.py               # LEGADO — Pokédex standalone, manter apenas como referência
 ├── requirements.txt
 ├── CLAUDE.md                    # Este arquivo
 ├── pages/
 │   ├── login.py                 # Login / Cadastro + salva cookie de sessão
 │   ├── starter.py               # Seleção de Pokémon inicial (27 + 2 easter egg)
-│   ├── equipe.py                # Equipe ativa (página inicial) + banco de Pokémon
+│   ├── hub.py                   # Hub central com atalhos, snapshot do progresso e navegação rápida
+│   ├── equipe.py                # Equipe ativa + banco de Pokémon
 │   ├── batalha.py               # Arena PvP — desafiar outros usuários
 │   ├── conquistas.py            # Sistema de conquistas — 23 badges em 5 categorias
 │   ├── leaderboard.py           # Ranking — XP de treino / streak de check-in / coleção Pokémon
@@ -101,9 +102,11 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
 │   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, badge_url)
 │   ├── abilities.py             # Registro de habilidades passivas de treino (Release 3A)
+│   ├── app_cache.py             # Camada de cache compartilhado para leituras repetidas de usuário
 │   ├── missions.py              # Catálogo de missões diárias/semanais (DAILY_POOL, WEEKLY_POOL)
+│   ├── quest_tracker.py         # Widget compacto de missões para a sidebar
 │   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
-│   └── supabase_client.py       # Supabase client (somente Auth) — lê st.secrets
+│   └── supabase_client.py       # Supabase client (somente Auth) — cacheado com st.cache_resource
 └── scripts/
     ├── seed_types.py                         # Popula pokemon_types (executar 1º)
     ├── seed_pokedex.py                       # Popula pokemon_species, pokemon_moves, species_moves (2º)
@@ -494,7 +497,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ### Calendário e check-in
 | Função | Descrição |
 |---|---|
-| `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item_id, spawned_species_id}}` |
+| `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item, spawned_species_id}}` |
 | `get_checkin_streak(user_id)` | Streak atual de dias consecutivos |
 | `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
 
@@ -615,20 +618,27 @@ def _resolve_asset(local_path: str) -> str:
 
 ## Páginas do App
 
-### Ordem na navegação (primeira = página inicial)
-1. `pages/equipe.py` — Minha Equipe ⚔️
-2. `pages/batalha.py` — Arena 🥊
-3. `pages/conquistas.py` — Conquistas 🏅
-4. `pages/leaderboard.py` — Ranking 🏆
-5. `pages/pokedex.py` — Pokédex 📖
-6. `pages/pokedex_pessoal.py` — Minha Pokédex 🗂️
-7. `pages/loja.py` — Loja 🛒
-8. `pages/calendario.py` — Calendário 📅
-9. `pages/biblioteca.py` — Biblioteca 📚
-10. `pages/rotinas.py` — Rotinas 📋
-11. `pages/treino.py` — Treino 🏋️
-12. `pages/missoes.py` — Missões 🎯
-13. `pages/admin.py` — Admin 🛠️ *(oculto para não-admins)*
+### Navegação atual
+
+O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar customizada em `app.py`.
+
+**Grupos da sidebar:**
+1. `Hub`
+2. `Treinador`
+3. `Batalha`
+4. `Treinos`
+5. `Pokédex`
+6. `Loja`
+7. `Admin` *(somente se `is_admin(user_id)` for true)*
+
+**Página inicial autenticada:**
+- `pages/hub.py` — Hub 🏠
+
+### `pages/hub.py`
+- Hero principal com branding do app e atalhos rápidos
+- Snapshot com moedas, tamanho da equipe, streak e batalhas restantes no dia
+- Cards por seção para navegar sem depender da sidebar padrão
+- Usa `st.fragment` para isolar blocos de snapshot e navegação rápida
 
 ### `pages/equipe.py`
 - Grade 3×2 de slots com cards: sprite, nome, tipos, nível, XP bar, **6 barras de stats coloridas**
@@ -949,7 +959,9 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - Queries SQL com parâmetros: sempre `%s` (psycopg2) — **nunca f-strings com valores do usuário**
 - Cores de tipo: `utils/type_colors.py` → `get_type_color(slug)` retorna `{bg, light, dark, text}`
 - **Sem backslash em f-strings** (`c[\"key\"]` é SyntaxError no parser do Streamlit Cloud) — extrair para variável antes: `bg = c["bg"]`
-- `@st.cache_data` nos getters de catálogo (shop_items, all_pokemon) — não usar em queries de usuário
+- Leituras repetidas por usuário agora podem passar por `utils/app_cache.py`, que centraliza `@st.cache_data` para perfil, equipe, inventário, missões, check-ins, batalhas e flags de admin
+- `utils/supabase_client.py` usa `@st.cache_resource` para reutilizar o client do Supabase
+- `clear_user_cache()` deve ser chamado após mutações relevantes (check-in, compra/uso de item, claims, batalha finalizada, onboarding, etc.)
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
 ---
@@ -997,6 +1009,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ### Implementado ✅
 - Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática)
+- Shell de navegação customizado: sidebar agrupada + hub central (`pages/hub.py`) com snapshot e atalhos
 - Onboarding: 27 iniciais (Gen 1–9) + easter egg (Cubone, Mimikyu)
 - Pokédex nacional: sprites, tipos, moveset, cadeia evolutiva, base stats
 - Pokédex pessoal: 1.025 cards com filtros, progresso por geração
@@ -1010,7 +1023,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - Evolução por pedra: `evolve_with_stone()` com recálculo de stats e preservação de boosts
 - Cap de vitaminas: máximo 5 usos por stat por Pokémon (`_MAX_STAT_BOOSTS_PER_STAT = 5`)
 - Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; loot box (não-comprável, aberta na mochila); nature mint (troca de natureza); mochila funcional
-- **Formas regionais:** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1) como entidades padrão em `pokemon_species` (id > 10000); adquiridas pelas mesmas mecânicas de qualquer Pokémon (spawn, captura); sprites do CDN PokéAPI
+- **Formas regionais:** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1) como entidades padrão em `pokemon_species` (id > 10000); adquiridas pelas mesmas mecânicas de qualquer Pokémon (spawn, captura); sprites via CDN HybridShivam
 - XP Share: distribui 30% do XP do slot 1 para os demais membros da equipe; ativado por check-in ou comprado na loja; badge de status em equipe.py e loja.py
 - Calendário: check-in diário, streak, spawns nível 5 em streak ×3, extensão de XP Share nos dias 15/fim-de-mês
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
@@ -1042,6 +1055,11 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - Hooks em `treino.py` (workout + pr), `batalha.py` (battle_win), `calendario.py` (checkin)
   - Recompensas: xp, coins, pedra aleatória, vitamina aleatória, loot box
   - Migration: `scripts/migrate_missions.sql`
+- **Refactor UI/UX + Performance (abril 2026):**
+  - `app.py` com shell visual unificado e navegação escondida do Streamlit
+  - `pages/hub.py` como landing page autenticada
+  - `utils/app_cache.py` com cache de leituras de usuário
+  - `st.fragment` aplicado em áreas isoladas como hub e calendário
 
 ### A implementar
 
