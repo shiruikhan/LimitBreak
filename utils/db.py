@@ -513,6 +513,34 @@ def get_image_as_base64(path: str) -> str | None:
         return None
 
 
+def sprite_img_tag(
+    sprite_url: str | None,
+    width: int = 80,
+    extra_style: str = "",
+) -> str:
+    """Gera tag <img> para um sprite de Pokémon de forma eficiente.
+
+    Para URLs HTTP (Supabase Storage ou outro CDN público) usa o src diretamente,
+    evitando download + base64 no servidor Python e aproveitando o cache do browser.
+    Para caminhos locais faz fallback via get_image_as_base64().
+
+    Retorna string vazia se não conseguir resolver a imagem.
+    """
+    if not sprite_url:
+        return ""
+
+    style_attr = f' style="{extra_style}"' if extra_style else ""
+
+    if sprite_url.startswith(("http://", "https://")):
+        return f'<img src="{sprite_url}" width="{width}"{style_attr}>'
+
+    # Caminho local — converte para base64
+    b64 = get_image_as_base64(sprite_url)
+    if b64:
+        return f'<img src="data:image/png;base64,{b64}" width="{width}"{style_attr}>'
+    return ""
+
+
 # ── Pokédex queries ────────────────────────────────────────────────────────────
 
 @st.cache_data
@@ -1397,12 +1425,12 @@ def use_nature_mint(user_id: str, item_id: int, user_pokemon_id: int, new_nature
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT name, category FROM shop_items WHERE id = %s;", (item_id,))
+            cur.execute("SELECT name, category, slug FROM shop_items WHERE id = %s;", (item_id,))
             item = cur.fetchone()
             if not item:
                 return False, "Item não encontrado."
-            iname, category = item
-            if category != "nature_mint":
+            iname, category, slug = item
+            if category != "nature_mint" and slug != "nature-mint":
                 return False, "Este item não pode ser usado aqui."
 
             cur.execute(

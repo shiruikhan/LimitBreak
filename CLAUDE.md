@@ -53,8 +53,9 @@ password=
 Nunca versionado:
 ```toml
 [supabase]
-url      = "https://SEU_PROJECT_ID.supabase.co"
-anon_key = "sua_anon_key_aqui"
+url         = "https://SEU_PROJECT_ID.supabase.co"
+anon_key    = "sua_anon_key_aqui"
+service_key = "sua_service_role_key"   # necessário apenas para scripts de manutenção
 
 [database]
 host     = "aws-X-REGION.pooler.supabase.com"

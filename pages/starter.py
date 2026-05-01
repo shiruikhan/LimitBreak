@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 from utils.app_cache import clear_user_cache
-from utils.db import create_user_profile, get_image_as_base64
+from utils.db import create_user_profile, get_image_as_base64, sprite_img_tag
 
 BASE_DIR = os.getcwd()
 
@@ -158,12 +158,13 @@ st.markdown("---")
 st.markdown("##### Escolha seu Pokémon inicial:")
 st.write("")
 
-def _thumb_b64(pokemon_id: int) -> str | None:
-    path = os.path.join(
+def _thumb_src(pokemon_id: int) -> str:
+    """Retorna URL ou caminho local do thumbnail do starter."""
+    local = os.path.join(
         BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
         f"{str(pokemon_id).zfill(4)}.png",
     )
-    return get_image_as_base64(path)
+    return local  # sprite_img_tag trata locais e URLs HTTP uniformemente
 
 
 COLS_PER_ROW = 9
@@ -172,14 +173,13 @@ for row_start in range(0, len(STARTERS), COLS_PER_ROW):
     cols = st.columns(len(row))
     for col, (pid, label) in zip(cols, row):
         with col:
-            b64      = _thumb_b64(pid)
             selected = st.session_state.selected_starter == pid
             is_secret = label.startswith("???")
             border   = "#B8F82F" if selected else ("#8b2be2" if is_secret else "#30363d")
             bg       = "#1c2d16" if selected else ("#1a0a2e" if is_secret else "#161b22")
             img_tag  = (
-                f"<img src='data:image/png;base64,{b64}' width='64'>"
-                if b64 else "<div style='font-size:2rem;text-align:center'>❓</div>"
+                sprite_img_tag(_thumb_src(pid), width=64)
+                or "<div style='font-size:2rem;text-align:center'>❓</div>"
             )
             name = label.split("·")[1].strip()
 

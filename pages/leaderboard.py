@@ -2,7 +2,7 @@ import datetime
 import streamlit as st
 from utils.app_cache import get_cached_user_profile
 from utils.db import (
-    get_image_as_base64,
+    get_image_as_base64, sprite_img_tag,
     get_leaderboard_pokemon_count,
     get_leaderboard_checkin_streak,
     get_leaderboard_workout_xp,
@@ -165,7 +165,6 @@ def _render_leaderboard(rows: list[dict], unit: str) -> None:
     for i, row in enumerate(rows):
         uid       = str(row["user_id"])
         is_me     = uid == user_id
-        sprite_b64 = get_image_as_base64(row["lead_sprite"]) if row.get("lead_sprite") else None
         rank_cls  = _rank_class(i)
         symbol    = _rank_symbol(i)
         username  = row["username"] or "Treinador"
@@ -173,9 +172,17 @@ def _render_leaderboard(rows: list[dict], unit: str) -> None:
         lead_name = row.get("lead_pokemon") or "—"
         lead_lvl  = row.get("lead_level") or "?"
         me_cls    = " is-me" if is_me else ""
+        lead_sprite = row.get("lead_sprite") or ""
 
-        if sprite_b64:
-            sprite_html = f'<img class="lb-sprite" src="data:image/png;base64,{sprite_b64}" alt="{lead_name}">'
+        if lead_sprite:
+            if lead_sprite.startswith(("http://", "https://")):
+                sprite_html = f'<img class="lb-sprite" src="{lead_sprite}" alt="{lead_name}">'
+            else:
+                _lb_b64 = get_image_as_base64(lead_sprite)
+                sprite_html = (
+                    f'<img class="lb-sprite" src="data:image/png;base64,{_lb_b64}" alt="{lead_name}">'
+                    if _lb_b64 else '<div class="lb-sprite-placeholder"></div>'
+                )
         else:
             sprite_html = '<div class="lb-sprite-placeholder"></div>'
 

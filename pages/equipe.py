@@ -12,7 +12,7 @@ from utils.app_cache import (
 from utils.db import (
     _MAX_STAT_BOOSTS_PER_STAT,
     swap_team_slots,
-    remove_from_team, add_to_team, get_image_as_base64,
+    remove_from_team, add_to_team, get_image_as_base64, sprite_img_tag,
     get_available_moves, get_active_moves, equip_move, unequip_move,
     get_user_eggs,
 )
@@ -32,10 +32,10 @@ if not user_id:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _thumb(pokemon_id: int) -> str | None:
-    path = os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
+def _thumb_path(pokemon_id: int) -> str:
+    """Retorna o caminho local do thumbnail (pode não existir em produção)."""
+    return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
                         f"{str(pokemon_id).zfill(4)}.png")
-    return get_image_as_base64(path)
 
 def _dmg_icon(damage_class: str | None) -> str:
     if not damage_class:
@@ -430,20 +430,11 @@ if shed_notice:
 # ── Exercise spawn banner ─────────────────────────────────────────────────────
 spawn_notice = st.session_state.team_spawn_notice
 if spawn_notice:
-    _sp_b64    = None
     _sp_sprite = spawn_notice.get("sprite_url", "")
-    if _sp_sprite:
-        if _sp_sprite.startswith("http"):
-            _sp_b64 = get_image_as_base64(_sp_sprite)
-        else:
-            _sp_full = os.path.join(BASE_DIR, _sp_sprite.lstrip("/\\"))
-            _sp_hq   = _sp_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-            _sp_b64  = get_image_as_base64(_sp_hq) or get_image_as_base64(_sp_full)
-
     _sp_img = (
-        f"<img src='data:image/png;base64,{_sp_b64}' "
-        f"style='width:72px;image-rendering:pixelated;filter:drop-shadow(0 0 10px #7038F8)'>"
-        if _sp_b64 else "<div style='font-size:2.5rem'>❓</div>"
+        sprite_img_tag(_sp_sprite, width=72,
+                       extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 10px #7038F8)")
+        or "<div style='font-size:2.5rem'>❓</div>"
     )
     st.markdown(
         f"<div style='background:rgba(112,56,248,0.1);border:1px solid rgba(112,56,248,0.5);"
@@ -534,9 +525,17 @@ for slot in range(1, 7):
                 card_cls = "team-card"
                 lbl_html = f"<div class='slot-label'>Slot {slot}</div>"
 
-            b64 = _thumb(member["species_id"]) or get_image_as_base64(member.get("sprite_url", ""))
-            img_tag = (f"<img src='data:image/png;base64,{b64}' width='72' style='display:block;margin:0 auto'>"
-                       if b64 else "<div style='text-align:center;font-size:2.5rem'>❓</div>")
+            # Prefer sprite_url (Supabase public URL) for direct rendering; fallback to local thumbnail
+            _sprite_src = member.get("sprite_url") or ""
+            if not (_sprite_src.startswith("http")):
+                # Local dev: try thumbnail path first, then sprite_url
+                _local_thumb = _thumb_path(member["species_id"])
+                _sprite_src = _local_thumb if os.path.isfile(_local_thumb) else _sprite_src
+            img_tag = (
+                sprite_img_tag(_sprite_src, width=72,
+                               extra_style="display:block;margin:0 auto")
+                or "<div style='text-align:center;font-size:2.5rem'>❓</div>"
+            )
 
             c1 = get_type_color(member["type1"])
             c2 = get_type_color(member["type2"])
@@ -798,11 +797,14 @@ else:
     for idx, pk in enumerate(bench):
         col = bench_cols[idx % 6]
         with col:
-            b64 = _thumb(pk["species_id"])
+            _bsrc = pk.get("sprite_url") or ""
+            if not _bsrc.startswith("http"):
+                _bpath = _thumb_path(pk["species_id"])
+                _bsrc = _bpath if os.path.isfile(_bpath) else _bsrc
             img_tag = (
-                f"<img src='data:image/png;base64,{b64}' width='60' "
-                f"style='display:block;margin:0 auto;image-rendering:pixelated'>"
-                if b64 else "<div style='font-size:2rem;text-align:center'>❓</div>"
+                sprite_img_tag(_bsrc, width=60,
+                               extra_style="display:block;margin:0 auto;image-rendering:pixelated")
+                or "<div style='font-size:2rem;text-align:center'>❓</div>"
             )
             c1   = get_type_color(pk["type1"])
             c2   = get_type_color(pk["type2"])

@@ -2,7 +2,7 @@ import os
 import re
 import streamlit as st
 from utils.app_cache import get_cached_user_pokemon_ids
-from utils.db import get_all_pokemon_with_types, get_image_as_base64
+from utils.db import get_all_pokemon_with_types, get_image_as_base64, sprite_img_tag
 from utils.type_colors import TYPE_COLORS, get_type_color
 
 BASE_DIR = os.getcwd()
@@ -270,14 +270,20 @@ def _num_str(pokemon_id: int, sprite_url: str | None) -> str:
     return f"#{m.group(1)}" if m else f"#{pokemon_id}"
 
 
-def _thumb_b64(pokemon_id: int, sprite_url: str | None = None) -> str | None:
-    if pokemon_id > 10000 and sprite_url and sprite_url.startswith("http"):
-        return get_image_as_base64(sprite_url)
+def _thumb_src(pokemon_id: int, sprite_url: str | None = None) -> str | None:
+    """Retorna a URL ou caminho local do sprite para exibição.
+
+    Com Supabase Storage: devolve a URL pública diretamente (sem base64).
+    Com CDN externo: devolve a URL como-está.
+    Local: devolve o caminho para conversão posterior via sprite_img_tag().
+    """
+    if sprite_url and sprite_url.startswith("http"):
+        return sprite_url
     path = os.path.join(
         BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
         f"{str(pokemon_id).zfill(4)}.png",
     )
-    return get_image_as_base64(path)
+    return path
 
 
 def _type_pip(type_name: str | None, type_slug: str | None) -> str:
@@ -314,14 +320,11 @@ else:
         region      = _region_from_sprite(pid, sprite_url)
 
         if is_captured:
-            b64   = _thumb_b64(pid, sprite_url)
+            thumb = _thumb_src(pid, sprite_url)
             pname = p["name"]
-            if b64:
-                img_html = (
-                    f"<div class='pdex-img-wrap'>"
-                    f"<img src='data:image/png;base64,{b64}' alt='{pname}'>"
-                    f"</div>"
-                )
+            img_tag = sprite_img_tag(thumb, width=56) if thumb else ""
+            if img_tag:
+                img_html = f"<div class='pdex-img-wrap'>{img_tag}</div>"
             else:
                 img_html = "<div class='pdex-img-wrap' style='font-size:1.8rem'>❓</div>"
 

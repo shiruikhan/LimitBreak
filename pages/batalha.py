@@ -10,7 +10,7 @@ from utils.app_cache import (
 from utils.db import (
     start_battle, finalize_battle,
     get_battle_detail,
-    get_image_as_base64, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
+    get_image_as_base64, sprite_img_tag, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
     _type_effectiveness, check_and_award_achievements, update_mission_progress,
 )
 from utils.quest_tracker import render_quest_sidebar
@@ -132,11 +132,10 @@ def _fighter_card(poke: dict, label: str, is_winner: bool):
     pct    = int(poke["hp"] / max(1, poke["max_hp"]) * 100)
     border = "2px solid #FFC531" if is_winner else "1px solid #30363d"
     glow   = "box-shadow:0 0 0 1px #FFC531,0 8px 24px rgba(255,197,49,0.25);" if is_winner else ""
-    img    = get_image_as_base64(poke["sprite_url"])
     img_tag = (
-        f'<img src="data:image/png;base64,{img}" width="80" '
-        f'style="image-rendering:pixelated;margin:8px 0">'
-        if img else "<div style='font-size:3rem;margin:8px 0'>❓</div>"
+        sprite_img_tag(poke["sprite_url"], width=80,
+                       extra_style="image-rendering:pixelated;margin:8px 0")
+        or "<div style='font-size:3rem;margin:8px 0'>❓</div>"
     )
     col    = _hp_color(pct)
     return f"""
@@ -417,11 +416,32 @@ else:
                 unsafe_allow_html=True,
             )
 
-    if st.button("🔄 Nova batalha"):
-        del st.session_state.battle_state
-        st.session_state.pop("battle_saved", None)
-        st.session_state.pop("battle_result", None)
-        st.rerun()
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        if st.button("🔄 Nova batalha", use_container_width=True):
+            del st.session_state.battle_state
+            st.session_state.pop("battle_saved", None)
+            st.session_state.pop("battle_result", None)
+            st.rerun()
+    with btn_col2:
+        rematch_disabled = (remaining - 1) <= 0
+        if st.button(
+            f"⚔️ Revanche vs {op['name']}",
+            use_container_width=True,
+            type="primary",
+            disabled=rematch_disabled,
+        ):
+            opponent_id = bs["opponent_id"]
+            del st.session_state.battle_state
+            st.session_state.pop("battle_saved", None)
+            st.session_state.pop("battle_result", None)
+            result = start_battle(user_id, opponent_id)
+            if "error" in result:
+                st.error(result["error"])
+            else:
+                st.session_state.battle_state = result
+                st.session_state.battle_saved = False
+                st.rerun()
 
     st.divider()
 

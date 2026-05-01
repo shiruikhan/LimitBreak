@@ -6,7 +6,7 @@ from utils.db import (
     get_workout_sheets, get_sheet_days, get_day_exercises_for_builder,
     get_exercises, do_exercise_event,
     get_daily_xp_from_exercise, get_workout_streak, get_workout_history,
-    get_image_as_base64, _today_brt, check_and_award_achievements,
+    get_image_as_base64, sprite_img_tag, _today_brt, check_and_award_achievements,
     update_mission_progress,
 )
 from utils.type_colors import get_type_color
@@ -414,11 +414,10 @@ if res:
         hatched = res.get("eggs_hatched") or []
         for egg in hatched:
             hatch_sprite = egg.get("sprite_url", "")
-            hatch_b64 = get_image_as_base64(hatch_sprite) if hatch_sprite else None
             hatch_img = (
-                f"<img src='data:image/png;base64,{hatch_b64}' "
-                f"style='width:80px;image-rendering:pixelated'>"
-                if hatch_b64 else "<div style='font-size:2.4rem'>🐣</div>"
+                sprite_img_tag(hatch_sprite, width=80,
+                               extra_style="image-rendering:pixelated")
+                or "<div style='font-size:2.4rem'>🐣</div>"
             )
             rarity_label = egg.get("rarity", "common").upper()
             st.markdown(
@@ -561,19 +560,11 @@ if res:
                 )
 
             for evo in evolutions:
-                evo_b64    = None
                 evo_sprite = evo.get("sprite_url", "")
-                if evo_sprite:
-                    if evo_sprite.startswith("http"):
-                        evo_b64 = get_image_as_base64(evo_sprite)
-                    else:
-                        evo_full = os.path.join(BASE_DIR, evo_sprite.lstrip("/\\"))
-                        evo_hq   = evo_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-                        evo_b64  = get_image_as_base64(evo_hq) or get_image_as_base64(evo_full)
                 evo_img = (
-                    f"<img src='data:image/png;base64,{evo_b64}' "
-                    f"style='width:88px;image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)'>"
-                    if evo_b64 else "<div style='font-size:2.6rem'>🌟</div>"
+                    sprite_img_tag(evo_sprite, width=88,
+                                   extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)")
+                    or "<div style='font-size:2.6rem'>🌟</div>"
                 )
 
                 if evo.get("shed"):

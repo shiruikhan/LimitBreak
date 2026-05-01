@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 
-from utils.db import get_user_eggs, get_image_as_base64
+from utils.db import get_user_eggs, get_image_as_base64, sprite_img_tag
 
 BASE_DIR = os.getcwd()
 
@@ -186,17 +186,9 @@ for row in rows:
                 show_key = f"egg_spoiler_{egg['id']}"
                 if st.checkbox("Revelar espécie", key=show_key):
                     sprite_url = egg.get("sprite_url", "")
-                    b64 = None
-                    if sprite_url:
-                        if sprite_url.startswith("http"):
-                            b64 = get_image_as_base64(sprite_url)
-                        else:
-                            local = os.path.join(BASE_DIR, sprite_url.lstrip("/\\"))
-                            b64 = get_image_as_base64(local)
-                    img_html = (
-                        f"<img src='data:image/png;base64,{b64}' "
-                        f"style='width:56px;image-rendering:pixelated;display:block;margin:4px auto'>"
-                        if b64 else ""
+                    img_html = sprite_img_tag(
+                        sprite_url, width=56,
+                        extra_style="image-rendering:pixelated;display:block;margin:4px auto",
                     )
                     st.markdown(
                         f"{img_html}"

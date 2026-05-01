@@ -1,5 +1,4 @@
 import os
-import random
 
 import streamlit as st
 
@@ -143,6 +142,7 @@ def render_bag_view(user_id: str) -> None:
     inv_nature_mint = [
         (iid, qty) for iid, qty in inventory.items()
         if item_map.get(iid, {}).get("category") == "nature_mint"
+        or item_map.get(iid, {}).get("slug") == "nature-mint"
     ]
     inv_stones = [
         (iid, qty) for iid, qty in inventory.items()
@@ -156,7 +156,7 @@ def render_bag_view(user_id: str) -> None:
     inv_others = [
         (iid, qty) for iid, qty in inventory.items()
         if item_map.get(iid, {}).get("category") == "other"
-        and item_map.get(iid, {}).get("slug") != "loot-box"
+        and item_map.get(iid, {}).get("slug") not in ("loot-box", "nature-mint")
     ]
 
     if inv_stat:
@@ -224,7 +224,56 @@ def render_bag_view(user_id: str) -> None:
             mint_target_id = mint_target["user_pokemon_id"]
             current_nature = mint_target.get("nature_name") or "Desconhecida"
 
-            st.caption(f"Natureza atual: **{current_nature}** · A nova natureza será sorteada aleatoriamente.")
+            available_natures = [n for n in _ALL_NATURES if n.lower() != (current_nature or "").lower()]
+
+            _NATURE_EFFECTS_UI = {
+                "Lonely": ("+ATK", "-DEF"), "Brave": ("+ATK", "-SPD"),
+                "Adamant": ("+ATK", "-SpA"), "Naughty": ("+ATK", "-SpD"),
+                "Bold": ("+DEF", "-ATK"), "Relaxed": ("+DEF", "-SPD"),
+                "Impish": ("+DEF", "-SpA"), "Lax": ("+DEF", "-SpD"),
+                "Timid": ("+SPD", "-ATK"), "Hasty": ("+SPD", "-DEF"),
+                "Jolly": ("+SPD", "-SpA"), "Naive": ("+SPD", "-SpD"),
+                "Modest": ("+SpA", "-ATK"), "Mild": ("+SpA", "-DEF"),
+                "Quiet": ("+SpA", "-SPD"), "Rash": ("+SpA", "-SpD"),
+                "Calm": ("+SpD", "-ATK"), "Gentle": ("+SpD", "-DEF"),
+                "Sassy": ("+SpD", "-SPD"), "Careful": ("+SpD", "-SpA"),
+            }
+
+            def _nature_preview(name: str) -> str:
+                effects = _NATURE_EFFECTS_UI.get(name)
+                if not effects:
+                    return "Neutro"
+                return f"{effects[0]} / {effects[1]}"
+
+            col_cur, col_arrow, col_new = st.columns([2, 1, 2])
+            with col_cur:
+                st.markdown(
+                    f"<div style='background:#161b22;border:1px solid #30363d;border-radius:10px;"
+                    f"padding:10px;text-align:center'>"
+                    f"<div style='font-size:.65rem;color:#8b949e;text-transform:uppercase;"
+                    f"letter-spacing:1px;margin-bottom:4px'>Natureza atual</div>"
+                    f"<div style='font-weight:700;color:#e6edf3'>{current_nature}</div>"
+                    f"<div style='font-size:.72rem;color:#8b949e;margin-top:2px'>{_nature_preview(current_nature)}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_arrow:
+                st.markdown(
+                    "<div style='text-align:center;padding-top:22px;font-size:1.4rem;color:#7038F8'>→</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_new:
+                new_nature = st.selectbox(
+                    "Nova natureza",
+                    available_natures,
+                    key="bag_mint_new_nature",
+                    label_visibility="collapsed",
+                )
+                st.markdown(
+                    f"<div style='text-align:center;font-size:.72rem;color:#A27DFA;margin-top:2px'>"
+                    f"{_nature_preview(new_nature)}</div>",
+                    unsafe_allow_html=True,
+                )
 
             st.write("")
             cols_mint = st.columns(min(len(inv_nature_mint), 4))
@@ -242,12 +291,11 @@ def render_bag_view(user_id: str) -> None:
                     )
                     st.write("")
                     if st.button(
-                        f"Usar em {mint_target['name']}",
+                        f"✨ Usar em {mint_target['name']} → {new_nature}",
                         key=f"use_mint_{iid}",
                         use_container_width=True,
+                        type="primary",
                     ):
-                        available_natures = [n for n in _ALL_NATURES if n != current_nature]
-                        new_nature = random.choice(available_natures)
                         ok, msg = use_nature_mint(user_id, iid, mint_target_id, new_nature)
                         clear_user_cache()
                         st.session_state.shop_msg = msg
