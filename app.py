@@ -16,10 +16,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Google Fonts — preconnect evita bloqueio de render
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+""", unsafe_allow_html=True)
+
 # Global dark theme override
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 /* ── Global base ─────────────────────────────────────────────────────────── */
 html, body, [data-testid="stAppViewContainer"], .stApp {
@@ -198,13 +204,14 @@ if st.session_state.user is None:
             # Refresh token inválido ou expirado — limpa o cookie
             cookie_manager.delete("lb_refresh_token", key="delete_on_fail")
 
-# ── Starter gate (re-evaluated every render) ───────────────────────────────────
-# Guards against bypasses where needs_starter is False but the user has no
-# Pokémon (e.g., direct URL navigation, DB row deleted mid-session, or a signup
-# flow where the session was restored before needs_starter was written).
+# ── Starter gate ───────────────────────────────────────────────────────────────
+# Só consulta o banco uma vez por sessão. Após checar, grava a flag
+# "starter_checked" no session_state para não repetir a query em cada rerender.
 if st.session_state.user is not None and not st.session_state.needs_starter:
-    if not get_cached_user_pokemon_ids(st.session_state.user_id):
-        st.session_state.needs_starter = True
+    if not st.session_state.get("starter_checked"):
+        if not get_cached_user_pokemon_ids(st.session_state.user_id):
+            st.session_state.needs_starter = True
+        st.session_state.starter_checked = True
 
 
 def _page_meta(path: str, title: str, icon: str) -> dict:

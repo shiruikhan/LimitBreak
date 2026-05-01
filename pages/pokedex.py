@@ -201,7 +201,7 @@ def _render_sidebar(pokemon_dict: dict) -> int:
 
         st.markdown("---")
         if st.button("Sair", use_container_width=True):
-            for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter"]:
+            for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter", "starter_checked"]:
                 st.session_state[k] = None
             st.rerun()
 

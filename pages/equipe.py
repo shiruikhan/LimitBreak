@@ -3,12 +3,13 @@ import streamlit as st
 import extra_streamlit_components as stx
 from utils.app_cache import (
     clear_user_cache,
+    get_cached_user_bench,
     get_cached_user_profile,
     get_cached_user_team,
     get_cached_xp_share_status,
 )
 from utils.db import (
-    get_user_bench, swap_team_slots,
+    swap_team_slots,
     remove_from_team, add_to_team, get_image_as_base64,
     get_available_moves, get_active_moves, equip_move, unequip_move,
     get_user_eggs,
@@ -317,7 +318,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("Sair", use_container_width=True):
         _cookie_manager.delete("lb_refresh_token", key="delete_on_logout")
-        for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter"]:
+        for k in ["user", "user_id", "access_token", "refresh_token", "needs_starter", "starter_checked"]:
             st.session_state[k] = None
         st.rerun()
 
@@ -749,7 +750,7 @@ if eggs:
 
 # ── Banco de Pokémon ───────────────────────────────────────────────────────────
 with st.spinner("Carregando banco..."):
-    bench = get_user_bench(user_id)
+    bench = get_cached_user_bench(user_id)
 team_full = len(team) >= 6
 
 st.markdown("<div class='bench-title'>📦 Banco de Pokémon</div>", unsafe_allow_html=True)

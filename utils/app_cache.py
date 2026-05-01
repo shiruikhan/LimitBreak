@@ -6,6 +6,7 @@ from utils.db import (
     get_checkin_streak,
     get_daily_battle_count,
     get_monthly_checkins,
+    get_user_bench,
     get_user_inventory,
     get_user_missions,
     get_user_pokemon_ids,
@@ -76,6 +77,11 @@ def get_cached_is_admin(user_id: str):
     return is_admin(user_id)
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def get_cached_user_bench(user_id: str):
+    return get_user_bench(user_id)
+
+
 def clear_user_cache() -> None:
     get_cached_user_profile.clear()
     get_cached_user_team.clear()
@@ -89,3 +95,4 @@ def clear_user_cache() -> None:
     get_cached_xp_share_status.clear()
     get_cached_user_missions.clear()
     get_cached_is_admin.clear()
+    get_cached_user_bench.clear()

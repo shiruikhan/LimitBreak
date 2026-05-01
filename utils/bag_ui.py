@@ -1,4 +1,5 @@
 import os
+import random
 
 import streamlit as st
 
@@ -223,14 +224,7 @@ def render_bag_view(user_id: str) -> None:
             mint_target_id = mint_target["user_pokemon_id"]
             current_nature = mint_target.get("nature_name") or "Desconhecida"
 
-            st.caption(f"Natureza atual: **{current_nature}**")
-
-            available_natures = [n for n in _ALL_NATURES if n != current_nature]
-            new_nature = st.selectbox(
-                "Nova natureza:",
-                options=available_natures,
-                key="bag_mint_new_nature",
-            )
+            st.caption(f"Natureza atual: **{current_nature}** · A nova natureza será sorteada aleatoriamente.")
 
             st.write("")
             cols_mint = st.columns(min(len(inv_nature_mint), 4))
@@ -252,6 +246,8 @@ def render_bag_view(user_id: str) -> None:
                         key=f"use_mint_{iid}",
                         use_container_width=True,
                     ):
+                        available_natures = [n for n in _ALL_NATURES if n != current_nature]
+                        new_nature = random.choice(available_natures)
                         ok, msg = use_nature_mint(user_id, iid, mint_target_id, new_nature)
                         clear_user_cache()
                         st.session_state.shop_msg = msg

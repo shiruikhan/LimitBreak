@@ -562,6 +562,7 @@ def get_pokemon_details(pokemon_id: int) -> tuple | None:
         return cur.fetchone()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_pokemon_moves(pokemon_id: int) -> list[tuple]:
     with get_connection().cursor() as cur:
         cur.execute("""
@@ -576,6 +577,7 @@ def get_pokemon_moves(pokemon_id: int) -> list[tuple]:
         return cur.fetchall()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_full_evolution_chain(pokemon_id: int) -> list[tuple]:
     with get_connection().cursor() as cur:
         cur.execute("""
@@ -891,6 +893,7 @@ def swap_team_slots(user_id: str, slot_a: int, slot_b: int) -> bool:
 
 # ── Move management ────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_available_moves(species_id: int, level: int) -> list[dict]:
     """All level-up moves the Pokémon can know at its current level."""
     try:
@@ -2452,16 +2455,24 @@ _EXERCISE_WEIGHT_XP_DIVISOR = 20
 # Cada body_part pode mapear para múltiplos tipos; o spawn usa a lista agregada
 # de todos os exercícios da sessão, priorizando os tipos mais frequentes.
 _BODY_PART_TYPES: dict[str, list[str]] = {
-    "Peitoral":   ["fighting", "normal"],
-    "Braços":     ["fighting", "poison"],
-    "Antebraços": ["normal",   "fighting"],
-    "Costas":     ["dark",     "flying"],
-    "Ombros":     ["flying",   "psychic"],
-    "Coxas":      ["ground",   "fighting"],
-    "Pernas":     ["ground",   "rock"],
-    "Cintura":    ["steel",    "rock"],
-    "Pescoço":    ["rock",     "normal"],
-    "Cardio":     ["water",    "electric"],
+    "Peitoral":            ["fighting", "normal"],
+    "Braços":              ["fighting", "poison"],
+    "Bíceps":              ["fighting", "poison"],
+    "Tríceps":             ["fighting", "poison"],
+    "Antebraços":          ["normal",   "fighting"],
+    "Costas":              ["dark",     "flying"],
+    "Costas Superiores":   ["dark",     "flying"],
+    "Latíssimo":           ["dark",     "flying"],
+    "Coluna":              ["rock",     "ground"],
+    "Ombros":              ["flying",   "psychic"],
+    "Deltoides":           ["flying",   "psychic"],
+    "Elevador da Escápula":["flying",   "steel"],
+    "Trapézio":            ["rock",     "normal"],
+    "Coxas":               ["ground",   "fighting"],
+    "Pernas":              ["ground",   "rock"],
+    "Cintura":             ["steel",    "rock"],
+    "Pescoço":             ["rock",     "normal"],
+    "Cardio":              ["water",    "electric"],
 }
 
 
@@ -3181,31 +3192,38 @@ def do_exercise_event(
                     result["milestone"] = f"streak_{new_streak}"
 
             # Spawn temático — tenta cada tipo candidato em ordem de frequência
-            result["spawn_rolled"] = True
-            result["spawn_context"] = {
-                "candidate_types": candidate_types,
-                "chosen_type": None,
-            }
+            # Isolado em try/except para que falhas de spawn não revertam o treino já registrado.
             should_spawn = force_spawn or (random.random() < 0.25)
             if should_spawn:
-                roll_shiny = force_shiny or _shiny_roll(new_streak)
-                species_id, spawn_info = _spawn_multi_typed(
-                    cur, user_id, candidate_types, is_shiny=roll_shiny
-                )
-                # Release 3A — compound-eyes rerolls a failed spawn once
-                if species_id is None and slot1_ability == "compound-eyes":
+                result["spawn_rolled"] = True
+                result["spawn_context"] = {
+                    "candidate_types": candidate_types,
+                    "chosen_type": None,
+                }
+                try:
+                    roll_shiny = force_shiny or _shiny_roll(new_streak)
                     species_id, spawn_info = _spawn_multi_typed(
                         cur, user_id, candidate_types, is_shiny=roll_shiny
                     )
+                    # Release 3A — compound-eyes rerolls a failed spawn once
+                    if species_id is None and slot1_ability == "compound-eyes":
+                        species_id, spawn_info = _spawn_multi_typed(
+                            cur, user_id, candidate_types, is_shiny=roll_shiny
+                        )
+                        if species_id:
+                            _abilfx["compound_eyes_rerolled"] = True
                     if species_id:
-                        _abilfx["compound_eyes_rerolled"] = True
-                if species_id:
-                    result["spawned"] = spawn_info
-                    result["spawn_context"]["chosen_type"] = spawn_info.get("type1")
-                    cur.execute(
-                        "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
-                        (species_id, wl_id)
-                    )
+                        result["spawned"] = spawn_info
+                        result["spawn_context"]["chosen_type"] = spawn_info.get("type1")
+                        cur.execute(
+                            "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
+                            (species_id, wl_id)
+                        )
+                except Exception as _spawn_err:
+                    # Spawn falhou (ex: coluna ausente, pool vazio); treino já registrado, segue.
+                    result["spawn_rolled"] = False
+                    result["spawn_context"] = None
+                    result["spawned"] = None
 
             # Release 2A — egg system: grant milestone eggs + advance all pending
             _post_workout_count = _pre_insert_count + 1
