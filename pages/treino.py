@@ -483,9 +483,8 @@ if res:
                     unsafe_allow_html=True,
                 )
 
-        # Spawn
-        if res.get("spawned"):
-            pk        = res["spawned"]
+        # Spawn — one card per captured Pokémon (up to _MAX_DAILY_SPAWNS per day)
+        for pk in res.get("spawned") or []:
             is_shiny  = pk.get("is_shiny", False)
             sp_path   = pk.get("sprite_url", "")
             b64       = None
@@ -504,21 +503,23 @@ if res:
             shiny_badge = " ✨ <span style='color:#FFD700;font-weight:800'>SHINY</span>" if is_shiny else ""
             card_cls    = "shiny" if is_shiny else "spawned"
             spawn_title = "🌟 Pokémon SHINY apareceu!" if is_shiny else "✨ Pokémon apareceu durante o treino!"
+            pk_name = pk["name"]
+            pk_id   = pk["id"]
             st.markdown(
                 f"<div class='result-card {card_cls}' style='display:flex;align-items:center;gap:18px'>"
                 f"<div>{img_html}</div>"
                 f"<div>"
                 f"<div class='result-title'>{spawn_title}</div>"
-                f"<div class='spawn-name'>{pk['name']}{shiny_badge}</div>"
+                f"<div class='spawn-name'>{pk_name}{shiny_badge}</div>"
                 f"<div class='result-body' style='margin-top:4px'>"
-                f"#{str(pk['id']).zfill(4)} foi capturado e adicionado à sua coleção.</div>"
+                f"#{str(pk_id).zfill(4)} foi capturado e adicionado à sua coleção.</div>"
                 f"</div></div>",
                 unsafe_allow_html=True,
             )
             st.session_state.team_spawn_notice = {
                 "source":     "exercise",
-                "name":       pk["name"],
-                "id":         pk["id"],
+                "name":       pk_name,
+                "id":         pk_id,
                 "sprite_url": pk.get("sprite_url", ""),
                 "type1":      pk.get("type1"),
             }

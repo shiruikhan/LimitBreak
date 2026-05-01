@@ -2475,6 +2475,7 @@ _EXERCISE_XP_DAILY_CAP = 300
 _FIRST_WORKOUT_BONUS_XP = 50
 _EXERCISE_REP_XP_DIVISOR = 2
 _EXERCISE_WEIGHT_XP_DIVISOR = 20
+_MAX_DAILY_SPAWNS = 3
 
 # body_parts (campo de exercises) → slugs de tipo Pokémon para spawn temático.
 # Cada body_part pode mapear para múltiplos tipos; o spawn usa a lista agregada
@@ -3110,7 +3111,7 @@ def do_exercise_event(
         "xp_earned":    0,
         "capped":       False,
         "spawn_rolled": False,
-        "spawned":      None,
+        "spawned":      [],
         "spawn_context": None,
         "xp_result":    None,
         "milestone":    None,
@@ -3168,8 +3169,8 @@ def do_exercise_event(
             bp_map       = {r[0]: (r[1] or []) for r in ex_rows}
             ex_name_map  = {r[0]: r[2] for r in ex_rows}
 
+            # Session-wide types used only for milestone forced spawns
             candidate_types = _ranked_spawn_types(exercises, bp_map)
-            # Release 3A — pressure: focus spawn on single top-affinity type
             if slot1_ability == "pressure" and candidate_types:
                 candidate_types = [candidate_types[0]]
                 _abilfx["pressure_type"] = candidate_types[0]
@@ -3225,39 +3226,75 @@ def do_exercise_event(
                 if result["milestone"] != "first_workout":
                     result["milestone"] = f"streak_{new_streak}"
 
-            # Spawn temático — tenta cada tipo candidato em ordem de frequência
-            # Isolado em try/except para que falhas de spawn não revertam o treino já registrado.
-            should_spawn = force_spawn or (random.random() < 0.25)
-            if should_spawn:
-                result["spawn_rolled"] = True
-                result["spawn_context"] = {
-                    "candidate_types": candidate_types,
-                    "chosen_type": None,
-                }
+            # ── Per-exercise spawn with daily cap ─────────────────────────────
+            # Count spawns granted in earlier sessions today.
+            # Each workout_log records at most one spawned_species_id, so this
+            # is a slight undercount when a prior session yielded multiple spawns,
+            # making the cap mildly lenient on multi-session days.
+            cur.execute("""
+                SELECT COUNT(*) FROM workout_logs
+                WHERE user_id = %s
+                  AND (completed_at AT TIME ZONE 'America/Sao_Paulo')::date
+                      = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+                  AND id != %s
+                  AND spawned_species_id IS NOT NULL;
+            """, (user_id, wl_id))
+            prior_spawns = int(cur.fetchone()[0])
+            spawn_budget = max(0, _MAX_DAILY_SPAWNS - prior_spawns)
+            session_spawns = 0
+
+            # Milestone forced spawn consumes a budget slot first
+            if force_spawn and spawn_budget > 0:
                 try:
                     roll_shiny = force_shiny or _shiny_roll(new_streak)
                     species_id, spawn_info = _spawn_multi_typed(
                         cur, user_id, candidate_types, is_shiny=roll_shiny
                     )
-                    # Release 3A — compound-eyes rerolls a failed spawn once
-                    if species_id is None and slot1_ability == "compound-eyes":
-                        species_id, spawn_info = _spawn_multi_typed(
-                            cur, user_id, candidate_types, is_shiny=roll_shiny
-                        )
-                        if species_id:
-                            _abilfx["compound_eyes_rerolled"] = True
                     if species_id:
-                        result["spawned"] = spawn_info
-                        result["spawn_context"]["chosen_type"] = spawn_info.get("type1")
+                        result["spawn_rolled"] = True
+                        result["spawned"].append(spawn_info)
+                        session_spawns += 1
                         cur.execute(
                             "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
                             (species_id, wl_id)
                         )
-                except Exception as _spawn_err:
-                    # Spawn falhou (ex: coluna ausente, pool vazio); treino já registrado, segue.
-                    result["spawn_rolled"] = False
-                    result["spawn_context"] = None
-                    result["spawned"] = None
+                except Exception:
+                    pass
+
+            # Per-exercise spawn rolls (25% chance each, typed by body_parts)
+            for ex in exercises:
+                if session_spawns >= spawn_budget:
+                    break
+                if random.random() >= 0.25:
+                    continue
+                ex_types = _ranked_spawn_types([ex], bp_map)
+                # pressure: narrow to single top type per exercise
+                if slot1_ability == "pressure" and ex_types:
+                    ex_types = [ex_types[0]]
+                try:
+                    roll_shiny = _shiny_roll(new_streak)
+                    species_id, spawn_info = _spawn_multi_typed(
+                        cur, user_id, ex_types, is_shiny=roll_shiny
+                    )
+                    # compound-eyes: one reroll on failure
+                    if species_id is None and slot1_ability == "compound-eyes":
+                        species_id, spawn_info = _spawn_multi_typed(
+                            cur, user_id, ex_types, is_shiny=roll_shiny
+                        )
+                        if species_id:
+                            _abilfx["compound_eyes_rerolled"] = True
+                    if species_id:
+                        result["spawn_rolled"] = True
+                        result["spawned"].append(spawn_info)
+                        session_spawns += 1
+                        # First spawn written to workout_log for history badge
+                        if session_spawns == 1 and not force_spawn:
+                            cur.execute(
+                                "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
+                                (species_id, wl_id)
+                            )
+                except Exception:
+                    pass
 
             # Release 2A — egg system: grant milestone eggs + advance all pending
             _post_workout_count = _pre_insert_count + 1
@@ -3323,7 +3360,7 @@ def do_exercise_event(
         if capped_prs and slot1_id:
             try:
                 pr_xp_total = len(capped_prs) * _PR_XP_BONUS
-                pr_res = award_xp(slot1_id, pr_xp_total, "pr_bonus")
+                pr_res = award_xp(slot1_id, pr_xp_total, "pr_bonus", _distributing=True)
                 result["milestone_xp"] = result.get("milestone_xp", 0) + pr_xp_total
                 if result["xp_result"] and not result["xp_result"].get("error"):
                     result["xp_result"]["levels_gained"] = (
@@ -3343,7 +3380,7 @@ def do_exercise_event(
         # Bônus de primeiro treino (+50 XP fora do cap diário)
         if is_first_workout and slot1_id:
             try:
-                bonus_res = award_xp(slot1_id, _FIRST_WORKOUT_BONUS_XP, "first_workout_bonus")
+                bonus_res = award_xp(slot1_id, _FIRST_WORKOUT_BONUS_XP, "first_workout_bonus", _distributing=True)
                 result["milestone_xp"] = _FIRST_WORKOUT_BONUS_XP
                 if result["xp_result"] and not result["xp_result"].get("error"):
                     result["xp_result"]["levels_gained"] = (
