@@ -3,12 +3,14 @@ import streamlit as st
 import extra_streamlit_components as stx
 from utils.app_cache import (
     clear_user_cache,
+    get_cached_team_stat_boost_counts,
     get_cached_user_bench,
     get_cached_user_profile,
     get_cached_user_team,
     get_cached_xp_share_status,
 )
 from utils.db import (
+    _MAX_STAT_BOOSTS_PER_STAT,
     swap_team_slots,
     remove_from_team, add_to_team, get_image_as_base64,
     get_available_moves, get_active_moves, equip_move, unequip_move,
@@ -87,8 +89,22 @@ _STAT_COLORS = {
 }
 _STAT_MAX = 255  # maior stat base possível
 
-def _stat_bars(member: dict) -> str:
-    """Retorna o HTML do mini-grid de stats para um card de Pokémon."""
+# Mapeamento de label de exibição → chave de stat no banco
+_STAT_LABEL_TO_KEY = {
+    "HP":     "hp",
+    "ATK":    "attack",
+    "DEF":    "defense",
+    "SP.ATK": "sp_attack",
+    "SP.DEF": "sp_defense",
+    "SPD":    "speed",
+}
+
+
+def _stat_bars(member: dict, boost_counts: dict | None = None) -> str:
+    """Retorna o HTML do mini-grid de stats para um card de Pokémon.
+
+    boost_counts: {stat_key: count} para o Pokémon — exibe 🔒 quando capped.
+    """
     stats = [
         ("HP",     member["stat_hp"]),
         ("ATK",    member["stat_attack"]),
@@ -101,13 +117,23 @@ def _stat_bars(member: dict) -> str:
     for label, val in stats:
         pct   = min((val or 0) / _STAT_MAX * 100, 100)
         color = _STAT_COLORS[label]
+        stat_key = _STAT_LABEL_TO_KEY[label]
+        is_capped = (
+            boost_counts is not None
+            and boost_counts.get(stat_key, 0) >= _MAX_STAT_BOOSTS_PER_STAT
+        )
+        lock_html = (
+            "<span style='font-size:0.55rem;color:#F8D030;margin-left:2px' "
+            "title='Vitaminas no limite'>🔒</span>"
+            if is_capped else ""
+        )
         rows += (
             f"<div class='stat-row-mini'>"
             f"<span class='stat-lbl-mini'>{label}</span>"
             f"<div class='stat-bar-mini'>"
             f"<div class='stat-fill-mini' style='width:{pct:.0f}%;background:{color}'></div>"
             f"</div>"
-            f"<span class='stat-val-mini'>{val or 0}</span>"
+            f"<span class='stat-val-mini'>{val or 0}{lock_html}</span>"
             f"</div>"
         )
     return f"<div class='stat-grid'>{rows}</div>"
@@ -458,10 +484,11 @@ if xp_share_log:
 
 # ── Data ───────────────────────────────────────────────────────────────────────
 with st.spinner("Carregando equipe..."):
-    profile      = get_cached_user_profile(user_id)
-    team         = get_cached_user_team(user_id)
-    team_by_slot = {m["slot"]: m for m in team}
-    xp_share     = get_cached_xp_share_status(user_id)
+    profile            = get_cached_user_profile(user_id)
+    team               = get_cached_user_team(user_id)
+    team_by_slot       = {m["slot"]: m for m in team}
+    xp_share           = get_cached_xp_share_status(user_id)
+    team_boost_counts  = get_cached_team_stat_boost_counts(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 col_title, col_coins = st.columns([3, 1])
@@ -521,7 +548,8 @@ for slot in range(1, 7):
             prog     = _xp_progress(member["level"], member["xp"])
             needed   = member["level"] * XP_PER_LV
 
-            stat_html = _stat_bars(member)
+            member_boost_counts = team_boost_counts.get(member["user_pokemon_id"])
+            stat_html = _stat_bars(member, boost_counts=member_boost_counts)
             nature_html = _nature_html(member)
 
             ability_html = ""

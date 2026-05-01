@@ -1085,6 +1085,31 @@ def get_stat_boost_summary(user_pokemon_id: int) -> dict:
         return {s: 0 for s in _VALID_STATS}
 
 
+def get_team_stat_boost_counts(user_id: str) -> dict:
+    """Retorna contagem de aplicações de vitamina por stat para todos os membros da equipe.
+
+    Retorna {user_pokemon_id: {stat: count}}.
+    Uma única query — usada por equipe.py para exibir o indicador de cap.
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT usb.user_pokemon_id, usb.stat, COUNT(*) AS cnt
+                FROM user_pokemon_stat_boosts usb
+                JOIN user_team ut ON ut.user_pokemon_id = usb.user_pokemon_id
+                WHERE ut.user_id = %s
+                GROUP BY usb.user_pokemon_id, usb.stat
+            """, (user_id,))
+            result: dict = {}
+            for up_id, stat, cnt in cur.fetchall():
+                if up_id not in result:
+                    result[up_id] = {}
+                result[up_id][stat] = cnt
+            return result
+    except Exception:
+        return {}
+
+
 
 
 # ── Loja ──────────────────────────────────────────────────────────────────────
@@ -2935,20 +2960,29 @@ def _detect_prs(
 
 
 def get_user_eggs(user_id: str) -> list[dict]:
-    """Returns all pending (unhatched) eggs for a user, oldest first."""
+    """Returns all pending (unhatched) eggs for a user, oldest first.
+
+    Includes species_id/name/sprite_url for spoiler-toggle in ovos.py.
+    """
     try:
         with get_connection().cursor() as cur:
             cur.execute("""
-                SELECT id, rarity, workouts_to_hatch, workouts_done, received_at
-                FROM user_eggs
-                WHERE user_id = %s AND hatched_at IS NULL
-                ORDER BY received_at;
+                SELECT ue.id, ue.rarity, ue.workouts_to_hatch, ue.workouts_done,
+                       ue.received_at, ue.species_id,
+                       ps.name AS species_name, ps.sprite_url
+                FROM user_eggs ue
+                LEFT JOIN pokemon_species ps ON ps.id = ue.species_id
+                WHERE ue.user_id = %s AND ue.hatched_at IS NULL
+                ORDER BY ue.received_at;
             """, (user_id,))
             return [
                 {
                     "id": r[0], "rarity": r[1],
                     "workouts_to_hatch": r[2], "workouts_done": r[3],
                     "received_at": r[4],
+                    "species_id": r[5],
+                    "species_name": r[6],
+                    "sprite_url": r[7],
                 }
                 for r in cur.fetchall()
             ]

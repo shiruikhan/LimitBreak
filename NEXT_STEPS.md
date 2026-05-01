@@ -1,172 +1,189 @@
 # LimitBreak — Next Steps
 
-> Updated: April 30, 2026 after full codebase audit.
+> Atualizado: 30 de abril de 2026 após auditoria completa do repositório.
 >
-> Goal: continue strengthening the workout → Pokémon feedback loop, then move into retention and social layers.
+> Estado: **Release 4.0 + Priority B completos.** Todos os sistemas core estão implementados e estáveis.
 
 ---
 
-## Shipped — Priority 1 (✅ Complete)
+## O que está pronto (auditoria confirmada)
 
-All four items from the original Priority 1 plan are live in production.
-
-| Feature | Release | Status |
-|---|---|---|
-| PR detection + bonus XP | 1A | ✅ `_detect_prs()` + `_get_exercise_bests()` in `db.py`; +50 XP/PR, max 3/session |
-| Multi-type spawn affinity | 1B | ✅ `_ranked_spawn_types()` + `_spawn_multi_typed()` in `db.py` |
-| Egg system | 2A | ✅ `user_eggs` table; milestones at 25/50/100 workouts; hatch in 5/8/12 sessions |
-| Slot 1 passive abilities | 3A | ✅ `utils/abilities.py`; 5 abilities wired into `do_exercise_event()` |
-
-Also shipped (not in original plan):
-
-| Feature | Release | Status |
-|---|---|---|
-| Loot Box | 3A | ✅ `open_loot_box()` with rarity table; admin-giftable |
-| Nature Mint | 3A | ✅ `use_nature_mint()` with stat recalc |
-| Admin Panel | 4.0 | ✅ `pages/admin.py` with 5 tabs; restricted to `is_admin()` |
-| Daily & Weekly Missions | B | ✅ `pages/missoes.py`; `user_missions` table; 6 daily + 4 weekly options; hooks in treino/batalha/calendario |
-| UI/UX + Performance Shell | 4.1 | ✅ grouped sidebar, `pages/hub.py`, shared cache layer, targeted `st.fragment` use |
-
----
-
-## Current Baseline (post-audit)
-
-### What the workout loop delivers today
-
-Every call to `do_exercise_event()` can produce:
-- Base XP (capped at 300/day) with daily progress bar
-- Slot 1 ability modifier (blaze, synchronize, pickup, pressure, compound-eyes)
-- Personal record detection with +50 XP bonus (max 3/session)
-- Type-ranked spawn attempt (multi-type affinity)
-- Compound-eyes reroll on failed spawn
-- Egg advancement + hatch reveal
-- Egg grant at milestone workout counts (25/50/100)
-- XP Share distribution to the rest of the team
-
-### What the app shell delivers today
-
-- Hidden Streamlit navigation with grouped custom sidebar in `app.py`
-- Central authenticated landing page in `pages/hub.py`
-- Shared cached user reads in `utils/app_cache.py`
-- Resource-cached Supabase client in `utils/supabase_client.py`
-- Fragment-based partial rerenders in isolated UI sections like hub and calendar
-
-### Known gaps still open
-
-- No friendship/happiness system → bypass `_BYPASS_LEVEL = 36` still used for trade/friendship evolutions
-- No community challenge or guild layer
-- No workout analytics or muscle balance indicator
-- No trainer profile page
-- No Pokémon trade system
-
----
-
-## Next Priorities
-
-### Priority A — Happiness / Friendship System
-
-**Why now:** resolves an existing technical debt (`_BYPASS_LEVEL = 36`) semantically and adds an emotional dimension to the Pokémon bond. It also restores evolution accuracy for Gengar, Alakazam, Chansey, and Eevee branches.
-
-**Design:**
-- Add `happiness SMALLINT DEFAULT 70` to `user_pokemon`
-- Increment happiness: +2 per level-up, +1 per workout, +1 per check-in
-- Decrement: −5 if no activity in 7 days (checked lazily at next workout or check-in)
-- Happiness >= 220 → unlock friendship-trigger evolutions (replace `_BYPASS_LEVEL = 36` for those cases)
-- Happiness >= 180 → +5% XP bonus in `award_xp()`
-- Happiness < 50 → −5% XP ("desmotivado" indicator)
-
-**Schema:** `ALTER TABLE user_pokemon ADD COLUMN happiness SMALLINT DEFAULT 70;`
-
-**Effort:** Medium | **Impact:** High
-
----
-
-### ~~Priority B — Daily and Weekly Missions~~ ✅ SHIPPED
-
-Implemented in `pages/missoes.py` + `utils/missions.py` + `user_missions` table.
-- 6 daily options (3 drawn/day) + 4 weekly options (1 drawn/week)
-- Rewards: XP, coins, random stone, random vitamin, loot box
-- Hooks in `treino.py` (workout + pr), `batalha.py` (battle_win), `calendario.py` (checkin)
-- Run `scripts/migrate_missions.sql` to create the table in Supabase
-
----
-
-### Priority C — Gym Badges
-
-**Why now:** creates a recognizable long-term progression spine. Extension of the existing achievements catalog — low net-new complexity.
-
-**Design (8 badges, Kanto-themed):**
-| Badge | Milestone |
+| Sistema | Status |
 |---|---|
-| Pedra | 10 workout sessions |
-| Cascata | 7-day check-in streak |
-| Trovão | 5 PvP wins |
-| Arco-íris | 25 Pokémon captured |
-| Alma | 30-day workout streak |
-| Pântano | 10 PRs detected |
-| Vulcão | 10 Pokémon evolved |
-| Terra | 100 workout sessions |
-
-**Implementation:** subset of `CATALOG` in `utils/achievements.py` with distinct visual (badge sprite instead of shields.io). Display counter "Insígnias: 3/8" in `equipe.py` sidebar or profile area.
-
-**Effort:** Medium | **Impact:** High
+| Auth + sessão persistente (cookie 30d) | ✅ |
+| Onboarding + starter (27 + 2 easter egg) | ✅ |
+| Pokédex nacional 1025 + 42 formas regionais | ✅ |
+| Pokédex pessoal com filtros e progresso por geração | ✅ |
+| Equipe (6 slots, 4 moves, stats IV/EV/Nature) | ✅ |
+| Banco de Pokémon | ✅ |
+| Sistema de XP + evolução automática (level-up, pedra, shed) | ✅ |
+| Bypass nível 36 para evoluções por troca/amizade | ✅ |
+| XP Share (distribui 30% para o time) | ✅ |
+| Cap de vitaminas (5 por stat por Pokémon) | ✅ |
+| Loja: pedras (10), vitaminas (6), XP Share, Nature Mint, Loot Box | ✅ |
+| Calendário: check-in, streak, spawn ×3, bônus dias 15/último | ✅ |
+| Batalhas PvP (3/dia, turno a turno, XP + moedas) | ✅ |
+| Conquistas: 23 badges em 5 categorias | ✅ |
+| Leaderboard: XP mensal, streak mensal, coleção all-time | ✅ |
+| Missões diárias (3/dia) e semanal (1/semana) com recompensas | ✅ |
+| Admin panel: 5 tabs (Visão Geral, Usuários, Gift, Exercícios, Logs) | ✅ |
+| Habilidades passivas: blaze, synchronize, pickup, pressure, compound-eyes | ✅ |
+| Sistema de ovos: concessão em milestones 25/50/100, choca em N treinos | ✅ |
+| Recordes pessoais (PR): +50 XP por PR, máx 3/sessão | ✅ |
+| Loot Box: tabela de raridade 50/30/10/5/4/1% | ✅ |
+| Biblioteca de exercícios (152 exercícios) | ✅ |
+| Workout Builder (Rotinas → Dias → Exercícios) | ✅ |
+| Routine Log com cap 300 XP/dia e histórico 7 dias | ✅ |
+| Shell visual unificado + hub central + cache compartilhado | ✅ |
 
 ---
 
-### Priority D — Rest Day Mechanic
+## Lacunas encontradas na auditoria
 
-**Why now:** low effort, high retention value. Prevents streak anxiety from causing app abandonment.
+### Funcionalidades listadas em "A implementar" no CLAUDE.md
+
+| Item | Esforço estimado | Prioridade |
+|---|---|---|
+| **Página de Ovos pendentes** | ~3h | Alta — único item incompleto do spec |
+| **Formas de Paldea** | ~8h | Baixa — opcional no CLAUDE.md |
+
+### Melhorias de UX identificadas na auditoria
+
+| Item | Descrição | Esforço |
+|---|---|---|
+| Widget de missões no hub | Missões visíveis só na sidebar; hub não mostra progresso diário | ~2h |
+| Indicador visual de cap de vitaminas | Usuário só descobre o limite ao tentar usar o item | ~1h |
+| Banner de conquistas fora de conquistas.py | `new_achievements_pending` só aparece em conquistas.py | ~1h |
+
+### Dívida técnica
+
+| Item | Descrição | Urgência |
+|---|---|---|
+| `db.py` com 4370 linhas | Split em submódulos (pokemon, progression, combat, shop, workout, admin) | Baixa |
+| Sem testes automatizados | `award_xp`, `_roll_loot_box`, `_detect_prs`, `check_and_award_achievements` sem cobertura | Baixa |
+| Retry na conexão DB | `get_connection()` reconecta mas não tem backoff — pode falhar no cold start do Streamlit Cloud | Baixa |
+| Cache de sprites regionais | HTTP GET a cada request para forms regionais (id > 10000) | Baixa |
+
+---
+
+## Próximas features (priorizadas)
+
+### ~~Release 5 — Qualidade de Vida~~ ✅ ENTREGUE (30/04/2026)
+
+**5A · Página de Ovos** ✅
+- `pages/ovos.py`: grade de cards com raridade, barra de progresso, spoiler toggle de espécie
+- `get_user_eggs` atualizado para incluir `species_id/name/sprite_url` via JOIN
+- Registrada na sidebar (grupo "Treinador") e no hub SECTION_CARDS
+- `db.py`: nova função `get_team_stat_boost_counts` em uma query
+
+**5B · Widget de Missões no Hub** ✅
+- `hub.py`: painel de missões diárias expandido com progresso individual por missão
+- Barras de progresso coloridas: azul (em andamento), verde (completa), cinza (coletada)
+- Importa `get_mission()` do catálogo para ícone e label de recompensa
+
+**5C · Indicador de Cap de Vitaminas na Equipe** ✅
+- `equipe.py`: importa `_MAX_STAT_BOOSTS_PER_STAT` e `get_cached_team_stat_boost_counts`
+- `_stat_bars()` aceita `boost_counts` opcional; exibe 🔒 dourado quando stat está no limite
+- `app_cache.py`: `get_cached_team_stat_boost_counts` (TTL 30s) + limpeza em `clear_user_cache()`
+
+**5D · Toast de Conquistas Global** ✅
+- `app.py`: toast `st.toast()` disparado uma única vez por conjunto de conquistas desbloqueadas
+- Chave de controle derivada dos slugs evita repetição em rerenders
+
+---
+
+### Release 6 — Felicidade / Amizade *(estimativa: ~1 semana)*
+
+**Por que agora:** remove o hack `_BYPASS_LEVEL = 36` de forma semântica e adiciona dimensão emocional ao vínculo com o Pokémon. Restaura a precisão de evolução para Gengar, Alakazam, Chansey e galho Eevee.
 
 **Design:**
-- Button in `calendario.py` or `treino.py`: "Registrar Descanso"
-- Grants +5 happiness to slot 1 Pokémon
-- Does not break check-in streak
-- Displays a "recovery" note in the calendar grid
+- `ALTER TABLE user_pokemon ADD COLUMN happiness SMALLINT DEFAULT 70;`
+- Incrementos: +2 por level-up, +1 por treino, +1 por check-in, +5 por descanso registrado
+- Decremento: −5 se inativo por 7 dias (verificação lazy no próximo evento)
+- Happiness ≥ 220 → desbloqueio de evoluções por amizade (substituindo bypass do nível 36 para esses casos)
+- Happiness ≥ 180 → +5% XP em `award_xp()`
+- Happiness < 50 → −5% XP + indicador "desmotivado" na equipe
 
-**Effort:** Low | **Impact:** Medium
-
----
-
-### Priority E — Workout Analytics
-
-**Why now:** fitness users are data-driven. Progression charts are retentive independent of gamification.
-
-**Design:**
-- Volume chart per exercise over time (sets × reps × kg)
-- Max weight per exercise (personal best history)
-- Weekly muscle group distribution (which body parts trained this week vs. last)
-- All derived from existing `exercise_logs.sets_data` — no schema changes needed
-
-**UI:** `st.line_chart` / `st.bar_chart` in `treino.py` or a new tab inside that page.
-
-**Effort:** Medium | **Impact:** High
+**Mechânica de Descanso (baixo esforço, incluso aqui):**
+- Botão "Registrar Descanso" em `calendario.py`
+- +5 happiness no slot 1, não quebra streak de check-in
+- Nota visual no grid do calendário
 
 ---
 
-## Deferred (V2 / Social Layer)
+### Release 7 — Insígnias de Ginásio *(estimativa: ~1 semana)*
 
-These remain valuable but depend on the core loop being deeper first.
+**Por que agora:** cria espinha de progressão de longo prazo reconhecível. Extensão do catálogo de conquistas existente — baixa complexidade incremental.
 
-| Feature | Reason to defer |
+**8 insígnias temáticas (Kanto):**
+
+| Insígnia | Marco |
 |---|---|
-| Pokémon trade system | Requires async proposal state + notification infra |
-| Guild system | Requires group state management; social features land better with a larger user base |
-| Community weekly challenge | Simpler than guilds, but still needs a weekly reset job |
-| Trainer profile page | Good after gym badges and happiness exist to make it interesting |
-| Rotation sharing | Nice-to-have; low adoption risk in current user base |
+| Pedra | 10 sessões de treino |
+| Cascata | Streak de 7 dias de check-in |
+| Trovão | 5 vitórias em batalha |
+| Arco-íris | 25 Pokémon capturados |
+| Alma | Streak de 30 dias de treino |
+| Pântano | 10 PRs detectados |
+| Vulcão | 10 Pokémon evoluídos |
+| Terra | 100 sessões de treino |
+
+**Implementação:** subconjunto de `CATALOG` em `utils/achievements.py` com visual distinto (sprite de insígnia). Exibir contador "Insígnias: 3/8" em `equipe.py` ou hub.
 
 ---
 
-## Effort vs. Impact Summary
+### Release 8 — Analytics de Treino *(estimativa: ~1 semana)*
 
-| Feature | Effort | Impact | Next? |
+**Por que agora:** usuários de musculação são orientados a dados. Gráficos de progressão são retentivos independente da gamificação.
+
+**Design:**
+- Gráfico de volume por exercício ao longo do tempo (sets × reps × kg)
+- Melhor carga histórica por exercício (já calculado em `_get_exercise_bests()`)
+- Distribuição semanal de grupos musculares (quais partes do corpo treinadas esta semana vs. última)
+- Tudo derivado de `exercise_logs.sets_data` existente — sem mudança de schema
+
+**UI:** nova tab "📊 Análise" em `treino.py` com `st.line_chart` e `st.bar_chart`.
+
+---
+
+## Deferred (V2 / Camada Social)
+
+Valiosos, mas dependem do loop core estar mais profundo antes.
+
+| Feature | Motivo do adiamento |
+|---|---|
+| Sistema de trocas de Pokémon | Requer estado de proposta assíncrona + infra de notificação |
+| Sistema de guilds | Gerenciamento de estado de grupo; melhora com base maior de usuários |
+| Desafio comunitário semanal | Requer job de reset semanal |
+| Página de perfil público do treinador | Mais interessante após insígnias e felicidade existirem |
+| Formas de Paldea | Opcional; baixo impacto até ter mais usuários |
+
+---
+
+## Resumo: Esforço × Impacto
+
+| Feature | Esforço | Impacto | Status |
 |---|---|---|---|
-| Daily & weekly missions | Medium | Very High | ✅ Shipped |
-| Rest Day mechanic | Low | Medium | 🟡 Candidate |
-| Gym Badges | Medium | High | 🔴 Yes |
-| Happiness / friendship | Medium | High | 🔴 Yes |
-| Workout analytics | Medium | High | 🟠 Yes |
-| Community challenge | High | High | 🔵 V2 |
-| Trainer profile page | Medium | Medium | 🔵 After badges |
-| Trade system | High | High | 🔵 V2 |
-| Guilds | High | Very High | 🔵 V2 |
+| Página de Ovos | Baixo | Alto | 🔴 Release 5 |
+| Widget de missões no hub | Baixo | Médio | 🔴 Release 5 |
+| Indicador cap vitaminas | Baixo | Baixo | 🟡 Release 5 |
+| Banner conquistas global | Baixo | Médio | 🟡 Release 5 |
+| Felicidade / amizade | Médio | Alto | 🔴 Release 6 |
+| Mecânica de descanso | Baixo | Médio | 🔴 Release 6 (junto) |
+| Insígnias de Ginásio | Médio | Alto | 🔴 Release 7 |
+| Analytics de treino | Médio | Alto | 🔴 Release 8 |
+| Trocas de Pokémon | Alto | Alto | 🔵 V2 |
+| Guilds | Alto | Muito Alto | 🔵 V2 |
+
+---
+
+## Checklist de Deploy
+
+Antes de cada push em produção:
+
+- [ ] Executar migrações SQL pendentes no Supabase (SQL Editor)
+- [ ] Atualizar Secrets no Streamlit Cloud se novas variáveis foram adicionadas
+- [ ] Verificar que seeds idempotentes foram executados (novos itens/espécies)
+- [ ] Testar fluxo de auth (login, refresh, logout) em produção
+- [ ] Verificar CDN fallback para sprites (testar sem submódulo local)
+- [ ] Confirmar que `clear_user_cache()` é chamado após todas as novas mutações

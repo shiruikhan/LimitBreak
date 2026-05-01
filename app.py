@@ -225,6 +225,7 @@ def _build_app_pages(user_id: str) -> tuple[dict, list[tuple[str, list[dict]]]]:
         ]),
         ("Treinador", [
             _page_meta("pages/equipe.py", "Minha Equipe", "⚔️"),
+            _page_meta("pages/ovos.py", "Ovos", "🥚"),
             _page_meta("pages/conquistas.py", "Conquistas", "🏅"),
             _page_meta("pages/missoes.py", "Missões", "🎯"),
         ]),
@@ -293,6 +294,23 @@ def _render_sidebar_shell(groups: list[tuple[str, list[dict]]], user_id: str) ->
 """,
                 unsafe_allow_html=True,
             )
+
+# ── Toast de conquistas ────────────────────────────────────────────────────────
+# Mostra notificação flutuante quando novos achievements foram desbloqueados.
+# Usa uma chave derivada dos slugs para mostrar apenas uma vez por evento.
+_pending_ach = st.session_state.get("new_achievements_pending", [])
+if _pending_ach and st.session_state.user is not None:
+    _toast_key = "_ach_toast_" + "_".join(
+        a.get("slug", "") for a in _pending_ach[:5]
+    )
+    if not st.session_state.get(_toast_key):
+        count = len(_pending_ach)
+        if count == 1:
+            _name = _pending_ach[0].get("slug", "conquista").replace("_", " ")
+            st.toast(f"🏅 Nova conquista: {_name}!", icon="🎉")
+        else:
+            st.toast(f"🎉 {count} novas conquistas desbloqueadas!", icon="🏅")
+        st.session_state[_toast_key] = True
 
 # ── Navegação ──────────────────────────────────────────────────────────────────
 if st.session_state.user is None:

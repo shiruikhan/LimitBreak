@@ -8,6 +8,7 @@ from utils.app_cache import (
     get_cached_user_team,
 )
 from utils.db import _MAX_BATTLES_PER_DAY, _today_brt
+from utils.missions import get_mission
 
 
 if not st.session_state.get("user"):
@@ -122,6 +123,7 @@ SECTION_CARDS = [
         "icon": "⚔️",
         "links": [
             ("Minha Equipe", "pages/equipe.py"),
+            ("Ovos", "pages/ovos.py"),
             ("Conquistas", "pages/conquistas.py"),
             ("Missões", "pages/missoes.py"),
         ],
@@ -219,13 +221,58 @@ def _render_snapshot() -> None:
             if st.button("🎒 Abrir mochila", use_container_width=True):
                 st.switch_page("pages/mochila.py")
     with right:
+        mission_rows_html = ""
+        for m in daily:
+            cat = get_mission(m["slug"])
+            if not cat:
+                continue
+            prog   = m["progress"]
+            target = m["target"]
+            pct    = min(prog / target * 100, 100) if target else 100
+            done   = m["completed"]
+            claimed = m.get("reward_claimed", False)
+
+            if claimed:
+                bar_color = "#30363d"
+                label_color = "#484f58"
+                status_icon = "✓"
+            elif done:
+                bar_color = "#B8F82F"
+                label_color = "#B8F82F"
+                status_icon = "✅"
+            else:
+                bar_color = "#58a6ff"
+                label_color = "#e6edf3"
+                status_icon = cat["icon"]
+
+            reward_label = cat["reward_label"]
+            mission_rows_html += (
+                f"<div style='display:grid;grid-template-columns:18px 1fr;gap:8px;"
+                f"align-items:start;margin-bottom:9px'>"
+                f"<span style='font-size:0.9rem;line-height:1.4'>{status_icon}</span>"
+                f"<div>"
+                f"<div style='font-size:0.72rem;color:{label_color};font-weight:600;"
+                f"line-height:1.3;margin-bottom:3px'>{cat['label']}</div>"
+                f"<div style='background:#21262d;border-radius:9999px;height:4px;overflow:hidden'>"
+                f"<div style='background:{bar_color};height:100%;width:{pct:.0f}%;"
+                f"border-radius:9999px'></div>"
+                f"</div>"
+                f"<div style='font-size:0.6rem;color:#8b949e;margin-top:2px'>"
+                f"{prog}/{target} &nbsp;·&nbsp; {reward_label}</div>"
+                f"</div></div>"
+            )
+
+        daily_label = (
+            f"<span style='color:#B8F82F;font-weight:700'>{daily_done}/{len(daily)} completas</span>"
+            if daily_done > 0 else f"0/{len(daily)} completas"
+        )
+
         st.markdown(
             f"""
 <div class="hub-panel">
   <div class="hub-panel-title">Missões diárias</div>
-  <div class="hub-panel-sub">Progresso atual de hoje.</div>
-  <span class="hub-chip">✅ {daily_done}/{len(daily)} concluídas</span>
-  <span class="hub-chip">📅 {today.strftime("%d/%m/%Y")}</span>
+  <div class="hub-panel-sub" style="margin-bottom:10px">{daily_label} · {today.strftime("%d/%m")}</div>
+  {mission_rows_html if mission_rows_html else "<div style='color:#8b949e;font-size:0.8rem'>Nenhuma missão carregada.</div>"}
 </div>
 """,
             unsafe_allow_html=True,
