@@ -85,8 +85,11 @@ for sheet in sheets:
             cy, cn, _ = st.columns([1, 1, 4])
             with cy:
                 if st.button("Confirmar", key=f"yes_s_{sid}", type="primary"):
-                    delete_workout_sheet(sid)
+                    ok, err = delete_workout_sheet(sid)
                     st.session_state.confirm_delete = None
+                    if err:
+                        st.error(f"Erro ao deletar rotina: {err}")
+                        st.stop()
                     st.rerun()
             with cn:
                 if st.button("Cancelar", key=f"no_s_{sid}"):
@@ -148,8 +151,11 @@ for sheet in sheets:
                 confirm_day = ("day", did)
                 if st.session_state.confirm_delete == confirm_day:
                     if st.button("✓ Sim", key=f"yes_d_{did}", type="primary"):
-                        delete_workout_day(did)
+                        ok, err = delete_workout_day(did)
                         st.session_state.confirm_delete = None
+                        if err:
+                            st.error(f"Erro ao deletar dia: {err}")
+                            st.stop()
                         st.rerun()
                 else:
                     if st.button("🗑", key=f"del_d_{did}", help="Deletar dia"):

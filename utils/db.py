@@ -3500,17 +3500,35 @@ def update_workout_sheet(user_id: str, sheet_id: str, name: str) -> tuple[bool, 
         return False, str(e)
 
 
-def delete_workout_sheet(sheet_id: str) -> bool:
-    """DELETE a sheet (cascades to workout_days and workout_day_exercises)."""
+def delete_workout_sheet(sheet_id: str) -> tuple[bool, str | None]:
+    """DELETE a sheet with all its days and exercises."""
     try:
         conn = get_connection()
+        sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
+        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
         with conn.cursor() as cur:
+            if sheet_fk:
+                # Nullify workout_logs.day_id to avoid FK violation
+                cur.execute(f"""
+                    UPDATE workout_logs SET day_id = NULL
+                    WHERE day_id IN (
+                        SELECT id FROM workout_days WHERE {sheet_fk} = %s
+                    );
+                """, (sheet_id,))
+                if day_fk:
+                    cur.execute(f"""
+                        DELETE FROM workout_day_exercises
+                        WHERE {day_fk} IN (
+                            SELECT id FROM workout_days WHERE {sheet_fk} = %s
+                        );
+                    """, (sheet_id,))
+                cur.execute(f"DELETE FROM workout_days WHERE {sheet_fk} = %s;", (sheet_id,))
             cur.execute("DELETE FROM workout_sheets WHERE id = %s;", (sheet_id,))
         conn.commit()
-        return True
-    except Exception:
-        get_connection().rollback()
-        return False
+        return True, None
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
 
 
 def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None]:
@@ -3533,17 +3551,21 @@ def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None
         return None, str(e)
 
 
-def delete_workout_day(day_id: str) -> bool:
-    """DELETE a day (cascades to workout_day_exercises)."""
+def delete_workout_day(day_id: str) -> tuple[bool, str | None]:
+    """DELETE a day with all its exercises."""
     try:
         conn = get_connection()
+        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
         with conn.cursor() as cur:
+            cur.execute("UPDATE workout_logs SET day_id = NULL WHERE day_id = %s;", (day_id,))
+            if day_fk:
+                cur.execute(f"DELETE FROM workout_day_exercises WHERE {day_fk} = %s;", (day_id,))
             cur.execute("DELETE FROM workout_days WHERE id = %s;", (day_id,))
         conn.commit()
-        return True
-    except Exception:
-        get_connection().rollback()
-        return False
+        return True, None
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
 
 
 def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> tuple[str | None, str | None]:
