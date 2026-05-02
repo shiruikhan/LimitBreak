@@ -525,15 +525,22 @@ for slot in range(1, 7):
                 card_cls = "team-card"
                 lbl_html = f"<div class='slot-label'>Slot {slot}</div>"
 
-            # Prefer sprite_url (Supabase public URL) for direct rendering; fallback to local thumbnail
-            _sprite_src = member.get("sprite_url") or ""
-            if not (_sprite_src.startswith("http")):
-                # Local dev: try thumbnail path first, then sprite_url
-                _local_thumb = _thumb_path(member["species_id"])
-                _sprite_src = _local_thumb if os.path.isfile(_local_thumb) else _sprite_src
+            is_shiny   = member.get("is_shiny", False)
+            shiny_src  = member.get("sprite_shiny_url") or ""
+
+            # Prefer shiny sprite for shiny Pokémon; fall back to normal sprite with glow
+            if is_shiny and shiny_src:
+                _sprite_src = shiny_src
+                _shiny_style = "display:block;margin:0 auto;filter:drop-shadow(0 0 8px gold) saturate(1.5)"
+            else:
+                _sprite_src = member.get("sprite_url") or ""
+                if not _sprite_src.startswith("http"):
+                    _local_thumb = _thumb_path(member["species_id"])
+                    _sprite_src = _local_thumb if os.path.isfile(_local_thumb) else _sprite_src
+                _shiny_style = ("display:block;margin:0 auto;filter:drop-shadow(0 0 8px gold) saturate(1.5)"
+                                if is_shiny else "display:block;margin:0 auto")
             img_tag = (
-                sprite_img_tag(_sprite_src, width=72,
-                               extra_style="display:block;margin:0 auto")
+                sprite_img_tag(_sprite_src, width=72, extra_style=_shiny_style)
                 or "<div style='text-align:center;font-size:2.5rem'>❓</div>"
             )
 
@@ -543,6 +550,11 @@ for slot in range(1, 7):
                   f"{member['type1'].upper()}</span>") if member["type1"] else ""
             t2 = (f"<span class='type-sm' style='background:{c2['bg']};color:{c2['text']}'>"
                   f"{member['type2'].upper()}</span>") if member["type2"] else ""
+
+            shiny_badge = (
+                "<span style='background:#FFD700;color:#000;font-size:0.55rem;font-weight:800;"
+                "padding:1px 6px;border-radius:8px;margin-left:5px;letter-spacing:1px'>✨SHINY</span>"
+            ) if is_shiny else ""
 
             prog     = _xp_progress(member["level"], member["xp"])
             needed   = member["level"] * XP_PER_LV
@@ -562,11 +574,14 @@ for slot in range(1, 7):
                         f"</div>"
                     )
 
+            poke_name = member['name'].upper()
+            species_id = member['species_id']
+            level = member['level']
             st.markdown(
                 f"<div class='{card_cls}'>{lbl_html}{img_tag}"
-                f"<div class='poke-card-name'>#{member['species_id']} {member['name'].upper()}</div>"
+                f"<div class='poke-card-name'>#{species_id} {poke_name}{shiny_badge}</div>"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
-                f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {member['level']}</div>"
+                f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {level}</div>"
                 f"{nature_html}"
                 f"{ability_html}"
                 f"<div class='xp-track'><div class='xp-fill' style='width:{prog*100:.0f}%'></div></div>"
@@ -797,13 +812,20 @@ else:
     for idx, pk in enumerate(bench):
         col = bench_cols[idx % 6]
         with col:
-            _bsrc = pk.get("sprite_url") or ""
-            if not _bsrc.startswith("http"):
-                _bpath = _thumb_path(pk["species_id"])
-                _bsrc = _bpath if os.path.isfile(_bpath) else _bsrc
+            _bshiny    = pk.get("is_shiny", False)
+            _bshiny_src = pk.get("sprite_shiny_url") or ""
+            if _bshiny and _bshiny_src:
+                _bsrc = _bshiny_src
+                _bstyle = "display:block;margin:0 auto;image-rendering:pixelated;filter:drop-shadow(0 0 6px gold) saturate(1.5)"
+            else:
+                _bsrc = pk.get("sprite_url") or ""
+                if not _bsrc.startswith("http"):
+                    _bpath = _thumb_path(pk["species_id"])
+                    _bsrc = _bpath if os.path.isfile(_bpath) else _bsrc
+                _bstyle = ("display:block;margin:0 auto;image-rendering:pixelated;filter:drop-shadow(0 0 6px gold) saturate(1.5)"
+                           if _bshiny else "display:block;margin:0 auto;image-rendering:pixelated")
             img_tag = (
-                sprite_img_tag(_bsrc, width=60,
-                               extra_style="display:block;margin:0 auto;image-rendering:pixelated")
+                sprite_img_tag(_bsrc, width=60, extra_style=_bstyle)
                 or "<div style='font-size:2rem;text-align:center'>❓</div>"
             )
             c1   = get_type_color(pk["type1"])
@@ -819,14 +841,23 @@ else:
                 f"{pk['type2'].upper()}</span>"
             ) if pk["type2"] else ""
 
+            bench_shiny_badge = (
+                "<span style='background:#FFD700;color:#000;font-size:0.48rem;font-weight:800;"
+                "padding:1px 4px;border-radius:6px;display:block;text-align:center;"
+                "margin-bottom:2px;letter-spacing:1px'>✨ SHINY</span>"
+            ) if _bshiny else ""
+
             stat_html = _stat_bars(pk)
             nature_html = _nature_html(pk, compact=True)
+            pk_name_upper = pk['name'].upper()
+            pk_level = pk['level']
 
             st.markdown(
                 f"<div class='bench-card'>"
                 f"{img_tag}"
-                f"<div class='bench-name'>{pk['name'].upper()}</div>"
-                f"<div class='bench-lv'>Lv. {pk['level']}</div>"
+                f"{bench_shiny_badge}"
+                f"<div class='bench-name'>{pk_name_upper}</div>"
+                f"<div class='bench-lv'>Lv. {pk_level}</div>"
                 f"{nature_html}"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
                 f"{stat_html}"

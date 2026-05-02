@@ -703,7 +703,8 @@ def get_user_team(user_id: str) -> list[dict]:
                        p.base_hp, p.base_attack, p.base_defense,
                        p.base_sp_attack, p.base_sp_defense, p.base_speed,
                        {nature_select},
-                       p.ability_slug
+                       p.ability_slug,
+                       up.is_shiny, p.sprite_shiny_url
                 FROM user_team ut
                 JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species p ON up.species_id = p.id
@@ -725,6 +726,8 @@ def get_user_team(user_id: str) -> list[dict]:
                     "nature_name": r[21],
                     "nature": _nature_payload(r[21]),
                     "ability_slug": r[22] if len(r) > 22 else None,
+                    "is_shiny": bool(r[23]) if len(r) > 23 else False,
+                    "sprite_shiny_url": r[24] if len(r) > 24 else None,
                 }
                 for r in rows
             ]
@@ -784,7 +787,8 @@ def get_user_bench(user_id: str) -> list[dict]:
                        t1.name AS type1, t2.name AS type2,
                        up.stat_hp, up.stat_attack, up.stat_defense,
                        up.stat_sp_attack, up.stat_sp_defense, up.stat_speed,
-                       {nature_select}
+                       {nature_select},
+                       up.is_shiny, p.sprite_shiny_url
                 FROM user_pokemon up
                 JOIN pokemon_species p  ON up.species_id = p.id
                 LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
@@ -806,6 +810,8 @@ def get_user_bench(user_id: str) -> list[dict]:
                     "stat_sp_attack": r[11], "stat_sp_defense": r[12], "stat_speed": r[13],
                     "nature_name": r[14],
                     "nature": _nature_payload(r[14]),
+                    "is_shiny": bool(r[15]) if len(r) > 15 else False,
+                    "sprite_shiny_url": r[16] if len(r) > 16 else None,
                 }
                 for r in rows
             ]
@@ -2503,7 +2509,8 @@ _EXERCISE_XP_DAILY_CAP = 300
 _FIRST_WORKOUT_BONUS_XP = 50
 _EXERCISE_REP_XP_DIVISOR = 2
 _EXERCISE_WEIGHT_XP_DIVISOR = 20
-_MAX_DAILY_SPAWNS = 3
+_MAX_DAILY_SPAWNS = 1
+_EXERCISE_SPAWN_CHANCE = 0.25
 
 # body_parts (campo de exercises) → slugs de tipo Pokémon para spawn temático.
 # Cada body_part pode mapear para múltiplos tipos; o spawn usa a lista agregada
@@ -3289,25 +3296,20 @@ def do_exercise_event(
                 except Exception:
                     pass
 
-            # Per-exercise spawn rolls (25% chance each, typed by body_parts)
-            for ex in exercises:
-                if session_spawns >= spawn_budget:
-                    break
-                if random.random() >= 0.25:
-                    continue
-                ex_types = _ranked_spawn_types([ex], bp_map)
-                # pressure: narrow to single top type per exercise
-                if slot1_ability == "pressure" and ex_types:
-                    ex_types = [ex_types[0]]
+            # Single session-level spawn roll (25% chance for the whole session)
+            if session_spawns < spawn_budget and random.random() < _EXERCISE_SPAWN_CHANCE:
+                session_types = candidate_types
+                if slot1_ability == "pressure" and session_types:
+                    session_types = [session_types[0]]
                 try:
                     roll_shiny = _shiny_roll(new_streak)
                     species_id, spawn_info = _spawn_multi_typed(
-                        cur, user_id, ex_types, is_shiny=roll_shiny
+                        cur, user_id, session_types, is_shiny=roll_shiny
                     )
                     # compound-eyes: one reroll on failure
                     if species_id is None and slot1_ability == "compound-eyes":
                         species_id, spawn_info = _spawn_multi_typed(
-                            cur, user_id, ex_types, is_shiny=roll_shiny
+                            cur, user_id, session_types, is_shiny=roll_shiny
                         )
                         if species_id:
                             _abilfx["compound_eyes_rerolled"] = True
@@ -3315,8 +3317,7 @@ def do_exercise_event(
                         result["spawn_rolled"] = True
                         result["spawned"].append(spawn_info)
                         session_spawns += 1
-                        # First spawn written to workout_log for history badge
-                        if session_spawns == 1 and not force_spawn:
+                        if not force_spawn:
                             cur.execute(
                                 "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
                                 (species_id, wl_id)
