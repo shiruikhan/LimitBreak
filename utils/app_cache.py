@@ -18,57 +18,57 @@ from utils.db import (
 )
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_user_profile(user_id: str):
     return get_user_profile(user_id)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_user_team(user_id: str):
     return get_user_team(user_id)
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_cached_user_pokemon_ids(user_id: str):
     return get_user_pokemon_ids(user_id)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_checkin_streak(user_id: str):
     return get_checkin_streak(user_id)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_monthly_checkins(user_id: str, year: int, month: int):
     return get_monthly_checkins(user_id, year, month)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_daily_battle_count(user_id: str):
     return get_daily_battle_count(user_id)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_battle_opponents(user_id: str):
     return get_battle_opponents(user_id)
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_cached_battle_history(user_id: str, limit: int = 20):
     return get_battle_history(user_id, limit)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_user_inventory(user_id: str):
     return get_user_inventory(user_id)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_xp_share_status(user_id: str):
     return get_xp_share_status(user_id)
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_user_missions(user_id: str):
     return get_user_missions(user_id)
 
@@ -78,12 +78,12 @@ def get_cached_is_admin(user_id: str):
     return is_admin(user_id)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_user_bench(user_id: str):
     return get_user_bench(user_id)
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_team_stat_boost_counts(user_id: str):
     return get_team_stat_boost_counts(user_id)
 

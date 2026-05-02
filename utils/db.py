@@ -265,15 +265,21 @@ def _nature_modifiers(nature_name: str | None) -> dict:
     return modifiers
 
 
+_HAS_GENETIC_COLS: bool | None = None
+
+
 def _has_genetic_columns(cur) -> bool:
-    cur.execute("""
-        SELECT COUNT(*)
-        FROM information_schema.columns
-        WHERE table_name = 'user_pokemon'
-          AND table_schema = ANY(current_schemas(false))
-          AND column_name = ANY(%s);
-    """, (list(_GENETIC_COLUMNS),))
-    return cur.fetchone()[0] == len(_GENETIC_COLUMNS)
+    global _HAS_GENETIC_COLS
+    if _HAS_GENETIC_COLS is None:
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM information_schema.columns
+            WHERE table_name = 'user_pokemon'
+              AND table_schema = ANY(current_schemas(false))
+              AND column_name = ANY(%s);
+        """, (list(_GENETIC_COLUMNS),))
+        _HAS_GENETIC_COLS = cur.fetchone()[0] == len(_GENETIC_COLUMNS)
+    return _HAS_GENETIC_COLS
 
 
 def _nature_select_sql(cur, table_alias: str = "up") -> str:
@@ -692,8 +698,6 @@ def get_user_team(user_id: str) -> list[dict]:
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            if _audit_and_sync_user_team_stats(cur, user_id):
-                conn.commit()
             nature_select = _nature_select_sql(cur)
             cur.execute(f"""
                 SELECT ut.slot, up.id, up.species_id, p.name, p.sprite_url,
