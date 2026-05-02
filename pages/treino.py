@@ -6,7 +6,7 @@ from utils.db import (
     get_workout_sheets, get_sheet_days, get_day_exercises_for_builder,
     get_exercises, do_exercise_event,
     get_daily_xp_from_exercise, get_workout_streak, get_workout_history,
-    get_image_as_base64, sprite_img_tag, _today_brt, check_and_award_achievements,
+    sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
 )
 from utils.type_colors import get_type_color
@@ -485,20 +485,15 @@ if res:
         # Spawn — one card per captured Pokémon (up to _MAX_DAILY_SPAWNS per day)
         for pk in res.get("spawned") or []:
             is_shiny  = pk.get("is_shiny", False)
-            sp_path   = pk.get("sprite_url", "")
-            b64       = None
-            if sp_path:
-                if sp_path.startswith("http"):
-                    b64 = get_image_as_base64(sp_path)
-                else:
-                    full = os.path.join(BASE_DIR, sp_path.lstrip("/\\"))
-                    hq   = full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-                    b64  = get_image_as_base64(hq) or get_image_as_base64(full)
+            sp_path      = pk.get("sprite_url", "")
             shiny_filter = "filter:drop-shadow(0 0 10px gold) saturate(1.6)" if is_shiny else ""
             img_html = (
-                f"<img src='data:image/png;base64,{b64}' style='width:88px;image-rendering:pixelated;{shiny_filter}'>"
-                if b64 else "<div style='font-size:2.6rem'>❓</div>"
-            )
+                sprite_img_tag(
+                    hq_sprite_url(sp_path), width=88,
+                    extra_style=f"image-rendering:pixelated;{shiny_filter}",
+                )
+                if sp_path else ""
+            ) or "<div style='font-size:2.6rem'>❓</div>"
             shiny_badge = " ✨ <span style='color:#FFD700;font-weight:800'>SHINY</span>" if is_shiny else ""
             card_cls    = "shiny" if is_shiny else "spawned"
             spawn_title = "🌟 Pokémon SHINY apareceu!" if is_shiny else "✨ Pokémon apareceu durante o treino!"

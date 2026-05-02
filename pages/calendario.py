@@ -9,7 +9,7 @@ from utils.app_cache import (
     get_cached_user_profile,
 )
 from utils.db import (
-    do_checkin, get_image_as_base64,
+    do_checkin, sprite_img_tag, hq_sprite_url,
     _today_brt, check_and_award_achievements, update_mission_progress,
 )
 from utils.type_colors import get_type_color
@@ -264,17 +264,11 @@ if res:
         if res.get("spawned"):
             pk      = res["spawned"]
             c       = get_type_color(pk.get("type1", "").lower() if pk.get("type1") else None)
-            b64     = None
             sp_path = pk.get("sprite_url", "")
-            if sp_path:
-                full_path = os.path.join(BASE_DIR, sp_path.lstrip("/\\"))
-                hq_path   = full_path.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-                b64 = get_image_as_base64(hq_path) or get_image_as_base64(full_path)
-
             img_html = (
-                f"<img src='data:image/png;base64,{b64}' style='width:96px;image-rendering:pixelated'>"
-                if b64 else "<div style='font-size:3rem'>❓</div>"
-            )
+                sprite_img_tag(hq_sprite_url(sp_path), width=96, extra_style="image-rendering:pixelated")
+                if sp_path else ""
+            ) or "<div style='font-size:3rem'>❓</div>"
             is_shiny_spawn = pk.get("is_shiny", False)
             spawn_title = "🌟 Pokémon Shiny apareceu!" if is_shiny_spawn else "✨ Pokémon apareceu!"
             shiny_badge = "<span style='background:#FFD700;color:#000;font-size:0.65rem;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;letter-spacing:1px'>SHINY</span>" if is_shiny_spawn else ""
@@ -331,25 +325,23 @@ if res:
 
             # Evoluções
             for evo in evolutions:
-                evo_b64     = None
-                evo_sprite  = evo.get("sprite_url", "")
-                if evo_sprite:
-                    evo_full = os.path.join(BASE_DIR, evo_sprite.lstrip("/\\"))
-                    evo_hq   = evo_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-                    evo_b64  = get_image_as_base64(evo_hq) or get_image_as_base64(evo_full)
-
+                evo_sprite = evo.get("sprite_url", "")
                 evo_img = (
-                    f"<img src='data:image/png;base64,{evo_b64}' "
-                    f"style='width:90px;image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)'>"
-                    if evo_b64 else "<div style='font-size:3rem'>🌟</div>"
-                )
+                    sprite_img_tag(
+                        hq_sprite_url(evo_sprite), width=90,
+                        extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)",
+                    )
+                    if evo_sprite else ""
+                ) or "<div style='font-size:3rem'>🌟</div>"
 
                 if evo.get("shed"):
                     shed_img = (
-                        f"<img src='data:image/png;base64,{evo_b64}' "
-                        f"style='width:90px;image-rendering:pixelated;filter:drop-shadow(0 0 12px #2ea043)'>"
-                        if evo_b64 else "<div style='font-size:3rem'>👻</div>"
-                    )
+                        sprite_img_tag(
+                            hq_sprite_url(evo_sprite), width=90,
+                            extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 12px #2ea043)",
+                        )
+                        if evo_sprite else ""
+                    ) or "<div style='font-size:3rem'>👻</div>"
                     st.markdown(
                         f"<div class='result-card' style='background:rgba(46,160,67,0.1);"
                         f"border-color:rgba(46,160,67,0.6);display:flex;align-items:center;gap:20px'>"

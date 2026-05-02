@@ -547,6 +547,31 @@ def sprite_img_tag(
     return ""
 
 
+def hq_sprite_url(sprite_url: str) -> str:
+    """Converte qualquer URL de sprite para a versão HQ (official artwork).
+
+    - Supabase normal/XXXX.png → hq/XXXX.png
+    - Supabase shiny/XXXX.png  → hq-shiny/XXXX.png
+    - Formas regionais (ex.: 0026-Alola.png) não têm HQ — retorna URL original.
+    - URLs genéricas: troca /images/ por /imagesHQ/
+    - Caminhos locais: idem
+    """
+    if not sprite_url:
+        return sprite_url
+    if "supabase" in sprite_url and "/pokemon-sprites/" in sprite_url:
+        filename = sprite_url.rsplit("/", 1)[-1]
+        stem = filename.rsplit(".", 1)[0]
+        if "-" in stem:  # forma regional — sem HQ disponível
+            return sprite_url
+        if "/shiny/" in sprite_url:
+            return sprite_url.replace("/shiny/", "/hq-shiny/")
+        if "/normal/" in sprite_url:
+            return sprite_url.replace("/normal/", "/hq/")
+    if sprite_url.startswith("http"):
+        return sprite_url.replace("/images/", "/imagesHQ/")
+    return sprite_url.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
+
+
 # ── Pokédex queries ────────────────────────────────────────────────────────────
 
 @st.cache_data

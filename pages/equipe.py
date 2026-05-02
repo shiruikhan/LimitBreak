@@ -12,7 +12,7 @@ from utils.app_cache import (
 from utils.db import (
     _MAX_STAT_BOOSTS_PER_STAT,
     swap_team_slots,
-    remove_from_team, add_to_team, get_image_as_base64, sprite_img_tag,
+    remove_from_team, add_to_team, get_image_as_base64, sprite_img_tag, hq_sprite_url,
     get_available_moves, get_active_moves, equip_move, unequip_move,
     get_user_eggs,
 )
@@ -363,18 +363,14 @@ for k, v in [
 # ── Evolution notice banner ────────────────────────────────────────────────────
 evo_notice = st.session_state.team_evo_notice
 if evo_notice:
-    _evo_b64   = None
     _evo_sprite = evo_notice.get("sprite_url", "")
-    if _evo_sprite:
-        _evo_full = os.path.join(BASE_DIR, _evo_sprite.lstrip("/\\"))
-        _evo_hq   = _evo_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-        _evo_b64  = get_image_as_base64(_evo_hq) or get_image_as_base64(_evo_full)
-
     _evo_img = (
-        f"<img src='data:image/png;base64,{_evo_b64}' "
-        f"style='width:72px;image-rendering:pixelated;filter:drop-shadow(0 0 10px #BC8CFF)'>"
-        if _evo_b64 else "<div style='font-size:2.5rem'>🌟</div>"
-    )
+        sprite_img_tag(
+            hq_sprite_url(_evo_sprite), width=72,
+            extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 10px #BC8CFF)",
+        )
+        if _evo_sprite else ""
+    ) or "<div style='font-size:2.5rem'>🌟</div>"
     st.markdown(
         f"<div style='background:#1f0f2e;border:1px solid #BC8CFF;border-radius:14px;"
         f"padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:16px'>"
@@ -396,18 +392,14 @@ if evo_notice:
 # ── Shedinja capture banner ────────────────────────────────────────────────────
 shed_notice = st.session_state.team_shed_notice
 if shed_notice:
-    _shed_b64    = None
     _shed_sprite = shed_notice.get("sprite_url", "")
-    if _shed_sprite:
-        _shed_full = os.path.join(BASE_DIR, _shed_sprite.lstrip("/\\"))
-        _shed_hq   = _shed_full.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-        _shed_b64  = get_image_as_base64(_shed_hq) or get_image_as_base64(_shed_full)
-
     _shed_img = (
-        f"<img src='data:image/png;base64,{_shed_b64}' "
-        f"style='width:72px;image-rendering:pixelated;filter:drop-shadow(0 0 10px #2ea043)'>"
-        if _shed_b64 else "<div style='font-size:2.5rem'>👻</div>"
-    )
+        sprite_img_tag(
+            hq_sprite_url(_shed_sprite), width=72,
+            extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 10px #2ea043)",
+        )
+        if _shed_sprite else ""
+    ) or "<div style='font-size:2.5rem'>👻</div>"
     st.markdown(
         f"<div style='background:rgba(22,60,24,0.6);border:1px solid rgba(46,160,67,0.6);"
         f"border-radius:14px;padding:16px 20px;margin-bottom:16px;"
@@ -530,13 +522,15 @@ for slot in range(1, 7):
 
             # Prefer shiny sprite for shiny Pokémon; fall back to normal sprite with glow
             if is_shiny and shiny_src:
-                _sprite_src = shiny_src
+                _sprite_src = hq_sprite_url(shiny_src)
                 _shiny_style = "display:block;margin:0 auto;filter:drop-shadow(0 0 8px gold) saturate(1.5)"
             else:
-                _sprite_src = member.get("sprite_url") or ""
-                if not _sprite_src.startswith("http"):
+                _raw_src = member.get("sprite_url") or ""
+                if _raw_src.startswith("http"):
+                    _sprite_src = hq_sprite_url(_raw_src)
+                else:
                     _local_thumb = _thumb_path(member["species_id"])
-                    _sprite_src = _local_thumb if os.path.isfile(_local_thumb) else _sprite_src
+                    _sprite_src = _local_thumb if os.path.isfile(_local_thumb) else _raw_src
                 _shiny_style = ("display:block;margin:0 auto;filter:drop-shadow(0 0 8px gold) saturate(1.5)"
                                 if is_shiny else "display:block;margin:0 auto")
             img_tag = (
@@ -815,13 +809,15 @@ else:
             _bshiny    = pk.get("is_shiny", False)
             _bshiny_src = pk.get("sprite_shiny_url") or ""
             if _bshiny and _bshiny_src:
-                _bsrc = _bshiny_src
+                _bsrc = hq_sprite_url(_bshiny_src)
                 _bstyle = "display:block;margin:0 auto;image-rendering:pixelated;filter:drop-shadow(0 0 6px gold) saturate(1.5)"
             else:
-                _bsrc = pk.get("sprite_url") or ""
-                if not _bsrc.startswith("http"):
+                _braw = pk.get("sprite_url") or ""
+                if _braw.startswith("http"):
+                    _bsrc = hq_sprite_url(_braw)
+                else:
                     _bpath = _thumb_path(pk["species_id"])
-                    _bsrc = _bpath if os.path.isfile(_bpath) else _bsrc
+                    _bsrc = _bpath if os.path.isfile(_bpath) else _braw
                 _bstyle = ("display:block;margin:0 auto;image-rendering:pixelated;filter:drop-shadow(0 0 6px gold) saturate(1.5)"
                            if _bshiny else "display:block;margin:0 auto;image-rendering:pixelated")
             img_tag = (
