@@ -428,6 +428,14 @@ def render_bag_view(user_id: str) -> None:
                         st.session_state.shop_msg = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
+                elif item["slug"] == "streak-shield":
+                    st.button(
+                        "🛡️ Auto",
+                        key=f"use_other_{iid}",
+                        disabled=True,
+                        use_container_width=True,
+                        help="Consumido automaticamente no check-in quando você perde um dia.",
+                    )
                 else:
                     st.markdown(
                         "<div style='display:block;text-align:center;margin-top:4px;color:#6e7681'>Em breve</div>",

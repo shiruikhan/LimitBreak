@@ -1657,20 +1657,49 @@ def do_checkin(user_id: str) -> dict:
         "success": False, "already_done": False,
         "streak": 0, "coins_earned": 0,
         "bonus_xp_share": False, "spawn_rolled": False, "spawned": None,
+        "shield_used": False, "bonus_shield": False,
     }
 
     try:
         with conn.cursor() as cur:
 
             # ── Streak ────────────────────────────────────────────────────────
-            yesterday = today - datetime.timedelta(days=1)
             cur.execute("""
                 SELECT checked_date, streak FROM user_checkins
                 WHERE user_id = %s ORDER BY checked_date DESC LIMIT 1;
             """, (user_id,))
             last = cur.fetchone()
-            if last and last[0] == yesterday:
-                streak = last[1] + 1
+            if last:
+                gap = (today - last[0]).days
+                if gap == 1:
+                    streak = last[1] + 1
+                elif gap == 2:
+                    # One missed day — check for streak-shield in inventory
+                    cur.execute("""
+                        SELECT ui.item_id, ui.quantity FROM user_inventory ui
+                        JOIN shop_items si ON si.id = ui.item_id
+                        WHERE ui.user_id = %s AND si.slug = 'streak-shield' AND ui.quantity > 0;
+                    """, (user_id,))
+                    shield_row = cur.fetchone()
+                    if shield_row:
+                        shield_item_id, shield_qty = shield_row
+                        streak = last[1] + 1
+                        if shield_qty > 1:
+                            cur.execute(
+                                "UPDATE user_inventory SET quantity = quantity - 1"
+                                " WHERE user_id = %s AND item_id = %s;",
+                                (user_id, shield_item_id),
+                            )
+                        else:
+                            cur.execute(
+                                "DELETE FROM user_inventory WHERE user_id = %s AND item_id = %s;",
+                                (user_id, shield_item_id),
+                            )
+                        result["shield_used"] = True
+                    else:
+                        streak = 1
+                else:
+                    streak = 1
             else:
                 streak = 1
 
@@ -1705,6 +1734,19 @@ def do_checkin(user_id: str) -> dict:
             if bonus_item_id:
                 _extend_xp_share(cur, user_id)
                 result["bonus_xp_share"] = True
+
+            # ── Streak Shield: concessão nos dias 7 e 21 ──────────────────────
+            if today.day in (7, 21):
+                cur.execute("SELECT id FROM shop_items WHERE slug = 'streak-shield';")
+                _sr = cur.fetchone()
+                if _sr:
+                    cur.execute("""
+                        INSERT INTO user_inventory (user_id, item_id, quantity)
+                        VALUES (%s, %s, 1)
+                        ON CONFLICT (user_id, item_id)
+                        DO UPDATE SET quantity = user_inventory.quantity + 1;
+                    """, (user_id, _sr[0]))
+                    result["bonus_shield"] = True
 
             # ── Spawn em múltiplo de 3 ────────────────────────────────────────
             spawned_species_id = None
@@ -3246,6 +3288,90 @@ def _get_slot1_ability(user_id: str) -> str | None:
         return None
 
 
+# ── Desafio Comunitário Semanal — helpers privados ────────────────────────────
+
+_CHALLENGE_TYPES = ["total_xp", "total_workouts", "total_sets"]
+_CHALLENGE_REWARD_SLUG = "loot-box"
+
+
+def _ensure_weekly_challenge(cur) -> int | None:
+    """Returns challenge id for this week, creating it if absent. Returns None on error."""
+    today = _today_brt()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    cur.execute("SELECT id, completed FROM weekly_challenges WHERE week_start = %s;", (this_monday,))
+    row = cur.fetchone()
+    if row:
+        return row[0]
+
+    # Count active users (at least 1 workout in last 4 weeks)
+    cur.execute("""
+        SELECT COUNT(DISTINCT user_id) FROM workout_logs
+        WHERE completed_at >= NOW() - INTERVAL '28 days';
+    """)
+    active_users = max(int(cur.fetchone()[0] or 0), 1)
+
+    goal_type = random.choice(_CHALLENGE_TYPES)
+    if goal_type == "total_xp":
+        goal_value = active_users * 200
+    elif goal_type == "total_workouts":
+        goal_value = max(active_users * 3, 5)
+    else:  # total_sets
+        goal_value = active_users * 30
+
+    cur.execute("""
+        INSERT INTO weekly_challenges
+            (week_start, goal_type, goal_value, reward_item_slug, reward_quantity)
+        VALUES (%s, %s, %s, %s, 1)
+        ON CONFLICT (week_start) DO NOTHING
+        RETURNING id;
+    """, (this_monday, goal_type, goal_value, _CHALLENGE_REWARD_SLUG))
+    new_row = cur.fetchone()
+    if new_row:
+        return new_row[0]
+    # Race condition: another insert won — fetch it
+    cur.execute("SELECT id FROM weekly_challenges WHERE week_start = %s;", (this_monday,))
+    fetched = cur.fetchone()
+    return fetched[0] if fetched else None
+
+
+def _update_weekly_challenge(cur, user_id: str, xp_earned: int, sets_total: int) -> None:
+    """Increments community challenge progress and upserts participant. Fire-and-forget."""
+    challenge_id = _ensure_weekly_challenge(cur)
+    if challenge_id is None:
+        return
+
+    cur.execute("SELECT goal_type, goal_value, current_value, completed FROM weekly_challenges WHERE id = %s;",
+                (challenge_id,))
+    ch = cur.fetchone()
+    if not ch:
+        return
+    goal_type, goal_value, current_value, completed = ch
+
+    if goal_type == "total_xp":
+        delta = xp_earned
+    elif goal_type == "total_workouts":
+        delta = 1
+    else:  # total_sets
+        delta = sets_total
+
+    if delta <= 0:
+        return
+
+    cur.execute("""
+        UPDATE weekly_challenges
+        SET current_value = current_value + %s,
+            completed = (current_value + %s >= goal_value)
+        WHERE id = %s;
+    """, (delta, delta, challenge_id))
+
+    cur.execute("""
+        INSERT INTO weekly_challenge_participants (challenge_id, user_id, contributed)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (challenge_id, user_id)
+        DO UPDATE SET contributed = weekly_challenge_participants.contributed + %s;
+    """, (challenge_id, user_id, delta, delta))
+
+
 def do_exercise_event(
     user_id: str,
     exercises: list[dict],
@@ -3459,6 +3585,16 @@ def do_exercise_event(
 
         conn.commit()
         result["xp_earned"] = xp_to_award
+
+        # Desafio Comunitário — atualiza progresso após commit
+        try:
+            _sets_total = sum(len(ex.get("sets_data", [])) for ex in exercises)
+            _wc_conn = get_connection()
+            with _wc_conn.cursor() as _wc:
+                _update_weekly_challenge(_wc, user_id, xp_to_award, _sets_total)
+            _wc_conn.commit()
+        except Exception:
+            pass
 
         # Release 6 — Happiness: inactivity penalty + workout boost
         try:
@@ -4761,3 +4897,332 @@ def get_muscle_distribution(user_id: str) -> dict:
         "this_label": f"{fmt(this_mon)} – {fmt(today)}",
         "last_label": f"{fmt(last_mon)} – {fmt(last_sun)}",
     }
+
+
+# ── Rival Semanal ──────────────────────────────────────────────────────────────
+
+def _monday_of(d: datetime.date) -> datetime.date:
+    """Returns the Monday of the ISO week that contains `d`."""
+    return d - datetime.timedelta(days=d.weekday())
+
+
+def assign_weekly_rival(user_id: str) -> dict:
+    """Assigns a weekly rival for the current week (idempotent if already assigned).
+
+    On re-assignment (Monday), checks if the user beat last week's rival and
+    awards +10 coins if so.
+
+    Returns:
+        {rival_id, rival_username, rival_xp, my_xp, won_last_week, bonus_coins}
+        or {} on error / no other users.
+    """
+    today = _today_brt()
+    this_monday = _monday_of(today)
+    last_monday = this_monday - datetime.timedelta(weeks=1)
+    last_sunday = this_monday - datetime.timedelta(days=1)
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Get current profile
+            cur.execute(
+                "SELECT weekly_rival_id, rival_assigned_week FROM user_profiles WHERE id = %s;",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {}
+            current_rival_id, assigned_week = row
+
+            won_last_week = False
+            bonus_coins = 0
+
+            # Check if re-assigning this week (new week started)
+            needs_assign = (assigned_week is None or assigned_week < this_monday)
+
+            if needs_assign and current_rival_id and assigned_week:
+                # Evaluate last week's result before re-assigning
+                cur.execute("""
+                    SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                    WHERE user_id = %s AND completed_at::date BETWEEN %s AND %s;
+                """, (user_id, last_monday, last_sunday))
+                my_last_xp = cur.fetchone()[0] or 0
+
+                cur.execute("""
+                    SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                    WHERE user_id = %s AND completed_at::date BETWEEN %s AND %s;
+                """, (current_rival_id, last_monday, last_sunday))
+                rival_last_xp = cur.fetchone()[0] or 0
+
+                if my_last_xp > rival_last_xp:
+                    won_last_week = True
+                    bonus_coins = 10
+                    cur.execute(
+                        "UPDATE user_profiles SET coins = coins + 10 WHERE id = %s;",
+                        (user_id,),
+                    )
+
+            if needs_assign:
+                # Compute my XP this week so far
+                cur.execute("""
+                    SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                    WHERE user_id = %s AND completed_at::date >= %s;
+                """, (user_id, this_monday))
+                my_xp = cur.fetchone()[0] or 0
+
+                # Find the closest rival by XP distance
+                cur.execute("""
+                    SELECT up.id, COALESCE(SUM(wl.xp_earned), 0) AS week_xp
+                    FROM user_profiles up
+                    LEFT JOIN workout_logs wl ON wl.user_id = up.id
+                      AND wl.completed_at::date >= %s
+                    WHERE up.id != %s
+                    GROUP BY up.id
+                    ORDER BY ABS(COALESCE(SUM(wl.xp_earned), 0) - %s)
+                    LIMIT 1;
+                """, (this_monday, user_id, my_xp))
+                rival_row = cur.fetchone()
+                if not rival_row:
+                    conn.commit()
+                    return {"won_last_week": won_last_week, "bonus_coins": bonus_coins}
+
+                new_rival_id = rival_row[0]
+                cur.execute(
+                    "UPDATE user_profiles SET weekly_rival_id = %s, rival_assigned_week = %s WHERE id = %s;",
+                    (new_rival_id, this_monday, user_id),
+                )
+                conn.commit()
+                current_rival_id = new_rival_id
+            else:
+                conn.commit()
+
+            # Build return dict
+            if not current_rival_id:
+                return {"won_last_week": won_last_week, "bonus_coins": bonus_coins}
+
+            cur.execute(
+                "SELECT username FROM user_profiles WHERE id = %s;",
+                (current_rival_id,),
+            )
+            rival_name_row = cur.fetchone()
+            rival_username = rival_name_row[0] if rival_name_row else "???"
+
+            cur.execute("""
+                SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                WHERE user_id = %s AND completed_at::date >= %s;
+            """, (user_id, this_monday))
+            my_xp = cur.fetchone()[0] or 0
+
+            cur.execute("""
+                SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                WHERE user_id = %s AND completed_at::date >= %s;
+            """, (current_rival_id, this_monday))
+            rival_xp = cur.fetchone()[0] or 0
+
+            # Rival's slot-1 sprite for display
+            cur.execute("""
+                SELECT ps.sprite_url FROM user_team ut
+                JOIN user_pokemon up ON up.id = ut.user_pokemon_id
+                JOIN pokemon_species ps ON ps.id = up.species_id
+                WHERE ut.user_id = %s AND ut.slot = 1;
+            """, (current_rival_id,))
+            sprite_row = cur.fetchone()
+            rival_sprite = sprite_row[0] if sprite_row else None
+
+            return {
+                "rival_id": str(current_rival_id),
+                "rival_username": rival_username,
+                "rival_xp": int(rival_xp),
+                "my_xp": int(my_xp),
+                "rival_sprite": rival_sprite,
+                "won_last_week": won_last_week,
+                "bonus_coins": bonus_coins,
+            }
+    except Exception as e:
+        conn.rollback()
+        return {"error": str(e)}
+
+
+def get_rival_status(user_id: str) -> dict:
+    """Lightweight read of current week rival XP comparison (no writes).
+
+    Returns {rival_username, rival_xp, my_xp, diff, rival_sprite} or {}.
+    """
+    today = _today_brt()
+    this_monday = _monday_of(today)
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute(
+                "SELECT weekly_rival_id FROM user_profiles WHERE id = %s;",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return {}
+            rival_id = row[0]
+
+            cur.execute(
+                "SELECT username FROM user_profiles WHERE id = %s;",
+                (rival_id,),
+            )
+            rival_name_row = cur.fetchone()
+            if not rival_name_row:
+                return {}
+            rival_username = rival_name_row[0]
+
+            cur.execute("""
+                SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                WHERE user_id = %s AND completed_at::date >= %s;
+            """, (user_id, this_monday))
+            my_xp = int(cur.fetchone()[0] or 0)
+
+            cur.execute("""
+                SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+                WHERE user_id = %s AND completed_at::date >= %s;
+            """, (rival_id, this_monday))
+            rival_xp = int(cur.fetchone()[0] or 0)
+
+            cur.execute("""
+                SELECT ps.sprite_url FROM user_team ut
+                JOIN user_pokemon up ON up.id = ut.user_pokemon_id
+                JOIN pokemon_species ps ON ps.id = up.species_id
+                WHERE ut.user_id = %s AND ut.slot = 1;
+            """, (rival_id,))
+            sprite_row = cur.fetchone()
+            rival_sprite = sprite_row[0] if sprite_row else None
+
+            return {
+                "rival_username": rival_username,
+                "rival_xp": rival_xp,
+                "my_xp": my_xp,
+                "diff": my_xp - rival_xp,
+                "rival_sprite": rival_sprite,
+            }
+    except Exception:
+        return {}
+
+
+# ── Desafio Comunitário Semanal — funções públicas ────────────────────────────
+
+_CHALLENGE_GOAL_LABELS = {
+    "total_xp":       "a comunidade acumular {goal} XP",
+    "total_workouts": "a comunidade completar {goal} sessões de treino",
+    "total_sets":     "a comunidade completar {goal} séries no total",
+}
+
+
+def get_current_challenge(user_id: str) -> dict | None:
+    """Returns state of this week's community challenge for a specific user.
+
+    Returns:
+        {challenge_id, description, goal_value, current_value, completed,
+         user_contributed, reward_claimed, reward_item_slug, reward_quantity}
+        or None if no challenge exists yet.
+    """
+    today = _today_brt()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Ensure challenge exists
+            challenge_id = _ensure_weekly_challenge(cur)
+            conn.commit()
+            if challenge_id is None:
+                return None
+
+            cur.execute("""
+                SELECT goal_type, goal_value, current_value, completed,
+                       reward_item_slug, reward_quantity
+                FROM weekly_challenges WHERE id = %s;
+            """, (challenge_id,))
+            ch = cur.fetchone()
+            if not ch:
+                return None
+            goal_type, goal_value, current_value, completed, reward_slug, reward_qty = ch
+
+            cur.execute("""
+                SELECT contributed, reward_claimed FROM weekly_challenge_participants
+                WHERE challenge_id = %s AND user_id = %s;
+            """, (challenge_id, user_id))
+            part = cur.fetchone()
+            user_contributed = part[0] if part else 0
+            reward_claimed   = part[1] if part else False
+
+            label_tmpl = _CHALLENGE_GOAL_LABELS.get(goal_type, "completar o desafio semanal")
+            description = label_tmpl.format(goal=f"{goal_value:,}")
+
+            return {
+                "challenge_id":    challenge_id,
+                "description":     description,
+                "goal_type":       goal_type,
+                "goal_value":      goal_value,
+                "current_value":   current_value,
+                "completed":       completed,
+                "user_contributed": user_contributed,
+                "reward_claimed":  reward_claimed,
+                "reward_item_slug": reward_slug,
+                "reward_quantity": reward_qty,
+            }
+    except Exception:
+        return None
+
+
+def claim_weekly_challenge_reward(user_id: str) -> tuple[bool, str, dict]:
+    """Claims the community challenge reward for this week.
+
+    Returns (success, message, reward_dict).
+    """
+    today = _today_brt()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, completed, reward_item_slug, reward_quantity
+                FROM weekly_challenges WHERE week_start = %s;
+            """, (this_monday,))
+            ch = cur.fetchone()
+            if not ch:
+                return False, "Nenhum desafio ativo esta semana.", {}
+            challenge_id, completed, reward_slug, reward_qty = ch
+
+            if not completed:
+                return False, "O desafio ainda não foi concluído pela comunidade.", {}
+
+            cur.execute("""
+                SELECT contributed, reward_claimed FROM weekly_challenge_participants
+                WHERE challenge_id = %s AND user_id = %s;
+            """, (challenge_id, user_id))
+            part = cur.fetchone()
+            if not part or part[0] <= 0:
+                return False, "Você não contribuiu para este desafio.", {}
+            if part[1]:
+                return False, "Recompensa já coletada.", {}
+
+            # Get item_id for the reward slug
+            cur.execute("SELECT id, name FROM shop_items WHERE slug = %s;", (reward_slug,))
+            item_row = cur.fetchone()
+            if not item_row:
+                return False, "Item de recompensa não encontrado.", {}
+            item_id, item_name = item_row
+
+            # Grant item(s) to inventory
+            for _ in range(reward_qty):
+                _add_inventory_item(cur, user_id, item_id)
+
+            # Mark as claimed
+            cur.execute("""
+                UPDATE weekly_challenge_participants
+                SET reward_claimed = TRUE
+                WHERE challenge_id = %s AND user_id = %s;
+            """, (challenge_id, user_id))
+
+        conn.commit()
+        return True, f"🎁 Recompensa coletada: {reward_qty}× {item_name}!", {
+            "item_slug": reward_slug,
+            "item_name": item_name,
+            "quantity":  reward_qty,
+        }
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao coletar recompensa: {e}", {}

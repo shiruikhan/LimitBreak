@@ -2,7 +2,7 @@
 
 > Atualizado: 03 de maio de 2026.
 >
-> Estado: **Release 8 completo.** Próximo: Release 9 — Retenção e Retorno (Prioridade 3).
+> Estado: **Release 9 completo.** Próximo: V2 — Camada Social (trocas, guilds).
 
 ---
 
@@ -47,13 +47,13 @@
 
 ## Próximas features (priorizadas)
 
-### Release 9 — Retenção e Retorno (Prioridade 3)
+### ~~Release 9 — Retenção e Retorno~~ ✅ *Completo*
 
-Três features de retenção: Streak Shield (item protetor), Rival Semanal (competição leve) e Desafio Comunitário Semanal (meta coletiva). Implementar nessa ordem — cada uma é independente.
+Três features de retenção implementadas: Streak Shield, Rival Semanal, Desafio Comunitário.
 
 ---
 
-#### 9.1 Streak Shield
+#### ~~9.1 Streak Shield~~ ✅
 
 **Objetivo:** proteger o streak de check-in por um dia perdido por mês, convertendo abandono em alívio.
 
@@ -100,14 +100,14 @@ Sem migration de tabela — usa `user_inventory` já existente.
 ```
 
 **Checklist de implementação:**
-- [ ] SQL: inserir `streak-shield` em `shop_items` (executar no Supabase)
-- [ ] `db.py`: modificar `do_checkin()` — lógica de gap + ativação do shield
-- [ ] `db.py`: modificar `do_checkin()` — concessão nos dias 7 e 21 via upsert em `user_inventory`
-- [ ] `db.py`: garantir que `clear_user_cache()` é chamado se shield consumido ou concedido
-- [ ] `loja.py`: exibir item na grade `other` com botão de compra padrão
-- [ ] `bag_ui.py`: exibir quantidade na mochila, botão desabilitado com tooltip
-- [ ] `calendario.py`: card azul "shield ativado" + card dourado "shield recebido"
-- [ ] `calendario.py`: marcar dias 7 e 21 com ícone 🛡️ no grid mensal
+- [x] SQL: inserir `streak-shield` em `shop_items` (executar no Supabase)
+- [x] `db.py`: modificar `do_checkin()` — lógica de gap + ativação do shield
+- [x] `db.py`: modificar `do_checkin()` — concessão nos dias 7 e 21 via upsert em `user_inventory`
+- [x] `db.py`: garantir que `clear_user_cache()` é chamado se shield consumido ou concedido
+- [x] `loja.py`: exibir item na grade `other` com botão de compra padrão
+- [x] `bag_ui.py`: exibir quantidade na mochila, botão desabilitado com tooltip
+- [x] `calendario.py`: card azul "shield ativado" + card dourado "shield recebido"
+- [x] `calendario.py`: marcar dias 7 e 21 com ícone 🛡️ no grid mensal
 
 ---
 
@@ -160,12 +160,12 @@ ALTER TABLE user_profiles
 **Migration:** `scripts/migrate_rival.sql`
 
 **Checklist de implementação:**
-- [ ] SQL: criar migration `scripts/migrate_rival.sql`
-- [ ] `db.py`: função `assign_weekly_rival(user_id)` com lógica de semana e bônus retroativo
-- [ ] `db.py`: função `get_rival_status(user_id)` → `{rival_username, rival_xp, my_xp, diff}` (para exibição no hub)
-- [ ] `hub.py`: banner de rival com os três estados (frente/atrás/empate)
-- [ ] `hub.py`: card de "Você venceu a semana!" se `won_last_week = True`
-- [ ] `calendario.py` ou `treino.py`: chamar `assign_weekly_rival()` para garantir atribuição
+- [x] SQL: criar migration `scripts/migrate_rival.sql`
+- [x] `db.py`: função `assign_weekly_rival(user_id)` com lógica de semana e bônus retroativo
+- [x] `db.py`: função `get_rival_status(user_id)` → `{rival_username, rival_xp, my_xp, diff}` (para exibição no hub)
+- [x] `hub.py`: banner de rival com os três estados (frente/atrás/empate)
+- [x] `hub.py`: toast de "Você venceu a semana!" se `won_last_week = True`
+- [x] `hub.py`: chama `assign_weekly_rival()` a cada render (cache 5 min)
 
 ---
 
@@ -243,14 +243,14 @@ CREATE TABLE IF NOT EXISTS weekly_challenge_participants (
 **Migration:** `scripts/migrate_weekly_challenge.sql`
 
 **Checklist de implementação:**
-- [ ] SQL: criar migration `scripts/migrate_weekly_challenge.sql` com as duas tabelas
-- [ ] `db.py`: `_ensure_weekly_challenge(cur)` — geração automática do desafio da semana
-- [ ] `db.py`: `_update_weekly_challenge(cur, user_id, xp, sets)` — atualização atômica do progresso
-- [ ] `db.py`: integrar `_update_weekly_challenge()` em `do_exercise_event()`
-- [ ] `db.py`: `get_current_challenge(user_id)` — leitura do estado do desafio
-- [ ] `db.py`: `claim_weekly_challenge_reward(user_id)` — distribuição de recompensa
-- [ ] `hub.py`: banner do desafio com barra de progresso e botão de coleta
-- [ ] `hub.py`: chamar `clear_user_cache()` após coleta de recompensa
+- [x] SQL: criar migration `scripts/migrate_weekly_challenge.sql` com as duas tabelas
+- [x] `db.py`: `_ensure_weekly_challenge(cur)` — geração automática do desafio da semana
+- [x] `db.py`: `_update_weekly_challenge(cur, user_id, xp, sets)` — atualização atômica do progresso
+- [x] `db.py`: integrar `_update_weekly_challenge()` em `do_exercise_event()`
+- [x] `db.py`: `get_current_challenge(user_id)` — leitura do estado do desafio
+- [x] `db.py`: `claim_weekly_challenge_reward(user_id)` — distribuição de recompensa
+- [x] `hub.py`: banner do desafio com barra de progresso e botão de coleta
+- [x] `hub.py`: chamar `clear_user_cache()` após coleta de recompensa
 
 ---
 
@@ -316,9 +316,9 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 | Mecânica de descanso | Baixo | Médio | ✅ Release 6 (junto) |
 | Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
 | Analytics de treino | Médio | Alto | ✅ Release 8 |
-| **Streak Shield** | **Baixo** | **Alto** | **🟡 Release 9.1** |
-| **Rival Semanal** | **Baixo** | **Alto** | **🟠 Release 9.2** |
-| **Desafio Comunitário** | **Médio** | **Alto** | **🟠 Release 9.3** |
+| Streak Shield | Baixo | Alto | ✅ Release 9.1 |
+| Rival Semanal | Baixo | Alto | ✅ Release 9.2 |
+| Desafio Comunitário | Médio | Alto | ✅ Release 9.3 |
 | Trocas de Pokémon | Alto | Alto | 🔵 V2 |
 | Guilds | Alto | Muito Alto | 🔵 V2 |
 

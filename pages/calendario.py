@@ -111,6 +111,7 @@ st.markdown("""
 .result-card.levelup  { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.5); }
 .result-card.evolution{ background: #1f0f2e; border-color: #BC8CFF; }
 .result-card.rest     { background: rgba(255,130,130,0.08); border-color: rgba(255,130,130,0.5); }
+.result-card.shield   { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.5); }
 .result-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
 .result-body  { color: #8b949e; font-size: 0.85rem; }
 .spawn-name   { font-size: 1.2rem; font-weight: 800; color: #A27DFA; }
@@ -202,11 +203,12 @@ with col_checkin:
     if already_checked:
         st.success("✅ Check-in de hoje já realizado! Volte amanhã.")
     else:
-        bonus_hint = " · 🎁 Dia especial — +1 XP Share!" if is_bonus_day else ""
+        bonus_hint  = " · 🎁 Dia especial — +1 XP Share!" if is_bonus_day else ""
+        shield_hint = " · 🛡️ +1 Escudo de Streak!" if today.day in (7, 21) else ""
         streak_hint = f" · 🎲 Dia de streak #{streak+1}" if (streak + 1) % 3 == 0 else ""
         st.markdown(
             f"<div style='color:#8b949e;font-size:0.82rem;margin-bottom:8px'>"
-            f"Recompensa: 🪙 +1 moeda{bonus_hint}{streak_hint}</div>",
+            f"Recompensa: 🪙 +1 moeda{bonus_hint}{shield_hint}{streak_hint}</div>",
             unsafe_allow_html=True,
         )
         if st.button("✔ Fazer Check-in", type="primary", use_container_width=False):
@@ -273,6 +275,27 @@ if res:
                 "<div class='result-title'>🎁 Bônus do dia especial!</div>"
                 "<div class='result-body'>Você ganhou <b>1× XP Share</b> 📡 — disponível na Mochila da Loja.</div>"
                 "</div>",
+                unsafe_allow_html=True,
+            )
+
+        # Streak Shield ativado
+        if res.get("shield_used"):
+            st.markdown(
+                f"<div class='result-card shield'>"
+                f"<div class='result-title'>🛡️ Escudo de Streak ativado!</div>"
+                f"<div class='result-body'>Seu streak de <b>{res['streak']} dias</b> foi preservado pelo Escudo de Streak.</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        # Streak Shield recebido (dias 7 e 21)
+        if res.get("bonus_shield"):
+            day_num = _today_brt().day
+            st.markdown(
+                f"<div class='result-card bonus'>"
+                f"<div class='result-title'>🛡️ +1 Escudo de Streak recebido!</div>"
+                f"<div class='result-body'>Bônus do dia {day_num} do mês — disponível na Mochila.</div>"
+                f"</div>",
                 unsafe_allow_html=True,
             )
 
@@ -507,6 +530,7 @@ def _calendar_view():
                 classes.append("rested")
 
             num_cls = "day-num today-num" if is_today else "day-num"
+            is_shield_day = day in (7, 21)
             icons   = ""
             if ck:
                 icons += "<span class='day-icon'>🪙</span>"
@@ -516,10 +540,16 @@ def _calendar_view():
                     icons += "<span class='day-icon'>🌟</span>"
                 if is_rest:
                     icons += "<span class='day-icon'>😴</span>"
+                if is_shield_day:
+                    icons += "<span class='day-icon'>🛡️</span>"
             elif is_rest:
                 icons += "<span class='day-icon'>😴</span>"
+                if is_shield_day:
+                    icons += "<span class='day-icon'>🛡️</span>"
             elif not is_future and is_special:
                 icons += "<span class='day-icon' style='opacity:.35'>🎁</span>"
+            if is_future and is_shield_day:
+                icons += "<span class='day-icon' style='opacity:.5'>🛡️</span>"
 
             special_html = "<span class='special-marker'>★</span>" if is_special else ""
             streak_html  = (

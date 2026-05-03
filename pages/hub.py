@@ -7,7 +7,12 @@ from utils.app_cache import (
     get_cached_user_profile,
     get_cached_user_team,
 )
-from utils.db import _MAX_BATTLES_PER_DAY, _today_brt, get_user_achievements
+from utils.db import (
+    _MAX_BATTLES_PER_DAY, _today_brt, get_user_achievements,
+    assign_weekly_rival, get_rival_status, get_image_as_base64,
+    get_current_challenge, claim_weekly_challenge_reward,
+)
+from utils.app_cache import clear_user_cache
 from utils.achievements import GYM_BADGES
 from utils.missions import get_mission
 
@@ -135,6 +140,41 @@ st.markdown(
     transition: transform 0.1s;
 }
 .hub-gym-dot.locked { background: #1c2332; filter: grayscale(1) opacity(0.3); }
+
+/* Rival banner */
+.hub-rival {
+    border-radius: 18px;
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 18px;
+}
+.hub-rival.ahead   { background: rgba(46,160,67,0.1);  border: 1px solid rgba(46,160,67,0.35); }
+.hub-rival.behind  { background: rgba(255,136,0,0.08); border: 1px solid rgba(255,136,0,0.35); }
+.hub-rival.tied    { background: rgba(148,163,184,0.07); border: 1px solid rgba(148,163,184,0.2); }
+.hub-rival-label { font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;
+    letter-spacing: 0.18em; font-weight: 700; margin-bottom: 2px; }
+.hub-rival-msg   { font-size: 0.88rem; color: #e6edf3; font-weight: 600; }
+.hub-rival-sub   { font-size: 0.72rem; color: #8b949e; margin-top: 2px; }
+
+/* Weekly challenge banner */
+.hub-challenge {
+    background: rgba(88,166,255,0.06);
+    border: 1px solid rgba(88,166,255,0.25);
+    border-radius: 18px;
+    padding: 16px 20px;
+    margin-bottom: 18px;
+}
+.hub-challenge.done {
+    background: rgba(46,160,67,0.08);
+    border-color: rgba(46,160,67,0.35);
+}
+.hub-challenge-label { font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;
+    letter-spacing: 0.18em; font-weight: 700; margin-bottom: 4px; }
+.hub-challenge-title { font-size: 0.92rem; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
+.hub-challenge-bar-wrap { background: #21262d; border-radius: 9999px; height: 8px;
+    overflow: hidden; margin-bottom: 6px; }
+.hub-challenge-bar { height: 100%; border-radius: 9999px; transition: width 0.3s ease; }
+.hub-challenge-sub { font-size: 0.72rem; color: #8b949e; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -372,5 +412,122 @@ st.markdown(
 )
 
 _render_snapshot()
+
+# ── Rival Semanal ──────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_rival_data(uid: str) -> dict:
+    return assign_weekly_rival(uid)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_rival_status(uid: str) -> dict:
+    return get_rival_status(uid)
+
+
+def _render_rival_banner() -> None:
+    rival = _get_rival_status(user_id)
+    if not rival or "rival_username" not in rival:
+        return
+
+    rival_username = rival["rival_username"]
+    my_xp = rival["my_xp"]
+    rival_xp = rival["rival_xp"]
+    diff = rival["diff"]
+
+    if diff > 5:
+        css_cls = "ahead"
+        icon = "⚔️"
+        msg = f"Você está <b>{diff} XP à frente</b> de {rival_username}! Mantenha o ritmo."
+    elif diff < -5:
+        css_cls = "behind"
+        icon = "⚠️"
+        msg = f"{rival_username} está <b>{abs(diff)} XP à sua frente</b>! Treine para superar."
+    else:
+        css_cls = "tied"
+        icon = "🤝"
+        msg = f"Empate técnico com {rival_username} — próximo treino decide."
+
+    sprite_html = ""
+    if rival.get("rival_sprite"):
+        b64 = get_image_as_base64(rival["rival_sprite"])
+        if b64:
+            sprite_html = (
+                f"<img src='data:image/png;base64,{b64}' "
+                f"style='width:40px;height:40px;object-fit:contain;image-rendering:pixelated'>"
+            )
+
+    st.markdown(
+        f"<div class='hub-rival {css_cls}'>"
+        f"{sprite_html}"
+        f"<div>"
+        f"<div class='hub-rival-label'>Rival da Semana {icon}</div>"
+        f"<div class='hub-rival-msg'>{msg}</div>"
+        f"<div class='hub-rival-sub'>Você: {my_xp} XP &nbsp;·&nbsp; {rival_username}: {rival_xp} XP (esta semana)</div>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+# Trigger rival assignment (cached 5 min — avoids hitting DB every rerun)
+try:
+    rival_info = _get_rival_data(user_id)
+    if rival_info.get("won_last_week"):
+        st.toast(
+            f"🏆 Você venceu seu rival da semana passada! +{rival_info['bonus_coins']} moedas",
+            icon="🥇",
+        )
+except Exception:
+    pass
+
+_render_rival_banner()
+
+# ── Desafio Comunitário Semanal ────────────────────────────────────────────────
+
+def _render_challenge_banner() -> None:
+    ch = get_current_challenge(user_id)
+    if not ch:
+        return
+
+    goal_val    = ch["goal_value"]
+    current     = ch["current_value"]
+    completed   = ch["completed"]
+    contributed = ch["user_contributed"]
+    claimed     = ch["reward_claimed"]
+    pct         = min(current / goal_val * 100, 100) if goal_val else 100
+    bar_color   = "#2ea043" if completed else "#58a6ff"
+    css_extra   = " done" if completed else ""
+
+    progress_text = f"{current:,} / {goal_val:,}"
+
+    st.markdown(
+        f"<div class='hub-challenge{css_extra}'>"
+        f"<div class='hub-challenge-label'>🌍 Desafio da Semana</div>"
+        f"<div class='hub-challenge-title'>Meta: {ch['description']}</div>"
+        f"<div class='hub-challenge-bar-wrap'>"
+        f"<div class='hub-challenge-bar' style='width:{pct:.1f}%;background:{bar_color}'></div>"
+        f"</div>"
+        f"<div class='hub-challenge-sub'>{progress_text}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    if completed and not claimed and contributed > 0:
+        if st.button("🎁 Coletar Recompensa do Desafio", use_container_width=False):
+            ok, msg, reward = claim_weekly_challenge_reward(user_id)
+            clear_user_cache()
+            if ok:
+                st.toast(msg, icon="🎁")
+            else:
+                st.error(msg)
+            st.rerun()
+    elif completed and claimed:
+        st.caption("✅ Recompensa coletada.")
+    elif completed and contributed == 0:
+        st.caption("Você não contribuiu esta semana.")
+
+
+_render_challenge_banner()
+
 st.write("")
 _render_sections()

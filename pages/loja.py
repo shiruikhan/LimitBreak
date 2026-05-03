@@ -192,7 +192,7 @@ with tab_shop:
 
     # ── Outros ────────────────────────────────────────────────────────────────
     st.markdown("<div class='section-title'>📦 Outros</div>", unsafe_allow_html=True)
-    st.caption("Efeitos ativados automaticamente na compra — não vão para a mochila.")
+    st.caption("Itens com efeitos especiais. XP Share ativa direto; demais itens vão para a Mochila.")
 
     cols_other = st.columns(4)
     for idx, item in enumerate(others):
