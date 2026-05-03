@@ -1,8 +1,8 @@
 # LimitBreak — Next Steps
 
-> Atualizado: 03 de maio de 2026 após implementação do Release 8.
+> Atualizado: 03 de maio de 2026.
 >
-> Estado: **Release 8 completo.** Analytics de treino implementados.
+> Estado: **Release 8 completo.** Próximo: Release 9 — Retenção e Retorno (Prioridade 3).
 
 ---
 
@@ -46,6 +46,206 @@
 ---
 
 ## Próximas features (priorizadas)
+
+### Release 9 — Retenção e Retorno (Prioridade 3)
+
+Três features de retenção: Streak Shield (item protetor), Rival Semanal (competição leve) e Desafio Comunitário Semanal (meta coletiva). Implementar nessa ordem — cada uma é independente.
+
+---
+
+#### 9.1 Streak Shield
+
+**Objetivo:** proteger o streak de check-in por um dia perdido por mês, convertendo abandono em alívio.
+
+**Schema:**
+```sql
+-- Adicionar item na loja
+INSERT INTO shop_items (slug, name, description, icon, category, price)
+VALUES ('streak-shield', 'Escudo de Streak', 'Protege seu streak por um dia perdido.', '🛡️', 'other', 80)
+ON CONFLICT (slug) DO NOTHING;
+```
+Sem migration de tabela — usa `user_inventory` já existente.
+
+**Lógica em `do_checkin()` (`utils/db.py`):**
+1. Buscar a data do último check-in do usuário.
+2. Calcular `gap = hoje - last_checkin_date` (em dias).
+3. Se `gap == 2` (um dia perdido ontem):
+   a. Buscar `streak-shield` no inventário do usuário (`user_inventory JOIN shop_items WHERE slug = 'streak-shield' AND quantity > 0`).
+   b. Se tiver: decrementar `quantity` em 1, manter `streak` atual (não zerar para 1), registrar check-in normalmente.
+   c. Se não tiver: comportamento atual (streak zera para 1).
+4. Se `gap > 2`: streak sempre zera, independente de shield.
+5. Se `gap == 1`: comportamento normal (streak incrementa).
+
+**Exibição:**
+- Em `loja.py`, mostrar `streak-shield` na grade de itens categoria `other` (junto com XP Share).
+- Em `bag_ui.py`, adicionar seção "Proteção" ou incluir no grupo `other` existente: mostrar quantidade + botão "Usar" desabilitado com tooltip ("Consumido automaticamente no check-in").
+- Em `calendario.py`, se shield foi consumido na chamada de `do_checkin()`, retornar `{"shield_used": True}` no dict de resultado e exibir card informativo: "🛡️ Escudo de Streak ativado! Seu streak de N dias foi preservado."
+
+**Retorno atualizado de `do_checkin()`:**
+```python
+{"success", "already_done", "streak", "coins_earned", "bonus_xp_share",
+ "spawn_rolled", "spawned", "xp_result", "shield_used", "error"}
+```
+
+**Checklist de implementação:**
+- [ ] SQL: inserir `streak-shield` em `shop_items` (executar no Supabase)
+- [ ] `db.py`: modificar `do_checkin()` com lógica de gap + shield
+- [ ] `db.py`: garantir que `clear_user_cache()` é chamado se shield consumido
+- [ ] `loja.py`: exibir item na grade (não precisa de fluxo especial de ativação)
+- [ ] `bag_ui.py`: exibir quantidade de shields na mochila, botão desabilitado com tooltip
+- [ ] `calendario.py`: card "🛡️ Escudo ativado" no resultado do check-in
+
+---
+
+#### 9.2 Rival Semanal
+
+**Objetivo:** criar competição leve e personalizada que dá razão para treinar além do mínimo.
+
+**Schema:**
+```sql
+-- Migration: scripts/migrate_rival.sql
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS weekly_rival_id UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS rival_assigned_week DATE;  -- segunda-feira da semana de atribuição
+```
+
+**Lógica de atribuição (`utils/db.py` — nova função `assign_weekly_rival`):**
+1. Recebe `user_id`.
+2. Verifica `rival_assigned_week` no perfil — se já é desta semana (segunda-feira atual), retorna sem fazer nada.
+3. Busca ranking da semana atual via query inline (análoga a `get_leaderboard_workout_xp()` mas para a semana corrente):
+   ```sql
+   SELECT up.id, COALESCE(SUM(wl.xp_earned), 0) AS week_xp
+   FROM user_profiles up
+   LEFT JOIN workout_logs wl ON wl.user_id = up.id
+     AND wl.completed_at >= date_trunc('week', NOW() AT TIME ZONE 'America/Sao_Paulo')
+   WHERE up.id != %(user_id)s
+   GROUP BY up.id
+   ORDER BY ABS(COALESCE(SUM(wl.xp_earned), 0) - %(my_xp)s)
+   LIMIT 1
+   ```
+4. Atualiza `weekly_rival_id` e `rival_assigned_week` no perfil.
+5. Retorna `{rival_id, rival_username, rival_xp, my_xp}`.
+
+**Integração:**
+- Chamar `assign_weekly_rival(user_id)` no início de `hub.py` (fora de fragment, com cache curto — 5 min via `st.cache_data(ttl=300)`).
+- Também chamar após `do_exercise_event()` em `treino.py` (para garantir que rival existe antes de exibir comparativo).
+
+**Banner em `hub.py`:**
+- Posição: abaixo do snapshot de streak/moedas, acima dos cards de seção.
+- Conteúdo: sprite do Pokémon slot 1 do rival (thumbnailed), username, diferença de XP semanal.
+- Estados:
+  - "⚔️ Você está **N XP à frente** de [rival]! Mantenha o ritmo." (verde)
+  - "⚠️ [rival] está **N XP à sua frente**! Treine para superar." (laranja)
+  - "🤝 Empate técnico com [rival] — próximo treino decide." (cinza)
+- Se nenhum rival atribuído (sem outros usuários): ocultar o banner silenciosamente.
+
+**Recompensa:**
+- Verificar resultado do rival no momento do check-in de segunda-feira via `do_checkin()` (ou em `hub.py` como check passivo): se `my_week_xp > rival_week_xp`, conceder +10 moedas e exibir card de vitória.
+- Implementação simples: checar na função `assign_weekly_rival()` — ao atribuir novo rival (segunda-feira), verificar semana anterior e conceder bônus se aplicável. Retornar `{"won_last_week": bool, "bonus_coins": int}`.
+
+**Migration:** `scripts/migrate_rival.sql`
+
+**Checklist de implementação:**
+- [ ] SQL: criar migration `scripts/migrate_rival.sql`
+- [ ] `db.py`: função `assign_weekly_rival(user_id)` com lógica de semana e bônus retroativo
+- [ ] `db.py`: função `get_rival_status(user_id)` → `{rival_username, rival_xp, my_xp, diff}` (para exibição no hub)
+- [ ] `hub.py`: banner de rival com os três estados (frente/atrás/empate)
+- [ ] `hub.py`: card de "Você venceu a semana!" se `won_last_week = True`
+- [ ] `calendario.py` ou `treino.py`: chamar `assign_weekly_rival()` para garantir atribuição
+
+---
+
+#### 9.3 Desafio Comunitário Semanal
+
+**Objetivo:** criar senso de comunidade sem exigir coordenação ativa — todos contribuem para um mesmo número.
+
+**Schema:**
+```sql
+-- Migration: scripts/migrate_weekly_challenge.sql
+CREATE TABLE IF NOT EXISTS weekly_challenges (
+  id           SERIAL PRIMARY KEY,
+  week_start   DATE NOT NULL UNIQUE,          -- segunda-feira da semana
+  goal_type    TEXT NOT NULL,                 -- 'total_xp' | 'total_workouts' | 'total_sets'
+  goal_value   INT NOT NULL,                  -- meta coletiva (ex: 50000)
+  current_value INT NOT NULL DEFAULT 0,       -- acumulado pela comunidade
+  reward_item_slug TEXT NOT NULL,             -- slug do item recompensa (ex: 'loot-box')
+  reward_quantity  INT NOT NULL DEFAULT 1,
+  completed    BOOL NOT NULL DEFAULT FALSE,
+  reward_distributed BOOL NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS weekly_challenge_participants (
+  challenge_id INT REFERENCES weekly_challenges(id) ON DELETE CASCADE,
+  user_id      UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
+  contributed  INT NOT NULL DEFAULT 0,        -- contribuição individual
+  reward_claimed BOOL NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (challenge_id, user_id)
+);
+```
+
+**Geração de desafios:**
+- Função `_ensure_weekly_challenge(cur)` (interna, chamada por `get_current_challenge()`):
+  - Verifica se existe registro com `week_start = monday_current_week`.
+  - Se não existe: sorteia `goal_type` e calcula `goal_value` baseado no número de usuários ativos (ex.: `active_users × 200` para XP, `active_users × 3` para treinos).
+  - Insere o novo desafio.
+- Tipos de desafio (rotação ou sorteio):
+  - `total_xp`: "A comunidade precisa acumular N XP esta semana."
+  - `total_workouts`: "A comunidade precisa completar N sessões de treino."
+  - `total_sets`: "A comunidade precisa completar N séries no total."
+
+**Atualização do progresso (`utils/db.py`):**
+- Em `do_exercise_event()`, após persistir o `workout_log`, chamar `_update_weekly_challenge(cur, user_id, xp_earned, sets_total)`:
+  1. Buscar desafio da semana atual.
+  2. Incrementar `current_value` com a contribuição relevante (XP, 1 workout, ou total de sets).
+  3. Upsert em `weekly_challenge_participants` com `contributed += delta`.
+  4. Se `current_value >= goal_value` e `completed = FALSE`: marcar `completed = TRUE`.
+- Usar `UPDATE weekly_challenges SET current_value = current_value + %s WHERE week_start = %s` para evitar race condition (incremento atômico).
+
+**Distribuição de recompensas:**
+- Função `claim_weekly_challenge_reward(user_id)` em `db.py`:
+  1. Verifica se desafio está `completed = TRUE` e `reward_distributed = FALSE` ou se participante ainda não coletou (`reward_claimed = FALSE`).
+  2. Verifica se `contributed > 0` (participou da semana).
+  3. Concede item via `user_inventory` (mesma lógica de `open_loot_box` ou `buy_item`).
+  4. Marca `reward_claimed = TRUE` para o participante.
+  5. Se todos coletaram (ou a qualquer momento via botão): marcar `reward_distributed = TRUE`.
+
+**Exibição em `hub.py`:**
+- Banner de largura total abaixo do rival (ou acima, dependendo do espaço):
+  - Título: "🌍 Desafio da Semana: [descrição]"
+  - Barra de progresso: `st.progress(current_value / goal_value)` com texto "X / Y XP acumulados"
+  - Badge de participantes ativos na semana.
+  - Estados:
+    - Em andamento: barra azul com progresso.
+    - Completo + não coletado: barra verde + botão "🎁 Coletar Recompensa" → chama `claim_weekly_challenge_reward()`.
+    - Completo + coletado: barra verde com "✅ Recompensa coletada."
+    - Não participou + completo: barra verde + aviso "Você não contribuiu esta semana."
+
+**Funções públicas em `db.py`:**
+| Função | Descrição |
+|---|---|
+| `get_current_challenge(user_id)` | Retorna `{challenge_id, description, goal_value, current_value, completed, user_contributed, reward_claimed, reward_item_slug}` ou `None` |
+| `claim_weekly_challenge_reward(user_id)` | Concede recompensa; retorna `(bool, msg, reward_dict)` |
+
+**Migration:** `scripts/migrate_weekly_challenge.sql`
+
+**Checklist de implementação:**
+- [ ] SQL: criar migration `scripts/migrate_weekly_challenge.sql` com as duas tabelas
+- [ ] `db.py`: `_ensure_weekly_challenge(cur)` — geração automática do desafio da semana
+- [ ] `db.py`: `_update_weekly_challenge(cur, user_id, xp, sets)` — atualização atômica do progresso
+- [ ] `db.py`: integrar `_update_weekly_challenge()` em `do_exercise_event()`
+- [ ] `db.py`: `get_current_challenge(user_id)` — leitura do estado do desafio
+- [ ] `db.py`: `claim_weekly_challenge_reward(user_id)` — distribuição de recompensa
+- [ ] `hub.py`: banner do desafio com barra de progresso e botão de coleta
+- [ ] `hub.py`: chamar `clear_user_cache()` após coleta de recompensa
+
+---
+
+**Ordem de implementação recomendada:**
+1. **9.1 Streak Shield** — menor esforço, maior impacto imediato na retenção. Sem nova tabela.
+2. **9.2 Rival Semanal** — uma migration simples, banner no hub, grande motivação competitiva.
+3. **9.3 Desafio Comunitário** — mais trabalhoso (duas tabelas, lógica de distribuição), mas completa a camada social.
+
+---
 
 ### ~~Release 6 — Felicidade / Amizade~~ ✅ *Completo*
 
@@ -102,6 +302,9 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 | Mecânica de descanso | Baixo | Médio | ✅ Release 6 (junto) |
 | Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
 | Analytics de treino | Médio | Alto | ✅ Release 8 |
+| **Streak Shield** | **Baixo** | **Alto** | **🟡 Release 9.1** |
+| **Rival Semanal** | **Baixo** | **Alto** | **🟠 Release 9.2** |
+| **Desafio Comunitário** | **Médio** | **Alto** | **🟠 Release 9.3** |
 | Trocas de Pokémon | Alto | Alto | 🔵 V2 |
 | Guilds | Alto | Muito Alto | 🔵 V2 |
 
