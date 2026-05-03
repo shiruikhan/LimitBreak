@@ -1,8 +1,8 @@
 # LimitBreak — Next Steps
 
-> Atualizado: 03 de maio de 2026 após implementação do Release 6.
+> Atualizado: 03 de maio de 2026 após implementação do Release 8.
 >
-> Estado: **Release 6 completo.** Sistema de Felicidade/Amizade implementado.
+> Estado: **Release 8 completo.** Analytics de treino implementados.
 
 ---
 
@@ -41,6 +41,7 @@
 | Toast global de conquistas em app.py | ✅ |
 | Insígnias de Ginásio: 8 badges Kanto com badge rack visual | ✅ |
 | Felicidade/Amizade: happiness 0–255 com XP modifier, evolução por amizade, descanso | ✅ |
+| Analytics de Treino: volume histórico, distribuição muscular, melhores cargas | ✅ |
 
 ---
 
@@ -58,17 +59,13 @@
 
 ---
 
-### Release 8 — Analytics de Treino *(estimativa: ~1 semana)*
+### ~~Release 8 — Analytics de Treino~~ ✅ *Completo*
 
-**Por que agora:** usuários de musculação são orientados a dados. Gráficos de progressão são retentivos independente da gamificação.
-
-**Design:**
-- Gráfico de volume por exercício ao longo do tempo (sets × reps × kg)
-- Melhor carga histórica por exercício (já calculado em `_get_exercise_bests()`)
-- Distribuição semanal de grupos musculares (quais partes do corpo treinadas esta semana vs. última)
-- Tudo derivado de `exercise_logs.sets_data` existente — sem mudança de schema
-
-**UI:** nova tab "📊 Análise" em `treino.py` com `st.line_chart` e `st.bar_chart`.
+Tab "📊 Análise" em `treino.py`. Três seções:
+- **Volume por exercício** ao longo do tempo (`st.line_chart`), com seletor de período (30/60/90/180 dias) e métricas de pico.
+- **Distribuição de grupos musculares** (semana atual vs. anterior, `st.bar_chart`).
+- **Melhores cargas** por exercício (best weight + max reps, lista HTML).
+Tudo derivado de `exercise_logs.sets_data` — sem mudança de schema. Novas funções: `get_volume_history()`, `get_exercise_bests_all()`, `get_muscle_distribution()` em `utils/db.py`.
 
 ---
 
@@ -104,7 +101,7 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 | Felicidade / amizade | Médio | Alto | ✅ Release 6 |
 | Mecânica de descanso | Baixo | Médio | ✅ Release 6 (junto) |
 | Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
-| Analytics de treino | Médio | Alto | 🔴 Release 8 |
+| Analytics de treino | Médio | Alto | ✅ Release 8 |
 | Trocas de Pokémon | Alto | Alto | 🔵 V2 |
 | Guilds | Alto | Muito Alto | 🔵 V2 |
 

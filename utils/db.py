@@ -4691,7 +4691,7 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
 
 
 def get_exercise_bests_all(user_id: str) -> list[dict]:
-    """Best weight and reps-at-best-weight for every exercise the user has logged.
+    """Best weight and max reps for every exercise the user has logged.
 
     Only considers sets with weight > 0.
     Returns list of {exercise_id, name, best_weight, best_reps} ordered by name.
@@ -4703,22 +4703,14 @@ def get_exercise_bests_all(user_id: str) -> list[dict]:
                     e.id,
                     COALESCE(e.name_pt, e.name) AS name,
                     MAX((s->>'weight')::float)   AS best_weight,
-                    (
-                        SELECT MAX((s2->>'reps')::int)
-                        FROM exercise_logs el2
-                        JOIN workout_logs wl2 ON wl2.id = el2.workout_log_id
-                        JOIN LATERAL jsonb_array_elements(el2.sets_data) AS s2 ON true
-                        WHERE wl2.user_id = wl.user_id
-                          AND el2.exercise_id = el.exercise_id
-                          AND (s2->>'weight')::float = MAX((s->>'weight')::float)
-                    ) AS best_reps
+                    MAX((s->>'reps')::int)       AS best_reps
                 FROM exercise_logs el
                 JOIN workout_logs wl ON wl.id = el.workout_log_id
                 JOIN exercises e ON e.id = el.exercise_id
                 JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
                 WHERE wl.user_id = %s
                   AND (s->>'weight')::float > 0
-                GROUP BY e.id, e.name, e.name_pt, wl.user_id, el.exercise_id
+                GROUP BY e.id, e.name, e.name_pt
                 ORDER BY name;
             """, (user_id,))
             cols = ["exercise_id", "name", "best_weight", "best_reps"]
