@@ -1,8 +1,8 @@
 # LimitBreak — Next Steps
 
-> Atualizado: 03 de maio de 2026 após implementação do Release 7.
+> Atualizado: 03 de maio de 2026 após implementação do Release 6.
 >
-> Estado: **Release 7 completo.** Insígnias de Ginásio implementadas.
+> Estado: **Release 6 completo.** Sistema de Felicidade/Amizade implementado.
 
 ---
 
@@ -40,27 +40,15 @@
 | Indicador de cap de vitaminas na equipe (🔒 por stat) | ✅ |
 | Toast global de conquistas em app.py | ✅ |
 | Insígnias de Ginásio: 8 badges Kanto com badge rack visual | ✅ |
+| Felicidade/Amizade: happiness 0–255 com XP modifier, evolução por amizade, descanso | ✅ |
 
 ---
 
 ## Próximas features (priorizadas)
 
-### Release 6 — Felicidade / Amizade *(estimativa: ~1 semana)*
+### ~~Release 6 — Felicidade / Amizade~~ ✅ *Completo*
 
-**Por que agora:** remove o hack `_BYPASS_LEVEL = 36` de forma semântica e adiciona dimensão emocional ao vínculo com o Pokémon. Restaura a precisão de evolução para Gengar, Alakazam, Chansey e galho Eevee.
-
-**Design:**
-- `ALTER TABLE user_pokemon ADD COLUMN happiness SMALLINT DEFAULT 70;`
-- Incrementos: +2 por level-up, +1 por treino, +1 por check-in, +5 por descanso registrado
-- Decremento: −5 se inativo por 7 dias (verificação lazy no próximo evento)
-- Happiness ≥ 220 → desbloqueio de evoluções por amizade (substituindo bypass do nível 36 para esses casos)
-- Happiness ≥ 180 → +5% XP em `award_xp()`
-- Happiness < 50 → −5% XP + indicador "desmotivado" na equipe
-
-**Mecânica de Descanso (inclusa aqui):**
-- Botão "Registrar Descanso" em `calendario.py`
-- +5 happiness no slot 1, não quebra streak de check-in
-- Nota visual no grid do calendário
+`happiness SMALLINT DEFAULT 70` em `user_pokemon`. Incrementos: +2/level-up, +1/treino, +1/check-in, +5/descanso. Penalidade: −5 por inatividade ≥7 dias. Happiness ≥ 180 → +5% XP; < 50 → −5% XP + badge "Desmotivado" na equipe. Evoluções por amizade (`min_happiness = 220`) desbloqueadas em `award_xp()` via coluna `pokemon_evolutions.min_happiness`. Botão "Registrar Descanso" em `calendario.py` com nota visual no grid. Migration: `scripts/migrate_happiness.sql`.
 
 ---
 
@@ -113,8 +101,8 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 
 | Feature | Esforço | Impacto | Status |
 |---|---|---|---|
-| Felicidade / amizade | Médio | Alto | 🔴 Release 6 |
-| Mecânica de descanso | Baixo | Médio | 🔴 Release 6 (junto) |
+| Felicidade / amizade | Médio | Alto | ✅ Release 6 |
+| Mecânica de descanso | Baixo | Médio | ✅ Release 6 (junto) |
 | Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
 | Analytics de treino | Médio | Alto | 🔴 Release 8 |
 | Trocas de Pokémon | Alto | Alto | 🔵 V2 |
