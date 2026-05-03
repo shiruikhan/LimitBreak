@@ -7,6 +7,7 @@ from utils.db import (
     get_exercises, do_exercise_event,
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
+    get_volume_history, get_exercise_bests_all, get_muscle_distribution,
 )
 from utils.app_cache import (
     get_cached_workout_sheets,
@@ -109,11 +110,26 @@ st.markdown("""
     padding: 8px 14px; margin-bottom: 6px; font-size: 0.85rem;
 }
 .history-row b { color: #e6edf3; }
+
+.an-section-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin: 16px 0 8px; letter-spacing: 1px; }
+.an-best-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 8px 14px; margin-bottom: 5px; font-size: 0.85rem;
+}
+.an-best-name { color: #e6edf3; font-weight: 600; }
+.an-best-val  { color: #FFB347; font-weight: 700; }
+.an-empty { color: #8b949e; font-size: 0.85rem; text-align: center; padding: 24px 0; }
 </style>
 """, unsafe_allow_html=True)
 
+tab_log, tab_analytics = st.tabs(["🏋️ Treino", "📊 Análise"])
+
+# ── TAB: TREINO ───────────────────────────────────────────────────────────────
+with tab_log:
+
 # ── header ────────────────────────────────────────────────────────────────────
-streak = get_cached_workout_streak(user_id)
+ streak = get_cached_workout_streak(user_id)
 xp_today = get_cached_daily_xp_from_exercise(user_id)
 xp_pct = min(xp_today / _DAILY_CAP, 1.0)
 cap_cls = "full" if xp_today >= _DAILY_CAP else ("warn" if xp_today > 200 else "ok")

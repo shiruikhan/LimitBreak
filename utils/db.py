@@ -4656,3 +4656,116 @@ def claim_mission_reward(user_id: str, mission_id: int) -> tuple[bool, str, dict
         except Exception:
             pass
         return False, f"Erro ao coletar recompensa: {e}", None
+
+
+# ── Analytics de Treino ───────────────────────────────────────────────────────
+
+def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[dict]:
+    """Daily volume (sum of weight × reps across all sets) for one exercise.
+
+    Returns list of {date, volume, max_weight, total_sets} ordered by date.
+    Only includes sessions where at least one set had weight > 0.
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT
+                    (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d,
+                    ROUND(SUM((s->>'weight')::float * (s->>'reps')::int)::numeric, 1) AS volume,
+                    MAX((s->>'weight')::float)  AS max_weight,
+                    COUNT(*)                    AS total_sets
+                FROM exercise_logs el
+                JOIN workout_logs wl ON wl.id = el.workout_log_id
+                JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
+                WHERE wl.user_id = %s
+                  AND el.exercise_id = %s
+                  AND (s->>'weight')::float > 0
+                  AND wl.completed_at >= NOW() - (%s || ' days')::interval
+                GROUP BY d
+                ORDER BY d;
+            """, (user_id, exercise_id, str(days)))
+            cols = ["date", "volume", "max_weight", "total_sets"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_exercise_bests_all(user_id: str) -> list[dict]:
+    """Best weight and reps-at-best-weight for every exercise the user has logged.
+
+    Only considers sets with weight > 0.
+    Returns list of {exercise_id, name, best_weight, best_reps} ordered by name.
+    """
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT
+                    e.id,
+                    COALESCE(e.name_pt, e.name) AS name,
+                    MAX((s->>'weight')::float)   AS best_weight,
+                    (
+                        SELECT MAX((s2->>'reps')::int)
+                        FROM exercise_logs el2
+                        JOIN workout_logs wl2 ON wl2.id = el2.workout_log_id
+                        JOIN LATERAL jsonb_array_elements(el2.sets_data) AS s2 ON true
+                        WHERE wl2.user_id = wl.user_id
+                          AND el2.exercise_id = el.exercise_id
+                          AND (s2->>'weight')::float = MAX((s->>'weight')::float)
+                    ) AS best_reps
+                FROM exercise_logs el
+                JOIN workout_logs wl ON wl.id = el.workout_log_id
+                JOIN exercises e ON e.id = el.exercise_id
+                JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
+                WHERE wl.user_id = %s
+                  AND (s->>'weight')::float > 0
+                GROUP BY e.id, e.name, e.name_pt, wl.user_id, el.exercise_id
+                ORDER BY name;
+            """, (user_id,))
+            cols = ["exercise_id", "name", "best_weight", "best_reps"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def get_muscle_distribution(user_id: str) -> dict:
+    """Body-part set counts for the current week and the previous week.
+
+    Week is Mon–Sun in BRT. Returns:
+    {
+        "this_week":  {body_part: total_sets, ...},
+        "last_week":  {body_part: total_sets, ...},
+        "this_label": "DD/MM – DD/MM",
+        "last_label": "DD/MM – DD/MM",
+    }
+    """
+    today = _today_brt()
+    this_mon = today - datetime.timedelta(days=today.weekday())
+    last_mon = this_mon - datetime.timedelta(days=7)
+    last_sun = this_mon - datetime.timedelta(days=1)
+
+    def _query(start, end):
+        try:
+            with get_connection().cursor() as cur:
+                cur.execute("""
+                    SELECT unnest(e.body_parts) AS bp,
+                           SUM(jsonb_array_length(el.sets_data)) AS total_sets
+                    FROM exercise_logs el
+                    JOIN workout_logs wl ON wl.id = el.workout_log_id
+                    JOIN exercises e ON e.id = el.exercise_id
+                    WHERE wl.user_id = %s
+                      AND (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date
+                          BETWEEN %s AND %s
+                    GROUP BY bp
+                    ORDER BY total_sets DESC;
+                """, (user_id, start, end))
+                return {r[0]: int(r[1]) for r in cur.fetchall()}
+        except Exception:
+            return {}
+
+    fmt = lambda d: d.strftime("%d/%m")
+    return {
+        "this_week":  _query(this_mon, today),
+        "last_week":  _query(last_mon, last_sun),
+        "this_label": f"{fmt(this_mon)} – {fmt(today)}",
+        "last_label": f"{fmt(last_mon)} – {fmt(last_sun)}",
+    }
