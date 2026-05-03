@@ -6,10 +6,11 @@ from utils.app_cache import (
     clear_user_cache,
     get_cached_checkin_streak,
     get_cached_monthly_checkins,
+    get_cached_monthly_rest_days,
     get_cached_user_profile,
 )
 from utils.db import (
-    do_checkin, register_rest, get_monthly_rest_days,
+    do_checkin, register_rest,
     sprite_img_tag, hq_sprite_url,
     _today_brt, check_and_award_achievements, update_mission_progress,
 )
@@ -196,7 +197,7 @@ st.markdown(f"""
 
 # ── Botão de check-in ─────────────────────────────────────────────────────────
 
-already_rested = today.day in get_monthly_rest_days(user_id, today.year, today.month)
+already_rested = today.day in get_cached_monthly_rest_days(user_id, today.year, today.month)
 
 col_checkin, col_rest = st.columns([3, 2])
 with col_checkin:

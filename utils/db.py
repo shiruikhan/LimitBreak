@@ -828,7 +828,8 @@ def get_user_bench(user_id: str) -> list[dict]:
                   AND up.id NOT IN (
                       SELECT user_pokemon_id FROM user_team WHERE user_id = %s
                   )
-                ORDER BY up.level DESC, up.id DESC;
+                ORDER BY up.level DESC, up.id DESC
+                LIMIT 200;
             """, (user_id, user_id))
             rows = cur.fetchall()
             return [
@@ -3291,17 +3292,20 @@ def _get_slot1_ability(user_id: str) -> str | None:
 # ── Desafio Comunitário Semanal — helpers privados ────────────────────────────
 
 _CHALLENGE_TYPES = ["total_xp", "total_workouts", "total_sets"]
-_CHALLENGE_REWARD_SLUG = "loot-box"
+_CHALLENGE_REWARD_SLUG = "egg"  # special slug — granted via user_eggs, not shop_items
 
 
 def _ensure_weekly_challenge(cur) -> int | None:
     """Returns challenge id for this week, creating it if absent. Returns None on error."""
     today = _today_brt()
     this_monday = today - datetime.timedelta(days=today.weekday())
-    cur.execute("SELECT id, completed FROM weekly_challenges WHERE week_start = %s;", (this_monday,))
+    cur.execute("SELECT id FROM weekly_challenges WHERE week_start = %s;", (this_monday,))
     row = cur.fetchone()
     if row:
         return row[0]
+
+    last_monday = this_monday - datetime.timedelta(weeks=1)
+    last_sunday = this_monday - datetime.timedelta(days=1)
 
     # Count active users (at least 1 workout in last 4 weeks)
     cur.execute("""
@@ -3311,12 +3315,32 @@ def _ensure_weekly_challenge(cur) -> int | None:
     active_users = max(int(cur.fetchone()[0] or 0), 1)
 
     goal_type = random.choice(_CHALLENGE_TYPES)
+
+    # Base goal on last week's actual community performance; fall back if no prior data
     if goal_type == "total_xp":
-        goal_value = active_users * 200
+        cur.execute("""
+            SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
+            WHERE completed_at::date BETWEEN %s AND %s;
+        """, (last_monday, last_sunday))
+        last_week_val = int(cur.fetchone()[0] or 0)
+        goal_value = last_week_val if last_week_val > 0 else active_users * 200
+
     elif goal_type == "total_workouts":
-        goal_value = max(active_users * 3, 5)
+        cur.execute("""
+            SELECT COUNT(*) FROM workout_logs
+            WHERE completed_at::date BETWEEN %s AND %s;
+        """, (last_monday, last_sunday))
+        last_week_val = int(cur.fetchone()[0] or 0)
+        goal_value = last_week_val if last_week_val > 0 else max(active_users * 3, 5)
+
     else:  # total_sets
-        goal_value = active_users * 30
+        cur.execute("""
+            SELECT COALESCE(SUM(jsonb_array_length(sets_data)), 0) FROM exercise_logs el
+            JOIN workout_logs wl ON wl.id = el.workout_log_id
+            WHERE wl.completed_at::date BETWEEN %s AND %s;
+        """, (last_monday, last_sunday))
+        last_week_val = int(cur.fetchone()[0] or 0)
+        goal_value = last_week_val if last_week_val > 0 else active_users * 30
 
     cur.execute("""
         INSERT INTO weekly_challenges
@@ -5199,16 +5223,35 @@ def claim_weekly_challenge_reward(user_id: str) -> tuple[bool, str, dict]:
             if part[1]:
                 return False, "Recompensa já coletada.", {}
 
-            # Get item_id for the reward slug
-            cur.execute("SELECT id, name FROM shop_items WHERE slug = %s;", (reward_slug,))
-            item_row = cur.fetchone()
-            if not item_row:
-                return False, "Item de recompensa não encontrado.", {}
-            item_id, item_name = item_row
-
-            # Grant item(s) to inventory
-            for _ in range(reward_qty):
-                _add_inventory_item(cur, user_id, item_id)
+            # Grant reward
+            if reward_slug == "egg":
+                # Grant egg(s) directly into user_eggs (uncommon rarity for weekly reward)
+                granted_eggs = []
+                for _ in range(reward_qty):
+                    rarity = "uncommon"
+                    species_id = _pick_egg_species(cur, user_id, rarity)
+                    if species_id is None:
+                        species_id = _pick_egg_species(cur, user_id, "common")
+                        rarity = "common"
+                    if species_id is not None:
+                        workouts_to_hatch = _EGG_WORKOUTS_TO_HATCH[rarity]
+                        cur.execute("""
+                            INSERT INTO user_eggs (user_id, species_id, rarity, workouts_to_hatch)
+                            VALUES (%s, %s, %s, %s);
+                        """, (user_id, species_id, rarity, workouts_to_hatch))
+                        granted_eggs.append({"rarity": rarity, "workouts_to_hatch": workouts_to_hatch})
+                reward_display = "1× Ovo de Pokémon 🥚"
+            else:
+                # Generic shop item path
+                cur.execute("SELECT id, name FROM shop_items WHERE slug = %s;", (reward_slug,))
+                item_row = cur.fetchone()
+                if not item_row:
+                    return False, "Item de recompensa não encontrado.", {}
+                item_id, item_name = item_row
+                for _ in range(reward_qty):
+                    _add_inventory_item(cur, user_id, item_id)
+                granted_eggs = []
+                reward_display = f"{reward_qty}× {item_name}"
 
             # Mark as claimed
             cur.execute("""
@@ -5218,10 +5261,11 @@ def claim_weekly_challenge_reward(user_id: str) -> tuple[bool, str, dict]:
             """, (challenge_id, user_id))
 
         conn.commit()
-        return True, f"🎁 Recompensa coletada: {reward_qty}× {item_name}!", {
+        return True, f"🥚 Recompensa coletada: {reward_display}!", {
             "item_slug": reward_slug,
-            "item_name": item_name,
+            "item_name": reward_display,
             "quantity":  reward_qty,
+            "eggs":      granted_eggs,
         }
     except Exception as e:
         conn.rollback()

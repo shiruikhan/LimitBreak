@@ -1,18 +1,19 @@
 import streamlit as st
 
 from utils.app_cache import (
+    clear_user_cache,
     get_cached_checkin_streak,
     get_cached_daily_battle_count,
+    get_cached_user_achievements,
     get_cached_user_missions,
     get_cached_user_profile,
     get_cached_user_team,
 )
 from utils.db import (
-    _MAX_BATTLES_PER_DAY, _today_brt, get_user_achievements,
+    _MAX_BATTLES_PER_DAY, _today_brt,
     assign_weekly_rival, get_rival_status, get_image_as_base64,
     get_current_challenge, claim_weekly_challenge_reward,
 )
-from utils.app_cache import clear_user_cache
 from utils.achievements import GYM_BADGES
 from utils.missions import get_mission
 
@@ -266,7 +267,7 @@ def _render_snapshot() -> None:
 
     # ── Gym badge mini-rack ────────────────────────────────────────────────────
     try:
-        user_achievements = get_user_achievements(user_id)
+        user_achievements = get_cached_user_achievements(user_id)
         gym_earned = sum(1 for b in GYM_BADGES if b["slug"] in user_achievements)
         gym_total = len(GYM_BADGES)
         dots_html = ""
@@ -498,7 +499,9 @@ def _render_challenge_banner() -> None:
     bar_color   = "#2ea043" if completed else "#58a6ff"
     css_extra   = " done" if completed else ""
 
-    progress_text = f"{current:,} / {goal_val:,}"
+    goal_type   = ch.get("goal_type", "total_xp")
+    unit        = "XP" if goal_type == "total_xp" else ("sessões" if goal_type == "total_workouts" else "séries")
+    progress_text = f"{current:,} / {goal_val:,} {unit} &nbsp;·&nbsp; 🥚 Recompensa: 1 ovo"
 
     st.markdown(
         f"<div class='hub-challenge{css_extra}'>"
@@ -513,16 +516,16 @@ def _render_challenge_banner() -> None:
     )
 
     if completed and not claimed and contributed > 0:
-        if st.button("🎁 Coletar Recompensa do Desafio", use_container_width=False):
+        if st.button("🥚 Coletar Ovo do Desafio", use_container_width=False):
             ok, msg, reward = claim_weekly_challenge_reward(user_id)
             clear_user_cache()
             if ok:
-                st.toast(msg, icon="🎁")
+                st.toast(msg, icon="🥚")
             else:
                 st.error(msg)
             st.rerun()
     elif completed and claimed:
-        st.caption("✅ Recompensa coletada.")
+        st.caption("✅ Ovo coletado.")
     elif completed and contributed == 0:
         st.caption("Você não contribuiu esta semana.")
 

@@ -1,5 +1,6 @@
 import streamlit as st
-from utils.db import get_user_achievements, check_and_award_achievements
+from utils.app_cache import get_cached_user_achievements
+from utils.db import check_and_award_achievements
 from utils.achievements import CATALOG, CATEGORY_META, GYM_BADGES, badge_url
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ all_new_slugs = {a["slug"] for a in all_new}
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 
-unlocked: dict[str, object] = get_user_achievements(user_id)
+unlocked: dict[str, object] = get_cached_user_achievements(user_id)
 total = len(CATALOG)
 earned = len(unlocked)
 

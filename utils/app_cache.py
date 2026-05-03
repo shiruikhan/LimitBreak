@@ -7,7 +7,9 @@ from utils.db import (
     get_daily_battle_count,
     get_daily_xp_from_exercise,
     get_monthly_checkins,
+    get_monthly_rest_days,
     get_team_stat_boost_counts,
+    get_user_achievements,
     get_user_bench,
     get_user_inventory,
     get_user_missions,
@@ -82,6 +84,16 @@ def get_cached_is_admin(user_id: str):
     return is_admin(user_id)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def get_cached_user_achievements(user_id: str):
+    return get_user_achievements(user_id)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_monthly_rest_days(user_id: str, year: int, month: int):
+    return get_monthly_rest_days(user_id, year, month)
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_user_bench(user_id: str):
     return get_user_bench(user_id)
@@ -131,3 +143,5 @@ def clear_user_cache() -> None:
     get_cached_daily_xp_from_exercise.clear()
     get_cached_workout_history.clear()
     get_cached_workout_sheets.clear()
+    get_cached_user_achievements.clear()
+    get_cached_monthly_rest_days.clear()
