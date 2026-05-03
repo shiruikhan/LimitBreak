@@ -5,6 +5,7 @@ from utils.db import (
     get_battle_opponents,
     get_checkin_streak,
     get_daily_battle_count,
+    get_daily_xp_from_exercise,
     get_monthly_checkins,
     get_team_stat_boost_counts,
     get_user_bench,
@@ -13,6 +14,9 @@ from utils.db import (
     get_user_pokemon_ids,
     get_user_profile,
     get_user_team,
+    get_workout_history,
+    get_workout_sheets,
+    get_workout_streak,
     get_xp_share_status,
     is_admin,
 )
@@ -88,6 +92,26 @@ def get_cached_team_stat_boost_counts(user_id: str):
     return get_team_stat_boost_counts(user_id)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_workout_streak(user_id: str):
+    return get_workout_streak(user_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_cached_daily_xp_from_exercise(user_id: str):
+    return get_daily_xp_from_exercise(user_id)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_workout_history(user_id: str, limit: int = 10):
+    return get_workout_history(user_id, limit)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_workout_sheets(user_id: str):
+    return get_workout_sheets(user_id)
+
+
 def clear_user_cache() -> None:
     get_cached_user_profile.clear()
     get_cached_user_team.clear()
@@ -103,3 +127,7 @@ def clear_user_cache() -> None:
     get_cached_is_admin.clear()
     get_cached_user_bench.clear()
     get_cached_team_stat_boost_counts.clear()
+    get_cached_workout_streak.clear()
+    get_cached_daily_xp_from_exercise.clear()
+    get_cached_workout_history.clear()
+    get_cached_workout_sheets.clear()

@@ -478,7 +478,7 @@ def _insert_user_pokemon(
 _GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_image_as_base64(path: str) -> str | None:
     """Converte uma imagem em base64.
 

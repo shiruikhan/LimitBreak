@@ -145,9 +145,31 @@ st.markdown("""
 with st.spinner("Carregando Pokédex..."):
     all_pokemon  = get_all_pokemon_with_types()
     captured_ids = get_cached_user_pokemon_ids(st.session_state.user_id)
-total        = len(all_pokemon)
-captured_n   = sum(1 for p in all_pokemon if p["id"] in captured_ids)
-pct          = (captured_n / total * 100) if total else 0
+total = len(all_pokemon)
+
+# ── single-pass: contadores globais e por geração ──────────────────────────
+_gen_totals: dict[str, int] = {}
+_gen_captured: dict[str, int] = {}
+captured_n = 0
+reg_total = 0
+reg_captured = 0
+for _p in all_pokemon:
+    _pid = _p["id"]
+    _cap = _pid in captured_ids
+    if _cap:
+        captured_n += 1
+    if _pid > 10000:
+        reg_total += 1
+        if _cap:
+            reg_captured += 1
+    else:
+        for _lbl, (_lo, _hi) in GENERATIONS.items():
+            if _lo <= _pid <= _hi:
+                _gen_totals[_lbl] = _gen_totals.get(_lbl, 0) + 1
+                if _cap:
+                    _gen_captured[_lbl] = _gen_captured.get(_lbl, 0) + 1
+                break
+pct = (captured_n / total * 100) if total else 0
 
 # ── Header ───────────────────────────────────────────────────────────────────────
 
@@ -179,16 +201,14 @@ st.markdown(f"""
 
 # Chips por geração
 gen_chips_html = "<div class='gen-row'>"
-for label, (lo, hi) in GENERATIONS.items():
-    gen_total    = sum(1 for p in all_pokemon if lo <= p["id"] <= hi)
-    gen_captured = sum(1 for p in all_pokemon if lo <= p["id"] <= hi and p["id"] in captured_ids)
+for label in GENERATIONS:
+    g_tot = _gen_totals.get(label, 0)
+    g_cap = _gen_captured.get(label, 0)
     short = label.split(" ")[0] + " " + label.split(" ")[1]
     gen_chips_html += (
         f"<div class='gen-chip'>{short} "
-        f"<span>{gen_captured}/{gen_total}</span></div>"
+        f"<span>{g_cap}/{g_tot}</span></div>"
     )
-reg_total    = sum(1 for p in all_pokemon if p["id"] > 10000)
-reg_captured = sum(1 for p in all_pokemon if p["id"] > 10000 and p["id"] in captured_ids)
 gen_chips_html += (
     f"<div class='gen-chip'>Regionais "
     f"<span>{reg_captured}/{reg_total}</span></div>"
@@ -196,57 +216,7 @@ gen_chips_html += (
 gen_chips_html += "</div>"
 st.markdown(gen_chips_html, unsafe_allow_html=True)
 
-# ── Filtros ───────────────────────────────────────────────────────────────────────
-
-col_search, col_type, col_status = st.columns([2, 2, 1])
-
-with col_search:
-    st.markdown("<div class='filter-label'>Buscar</div>", unsafe_allow_html=True)
-    search = st.text_input(
-        "Buscar", label_visibility="collapsed",
-        placeholder="Nome ou número...", key="pdex_search"
-    )
-
-with col_type:
-    st.markdown("<div class='filter-label'>Tipo</div>", unsafe_allow_html=True)
-    type_filter = st.multiselect(
-        "Tipo", ALL_TYPES, label_visibility="collapsed",
-        placeholder="Todos os tipos", key="pdex_types"
-    )
-
-with col_status:
-    st.markdown("<div class='filter-label'>Status</div>", unsafe_allow_html=True)
-    status = st.radio(
-        "Status", ["Todos", "✅ Capturados", "❌ Não capturados"],
-        label_visibility="collapsed", key="pdex_status"
-    )
-
-st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
-
-# ── Filtragem ─────────────────────────────────────────────────────────────────────
-
-filtered = all_pokemon
-
-if search.strip():
-    q = search.strip().lower()
-    filtered = [
-        p for p in filtered
-        if q in p["name"].lower() or q == str(p["id"])
-    ]
-
-if type_filter:
-    slugs = {t.lower() for t in type_filter}
-    filtered = [
-        p for p in filtered
-        if (p["type1_slug"] or "") in slugs or (p["type2_slug"] or "") in slugs
-    ]
-
-if status == "✅ Capturados":
-    filtered = [p for p in filtered if p["id"] in captured_ids]
-elif status == "❌ Não capturados":
-    filtered = [p for p in filtered if p["id"] not in captured_ids]
-
-# ── Grade ──────────────────────────────────────────────────────────────────────────
+# ── Helpers de renderização ──────────────────────────────────────────────────────
 
 _REGION_COLORS = {
     "Alola":  ("#FF9B00", "#000"),
@@ -255,7 +225,6 @@ _REGION_COLORS = {
 }
 
 def _region_from_sprite(pokemon_id: int, sprite_url: str | None) -> str:
-    """Return region name ('Alola', 'Galar', 'Hisui') for regional forms, else ''."""
     if pokemon_id <= 10000 or not sprite_url:
         return ""
     m = re.search(r'/(\d{4})-(Alola|Galar|Hisui)\.png', sprite_url)
@@ -263,7 +232,6 @@ def _region_from_sprite(pokemon_id: int, sprite_url: str | None) -> str:
 
 
 def _num_str(pokemon_id: int, sprite_url: str | None) -> str:
-    """For regional forms show the national dex # extracted from sprite filename."""
     if pokemon_id <= 10000:
         return f"#{str(pokemon_id).zfill(4)}"
     m = re.search(r'/(\d{4})-\w+\.png', sprite_url or "")
@@ -271,12 +239,6 @@ def _num_str(pokemon_id: int, sprite_url: str | None) -> str:
 
 
 def _thumb_src(pokemon_id: int, sprite_url: str | None = None) -> str | None:
-    """Retorna a URL ou caminho local do sprite para exibição.
-
-    Com Supabase Storage: devolve a URL pública diretamente (sem base64).
-    Com CDN externo: devolve a URL como-está.
-    Local: devolve o caminho para conversão posterior via sprite_img_tag().
-    """
     if sprite_url and sprite_url.startswith("http"):
         return sprite_url
     path = os.path.join(
@@ -298,22 +260,66 @@ def _type_pip(type_name: str | None, type_slug: str | None) -> str:
     )
 
 
-result_count = len(filtered)
-st.markdown(
-    f"<div style='color:#8b949e;font-size:0.8rem;margin-bottom:8px'>"
-    f"{result_count} Pokémon encontrado{'s' if result_count != 1 else ''}</div>",
-    unsafe_allow_html=True,
-)
+# ── Filtros + Grade (fragment: só esta seção reroda ao mudar filtros) ────────────
 
-if not filtered:
-    st.info("Nenhum Pokémon corresponde aos filtros selecionados.")
-else:
+@st.fragment
+def _render_filters_and_grid(all_pkm: list, cap_ids: set) -> None:
+    col_search, col_type, col_status = st.columns([2, 2, 1])
+
+    with col_search:
+        st.markdown("<div class='filter-label'>Buscar</div>", unsafe_allow_html=True)
+        search = st.text_input(
+            "Buscar", label_visibility="collapsed",
+            placeholder="Nome ou número...", key="pdex_search"
+        )
+
+    with col_type:
+        st.markdown("<div class='filter-label'>Tipo</div>", unsafe_allow_html=True)
+        type_filter = st.multiselect(
+            "Tipo", ALL_TYPES, label_visibility="collapsed",
+            placeholder="Todos os tipos", key="pdex_types"
+        )
+
+    with col_status:
+        st.markdown("<div class='filter-label'>Status</div>", unsafe_allow_html=True)
+        status = st.radio(
+            "Status", ["Todos", "✅ Capturados", "❌ Não capturados"],
+            label_visibility="collapsed", key="pdex_status"
+        )
+
+    st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+
+    # ── Single-pass filter ────────────────────────────────────────────────────
+    q          = search.strip().lower()
+    type_slugs = {t.lower() for t in type_filter} if type_filter else None
+    cap_only   = status == "✅ Capturados"
+    notcap_only = status == "❌ Não capturados"
+
+    filtered = [
+        p for p in all_pkm
+        if (not q or q in p["name"].lower() or q == str(p["id"]))
+        and (not type_slugs or (p["type1_slug"] or "") in type_slugs or (p["type2_slug"] or "") in type_slugs)
+        and (not cap_only or p["id"] in cap_ids)
+        and (not notcap_only or p["id"] not in cap_ids)
+    ]
+
+    result_count = len(filtered)
+    st.markdown(
+        f"<div style='color:#8b949e;font-size:0.8rem;margin-bottom:8px'>"
+        f"{result_count} Pokémon encontrado{'s' if result_count != 1 else ''}</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not filtered:
+        st.info("Nenhum Pokémon corresponde aos filtros selecionados.")
+        return
+
     cards_html = "<div class='pdex-grid'>"
 
     for p in filtered:
         pid         = p["id"]
         sprite_url  = p.get("sprite_url")
-        is_captured = pid in captured_ids
+        is_captured = pid in cap_ids
         pnum_str    = _num_str(pid, sprite_url)
         t1_pip      = _type_pip(p["type1"], p["type1_slug"])
         t2_pip      = _type_pip(p["type2"], p["type2_slug"])
@@ -363,3 +369,6 @@ else:
 
     cards_html += "</div>"
     st.markdown(cards_html, unsafe_allow_html=True)
+
+
+_render_filters_and_grid(all_pokemon, captured_ids)

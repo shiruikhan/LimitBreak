@@ -91,12 +91,14 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── leaderboard.py           # Ranking — XP de treino / streak de check-in / coleção Pokémon
 │   ├── pokedex.py               # Pokédex nacional completo
 │   ├── pokedex_pessoal.py       # Pokédex pessoal — capturados vs não capturados
-│   ├── loja.py                  # Loja de itens + mochila com uso de itens (inclui loot box e nature mint)
+│   ├── loja.py                  # Loja de itens + tab Mochila inline (usa bag_ui.py)
+│   ├── mochila.py               # Mochila standalone — wrapper de bag_ui.render_bag_view()
 │   ├── calendario.py            # Check-in diário + calendário mensal
 │   ├── missoes.py               # Missões diárias (3) e semanal (1) com coleta de recompensas
 │   ├── biblioteca.py            # Biblioteca de exercícios — catálogo Pokédex-style (152 exercícios)
 │   ├── rotinas.py               # Workout Builder — criar/editar fichas e dias de treino
 │   ├── treino.py                # Routine Log — registro de sessão com Import Default
+│   ├── ovos.py                  # Ovos em incubação — grade de ovos pendentes com progresso e spoiler toggle
 │   └── admin.py                 # Painel administrativo — restrito a is_admin(); 5 tabs
 ├── utils/
 │   ├── __init__.py
@@ -104,6 +106,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, badge_url)
 │   ├── abilities.py             # Registro de habilidades passivas de treino (Release 3A)
 │   ├── app_cache.py             # Camada de cache compartilhado para leituras repetidas de usuário
+│   ├── bag_ui.py                # Componentes reutilizáveis da Mochila — render_bag_view(), render_bag_styles(), etc.
 │   ├── missions.py              # Catálogo de missões diárias/semanais (DAILY_POOL, WEEKLY_POOL)
 │   ├── quest_tracker.py         # Widget compacto de missões para a sidebar
 │   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
@@ -623,14 +626,14 @@ def _resolve_asset(local_path: str) -> str:
 
 O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar customizada em `app.py`.
 
-**Grupos da sidebar:**
-1. `Hub`
-2. `Treinador`
-3. `Batalha`
-4. `Treinos`
-5. `Pokédex`
-6. `Loja`
-7. `Admin` *(somente se `is_admin(user_id)` for true)*
+**Grupos da sidebar (conforme `_build_app_pages()` em `app.py`):**
+1. `Hub` → Hub 🏠
+2. `Treinador` → Minha Equipe ⚔️, Ovos 🥚, Conquistas 🏅, Missões 🎯
+3. `Batalha` → Arena 🥊, Ranking 🏆
+4. `Treinos` → Calendário 📅, Treino 🏋️, Rotinas 📋, Biblioteca 📚
+5. `Pokédex` → Pokédex 📖, Minha Pokédex 🗂️
+6. `Loja` → Loja 🛒, Mochila 🎒
+7. `Admin` *(somente se `is_admin(user_id)` for true)* → Admin ⚙️
 
 **Página inicial autenticada:**
 - `pages/hub.py` — Hub 🏠
@@ -679,12 +682,13 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - Tab **Loja**: grade de itens por categoria (Pedras / Vitaminas / Outros) com preço e indicador de estoque
   - **XP Share tem fluxo especial de compra:** botão "▶ Ativar" quando inativo; botão "✚ +15 dias" quando ativo (mostrando dias restantes via `get_xp_share_status()`)
   - **Loot Box** não aparece na grade de compra (price=1, mas `buy_item()` bloqueia via slug `loot-box`)
-- Tab **Mochila**:
-  - *Vitaminas:* selectbox de Pokémon da equipe + botão "Usar" → `use_stat_item()`
-  - *Pedras:* expander por item → selectbox de Pokémon elegíveis → preview sprite → botão "✨ Usar" → `evolve_with_stone()`; após evolução define `st.session_state.team_evo_notice`
-  - *Nature Mint:* selectbox de Pokémon + selectbox de natureza destino → `use_nature_mint()`; exibe preview do modificador de nature antes de confirmar
-  - *Loot Box:* botão "🎁 Abrir" → `open_loot_box()`; exibe card com prêmio sorteado e raridade; se for XP, chama `award_xp()` pós-commit
-  - *Outros (XP Share):* exibe status de ativação com dias restantes
+- Tab **Mochila**: renderizado por `utils/bag_ui.render_bag_view()` — mesma lógica da página `mochila.py` standalone
+
+### `pages/mochila.py`
+- Página standalone da Mochila acessível via sidebar (grupo Loja)
+- Thin wrapper: chama `ensure_bag_session_state()`, `render_bag_styles()`, `render_bag_header(show_shop_button=True)`, `render_bag_view(user_id)` de `utils/bag_ui.py`
+- Header mostra título "MOCHILA", subtítulo, saldo de moedas e botão "🛒 Ir para Loja"
+- Conteúdo: Vitaminas, Nature Mint, Pedras, Loot Boxes, Outros (XP Share) — mesmas seções da tab Mochila em `loja.py`
 
 ### `pages/calendario.py`
 - Grade mensal HTML (7 colunas) com estados: normal / checado (verde) / bônus (dourado) / spawn (roxo)
@@ -742,6 +746,14 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - Ao coletar: chama `claim_mission_reward(user_id, mission_id)`; exibe card de resultado com `_show_claim_result()` (mensagem varia por tipo: xp/coins/stone/vitamin/loot_box)
 - Nota de rodapé: "Missões diárias renovam à meia-noite (BRT). Semanal renova toda segunda-feira."
 - Estado de missão `completed` exibe badge verde "✅ Completa"; `reward_claimed` exibe badge cinza "✓ Coletada" e opacidade reduzida
+
+### `pages/ovos.py`
+- Grade de ovos em incubação via `get_user_eggs(user_id)` — mostra apenas ovos com `hatched_at IS NULL`
+- Cards 4 por linha: emoji de raridade (⚪/🔵/🟣), barra de progresso colorida por raridade, contador "N/M treinos", data de recebimento
+- Alertas contextuais: "⚡ Falta N treino(s)!" quando `remaining <= 2`; "🔥 Pronto para chocar!" quando `done >= total`
+- **Spoiler toggle:** checkbox "Revelar espécie" por ovo — só exibe sprite + nome quando o usuário opta; usa `sprite_img_tag()`
+- Estado vazio: card explicativo com milestones (25/50/100 treinos) e botão "🏋️ Ir para Treino"
+- Rodapé: atalhos para `treino.py` e `equipe.py`
 
 ### `pages/admin.py`
 - Acesso restrito: exibe aviso de "Acesso negado" se `is_admin(user_id)` retornar `False`
@@ -1061,12 +1073,15 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - `pages/hub.py` como landing page autenticada
   - `utils/app_cache.py` com cache de leituras de usuário
   - `st.fragment` aplicado em áreas isoladas como hub e calendário
+- **Mochila standalone + Ovos:**
+  - `utils/bag_ui.py`: componentes reutilizáveis da mochila extraídos de `loja.py`
+  - `pages/mochila.py`: página independente da mochila acessível direto pela sidebar (grupo Loja)
+  - `pages/ovos.py`: página de ovos em incubação com grade de cards, barra de progresso e spoiler toggle de espécie
 
 ### A implementar
 
 **Opcional**
 - [ ] Formas de Paldea — popular com `seed_regional_species.py`
-- [ ] Página de exibição de ovos pendentes para o usuário
 
 ---
 

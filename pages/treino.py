@@ -3,11 +3,17 @@ import os
 import uuid
 import streamlit as st
 from utils.db import (
-    get_workout_sheets, get_sheet_days, get_day_exercises_for_builder,
+    get_sheet_days, get_day_exercises_for_builder,
     get_exercises, do_exercise_event,
-    get_daily_xp_from_exercise, get_workout_streak, get_workout_history,
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
+)
+from utils.app_cache import (
+    get_cached_workout_sheets,
+    get_cached_workout_streak,
+    get_cached_daily_xp_from_exercise,
+    get_cached_workout_history,
+    clear_user_cache,
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc, WORKOUT_ABILITIES as _WORKOUT_ABILITIES
@@ -37,10 +43,13 @@ for _k, _v in [
 with st.sidebar:
     render_quest_sidebar(user_id)
 
-# ── catalog ───────────────────────────────────────────────────────────────────
-all_exercises = get_exercises()
-ex_name_map = {ex["id"]: ex["name_pt"] or ex["name"] for ex in all_exercises}
-ex_id_options = [ex["id"] for ex in all_exercises]
+# ── catalog (cached in session_state to avoid rebuilding dicts every rerun) ──
+if "ex_name_map" not in st.session_state:
+    _all_ex = get_exercises()
+    st.session_state.ex_name_map = {ex["id"]: ex["name_pt"] or ex["name"] for ex in _all_ex}
+    st.session_state.ex_id_options = [ex["id"] for ex in _all_ex]
+ex_name_map = st.session_state.ex_name_map
+ex_id_options = st.session_state.ex_id_options
 
 # ── styles (reused from calendario pattern) ───────────────────────────────────
 st.markdown("""
@@ -104,8 +113,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── header ────────────────────────────────────────────────────────────────────
-streak = get_workout_streak(user_id)
-xp_today = get_daily_xp_from_exercise(user_id)
+streak = get_cached_workout_streak(user_id)
+xp_today = get_cached_daily_xp_from_exercise(user_id)
 xp_pct = min(xp_today / _DAILY_CAP, 1.0)
 cap_cls = "full" if xp_today >= _DAILY_CAP else ("warn" if xp_today > 200 else "ok")
 
@@ -129,7 +138,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── routine selector ──────────────────────────────────────────────────────────
-sheets = get_workout_sheets(user_id)
+sheets = get_cached_workout_sheets(user_id)
 sheet_options = [None] + [s["id"] for s in sheets]
 sheet_name_map = {s["id"]: s["name"] for s in sheets}
 
@@ -341,6 +350,7 @@ if st.button(
             for suf in ("sets", "reps", "weight"):
                 st.session_state.pop(f"w_{suf}_{rid}", None)
         st.session_state.workout_rows = []
+        clear_user_cache()
     st.rerun()
 
 # ── result display ────────────────────────────────────────────────────────────
@@ -631,7 +641,7 @@ if res:
 st.divider()
 st.subheader("Histórico (últimos 7 dias)")
 
-history = get_workout_history(user_id, limit=30)
+history = get_cached_workout_history(user_id, limit=30)
 seven_days_ago = _today_brt() - datetime.timedelta(days=7)
 recent = []
 for h in history:
