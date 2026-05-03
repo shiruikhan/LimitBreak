@@ -103,7 +103,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ├── utils/
 │   ├── __init__.py
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
-│   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, badge_url)
+│   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, GYM_BADGES, badge_url)
 │   ├── abilities.py             # Registro de habilidades passivas de treino (Release 3A)
 │   ├── app_cache.py             # Camada de cache compartilhado para leituras repetidas de usuário
 │   ├── bag_ui.py                # Componentes reutilizáveis da Mochila — render_bag_view(), render_bag_styles(), etc.
@@ -129,7 +129,12 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── migrate_v2.sql                        # Migrações v2 diversas (executar no Supabase)
     ├── migrate_consolidate_profiles.sql      # Retarget workout_logs FK → user_profiles; remove tabela profiles legada
     ├── migrate_achievements.sql              # Cria user_achievements (executar no Supabase)
+    ├── migrate_happiness.sql                 # Adiciona happiness a user_pokemon, min_happiness a pokemon_evolutions, cria user_rest_days
+    ├── migrate_spawn_tiers.sql               # Adiciona is_spawnable e rarity_tier a pokemon_species
     ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
+    ├── seed_spawn_tiers.py                   # Refina is_spawnable/rarity_tier via PokéAPI (lendários/míticos)
+    ├── seed_wmx_exercises.py                 # Cadastra exercícios do protocolo WMX (idempotente por name_pt)
+    ├── upload_sprites_to_supabase.py         # Faz upload de sprites locais para Supabase Storage
     ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais (espécies normais)
     ├── update_regional_sprites.py            # Substitui URLs de sprites para formas regionais via CDN HybridShivam
     └── create_user_tables.sql                # DDL completo das tabelas de usuário — executar no Supabase
@@ -161,6 +166,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | sprite_url | TEXT | Caminho local `src/Pokemon/assets/images/XXXX.png` para espécies normais (id ≤ 1025); URL HybridShivam CDN `assets/images/{NNNN}-{Region}.png` para formas regionais (id > 10000) |
 | sprite_shiny_url | TEXT | URL PokéAPI (shiny) |
 | base_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Base stats — populados por `seed_stats.py` (normais) ou `seed_regional_species.py` (regionais) |
+| is_spawnable | BOOL | `TRUE` por padrão; `FALSE` para lendários/míticos (refinado por `seed_spawn_tiers.py`) |
+| rarity_tier | TEXT | `"common"` (base_xp < 100), `"uncommon"` (100–179), `"rare"` (≥ 180); usado em ovos e spawns |
 
 > **Formas regionais (id > 10000):** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1 extra) registradas como espécies plenas. Sprites: HybridShivam CDN — `assets/images/{NNNN}-{Region}.png` (ex: `0026-Alola.png`). Adquiridas pelas mesmas mecânicas de qualquer Pokémon: spawn em check-in, captura via Pokédex. Não há item de loja nem evolução por item para formas regionais.
 
@@ -191,8 +198,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | from_species_id | INT FK | Pré-evolução |
 | to_species_id | INT FK | Pós-evolução |
 | min_level | INT | Nível mínimo (nullable) |
-| trigger_name | TEXT | "level-up", "use-item", etc. |
+| trigger_name | TEXT | "level-up", "use-item", "shed", etc. |
 | item_name | TEXT | Slug do item quando trigger = "use-item" (ex: "fire-stone") |
+| min_happiness | SMALLINT | Felicidade mínima para evoluções por amizade (normalmente 220); `NULL` para demais triggers |
 
 #### `shop_items`
 | Coluna | Tipo | Descrição |
@@ -273,6 +281,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | iv_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | IVs individuais 0–31, gerados aleatoriamente na captura |
 | ev_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | EVs individuais 0–252 (total ≤ 510), gerados aleatoriamente na captura |
 | nature | TEXT | Natureza (uma das 25 padrão), gerada aleatoriamente na captura |
+| happiness | SMALLINT | Felicidade 0–255, default 70; afeta XP (≥180 → +5%, <50 → −5%) e evoluções por amizade |
 
 > **Fórmula de stat:** `((2×base + iv + ev//4) × level) // 100 + 5` para não-HP; `+ level + 10` para HP; multiplicado pelo modificador de nature (+10%/−10%) quando aplicável.
 > **Pokémon no banco:** `user_pokemon` que não aparecem em `user_team` = banco/depósito. Nunca deletar `user_pokemon` diretamente — apenas remover de `user_team`.
@@ -391,6 +400,15 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 
 > Constraint UNIQUE: `(user_id, mission_slug, period_start)` — garante uma instância por missão por período.
 
+#### `user_rest_days`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_id | UUID FK | → user_profiles.id ON DELETE CASCADE |
+| rest_date | DATE | Data do descanso registrado |
+
+> Constraint UNIQUE: `(user_id, rest_date)`. Não quebra streak de check-in. Concede +5 happiness ao Pokémon do slot 1.
+
 ---
 
 ## Funções de `utils/db.py`
@@ -460,7 +478,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ### XP, XP Share e evolução automática
 | Função | Descrição |
 |---|---|
-| `award_xp(user_pokemon_id, amount, source, _distributing=False)` | **Ponto de integração com o módulo de treinos.** Concede XP, processa loop de level-up (fórmula: `level × 100`), detecta evoluções por nível (até 3 por chamada), recalcula stats. Se XP Share ativo e `_distributing=False`, distribui 30% do XP para os demais Pokémon da equipe via `_distribute_xp_share()`. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, xp_share_distributed, error}` |
+| `award_xp(user_pokemon_id, amount, source, _distributing=False)` | **Ponto de integração com o módulo de treinos.** Aplica modificador de happiness ao XP bruto (≥180 → +5%; <50 → −5%). Concede XP, processa loop de level-up (fórmula: `level × 100`), acumula +2 happiness por level-up, detecta evoluções por nível (até 3 por chamada), inclui evoluções por amizade (`min_happiness` atendida), recalcula stats. Se XP Share ativo e `_distributing=False`, distribui 30% do XP para os demais Pokémon da equipe via `_distribute_xp_share()`. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, xp_share_distributed, error}` |
 | `get_xp_share_status(user_id)` | Retorna `{"active": bool, "expires_at": datetime \| None, "days_left": int}` — consultado por equipe.py e loja.py |
 | `_extend_xp_share(cur, user_id)` | **Interno.** Estende `xp_share_expires_at` em +15 dias (GREATEST para não perder tempo restante); chamado por `do_checkin()` nos dias bônus |
 | `_distribute_xp_share(user_id, main_pokemon_id, amount, source)` | **Interno.** Distribui 30% do XP para todos os Pokémon da equipe exceto o principal; usa `_distributing=True` para evitar recursão. Retorna `list[{name, xp, user_pokemon_id}]` para log de distribuição |
@@ -503,7 +521,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 |---|---|
 | `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item, spawned_species_id}}` |
 | `get_checkin_streak(user_id)` | Streak atual de dias consecutivos |
-| `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
+| `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Bumps happiness +1 no slot 1. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
+| `register_rest(user_id)` | Registra dia de descanso (INSERT em `user_rest_days`); bumps happiness +5 no slot 1; idempotente por UNIQUE. Retorna `{"success", "already_done", "happiness_gained", "error"}` |
+| `get_monthly_rest_days(user_id, year, month)` | `set[int]` — dias do mês em que houve descanso registrado |
 
 ### Leaderboard
 | Função | Descrição |
@@ -533,7 +553,14 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `get_daily_xp_from_exercise(user_id)` | XP total ganho de treinos hoje (para progress bar de cap) |
 | `get_workout_streak(user_id)` | Dias consecutivos com treino registrado |
 | `get_workout_history(user_id, limit=10)` | Últimas sessões `[{date, day_name, exercise_count, xp_earned, spawned_species_id}]` |
-| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP (com efeito de habilidade passiva), detecta PRs, avança/choca ovos, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}` |
+| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP (com efeito de habilidade passiva), bumps happiness +1 no slot 1, aplica penalidade de inatividade (−5 happiness se ≥7 dias sem treino), detecta PRs, avança/choca ovos, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}` |
+
+### Analytics de Treino
+| Função | Descrição |
+|---|---|
+| `get_volume_history(user_id, exercise_id, days=90)` | Volume diário (peso × reps) para um exercício num período. Retorna `[{date, volume, max_weight, total_sets}]` ordenado por data; ignora sets com peso = 0 |
+| `get_exercise_bests_all(user_id)` | Melhor carga e max reps por exercício já logado. Retorna `[{exercise_id, name, best_weight, best_reps}]` ordenado por nome |
+| `get_muscle_distribution(user_id)` | Sets por parte do corpo na semana atual vs. anterior (BRT). Retorna `{this_week: {body_part: sets}, last_week: {body_part: sets}, this_label, last_label}` |
 
 ### Ovos
 | Função | Descrição |
@@ -641,6 +668,7 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 ### `pages/hub.py`
 - Hero principal com branding do app e atalhos rápidos
 - Snapshot com moedas, tamanho da equipe, streak e batalhas restantes no dia
+- **Contador de Insígnias de Ginásio:** mini badge rack colorido mostrando "Insígnias: X/8" com os 8 ícones das insígnias Kanto (earned vs. locked), via `GYM_BADGES` de `utils/achievements.py`
 - Cards por seção para navegar sem depender da sidebar padrão
 - Usa `st.fragment` para isolar blocos de snapshot e navegação rápida
 
@@ -691,9 +719,10 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - Conteúdo: Vitaminas, Nature Mint, Pedras, Loot Boxes, Outros (XP Share) — mesmas seções da tab Mochila em `loja.py`
 
 ### `pages/calendario.py`
-- Grade mensal HTML (7 colunas) com estados: normal / checado (verde) / bônus (dourado) / spawn (roxo)
+- Grade mensal HTML (7 colunas) com estados: normal / checado (verde) / bônus (dourado) / spawn (roxo) / **descanso (rosa/vermelho claro)**
 - Navegação por mês (sem avançar além do mês atual)
 - Streak stats: streak atual, check-ins do mês, moedas totais, dias para próximo spawn
+- **Botão "😴 Registrar Descanso":** chama `register_rest(user_id)`; concede +5 happiness ao slot 1; idempotente (desabilitado se já registrado hoje); dias de descanso aparecem no grid com cor própria
 - Resultado do check-in exibe cards encadeados: base (moeda + streak) → XP Share (se dia bônus) → spawn (se rolou) → **XP ganho** → **Level Up** (se subiu) → **Evolução** (se evoluiu)
 
 ### `pages/biblioteca.py`
@@ -713,6 +742,9 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - Sets/reps aqui são **prescrição padrão** para o Import Default; não são valores de log real
 
 ### `pages/treino.py`
+Duas tabs: **🏋️ Treino** e **📊 Análise**.
+
+**Tab Treino:**
 - Date picker (padrão = hoje) + seleção de Rotina e Dia (via `get_sheet_days()`)
 - Botão "⬇ Importar Padrão": chama `get_day_exercises_for_builder(day_id)` e popula tabela editável
 - Tabela de exercícios editável: cada linha tem nome, sets, reps, peso (kg); botão de remoção por linha; botão de adição de linha nova
@@ -722,6 +754,11 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - Streak de treino no topo (independente do streak de check-in), via `get_workout_streak()`
 - Histórico: últimos 7 dias em tabela (`get_workout_history()`) com badge 🌟 se houve spawn
 - Após resultado: define `st.session_state.team_evo_notice` (evolução), `st.session_state.team_shed_notice` (Shedinja), `st.session_state.team_spawn_notice` (spawn), `st.session_state.xp_share_log` se aplicável
+
+**Tab Análise:**
+- **Volume por exercício** (`get_volume_history()`): selectbox de exercício + radio de período (30/60/90/180 dias); `st.line_chart` de volume diário; métricas de pico (max volume, max carga)
+- **Distribuição de grupos musculares** (`get_muscle_distribution()`): `st.bar_chart` da semana atual vs. anterior por body part
+- **Melhores cargas** (`get_exercise_bests_all()`): lista HTML com best weight + max reps por exercício logado
 
 ### `pages/leaderboard.py`
 - Header com título + navegação mensal (◀/▶) para meses anteriores
@@ -770,16 +807,18 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 **Fórmula:** `level × 100` XP necessário para subir de nível (Lv.1→2 = 100 XP, Lv.50→51 = 5.000 XP).
 
 **`award_xp(user_pokemon_id, amount, source, _distributing=False)`:**
-1. `FOR UPDATE` no `user_pokemon` para consistência
-2. Loop: enquanto `xp >= level * 100` → subtrai, incrementa nível, verifica evolução por nível
-3. Para cada nível atingido: busca em `pokemon_evolutions` WHERE `trigger='level-up' AND min_level <= level`
-4. **Bypass de triggers não-padrão** (`_BYPASS_LEVEL = 36`): evoluções com `trigger NOT IN ('level-up', 'use-item', 'shed')` — como troca, amizade, etc. — disparam automaticamente no nível 36 como alternativa ao requisito original
-5. **Mecânica Shed:** se `trigger='shed'` (Nincada→Shedinja), verifica se a equipe tem espaço livre; se sim, captura um Shedinja diretamente para o próximo slot disponível; o dict de evolução retornado inclui `"shed": True`
-6. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
-7. Persiste `level`, `xp`, `species_id` de uma vez
-8. Se houve evoluções: `_recalc_stats_on_evolution()` preserva boosts de vitaminas
-9. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe; resultado armazenado em `xp_share_distributed`
-10. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, xp_share_distributed, error}`
+1. `FOR UPDATE` no `user_pokemon` para consistência; lê `happiness`
+2. Aplica modificador de felicidade ao XP bruto: happiness ≥ 180 → ×1.05; < 50 → ×0.95
+3. Loop: enquanto `xp >= level * 100` → subtrai, incrementa nível, acumula `happiness_delta += 2` por level-up
+4. Para cada nível atingido: busca em `pokemon_evolutions` WHERE `trigger='level-up' AND min_level <= level`
+5. **Evoluções por amizade:** `trigger='level-up' AND min_happiness IS NOT NULL` — verificadas quando `happiness + happiness_delta >= min_happiness`
+6. **Bypass de triggers não-padrão** (`_BYPASS_LEVEL = 36`): evoluções com `trigger NOT IN ('level-up', 'use-item', 'shed')` sem `min_happiness` disparam automaticamente no nível 36
+7. **Mecânica Shed:** se `trigger='shed'` (Nincada→Shedinja), verifica se a equipe tem espaço livre; se sim, captura um Shedinja diretamente para o próximo slot disponível; o dict de evolução retornado inclui `"shed": True`
+8. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
+9. Persiste `level`, `xp`, `species_id` e `happiness` de uma vez
+10. Se houve evoluções: `_recalc_stats_on_evolution()` preserva boosts de vitaminas
+11. Se XP Share ativo e `_distributing=False`: chama `_distribute_xp_share()` para repassar 30% do XP aos demais membros da equipe; resultado armazenado em `xp_share_distributed`
+12. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, xp_share_distributed, error}`
 
 > O parâmetro `_distributing=True` é interno — evita recursão infinita quando `_distribute_xp_share()` chama `award_xp()` para os outros Pokémon. Nesse caso `xp_share_distributed` é sempre `[]`.
 
@@ -791,7 +830,7 @@ result = do_exercise_event(
     exercises=[{"exercise_id": int, "sets_data": [{"reps": int, "weight": float}], "notes": str | None}],
     day_id=None,   # UUID do workout_day prescrito; None = treino livre
 )
-# result: {xp_earned, capped, spawn_rolled, spawned, xp_result, error}
+# result: {xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}
 ```
 
 **`_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)`:**
@@ -1018,7 +1057,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ---
 
-## Estado Atual do Projeto (abril 2026)
+## Estado Atual do Projeto (maio 2026)
 
 ### Implementado ✅
 - Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática)
@@ -1077,6 +1116,27 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - `utils/bag_ui.py`: componentes reutilizáveis da mochila extraídos de `loja.py`
   - `pages/mochila.py`: página independente da mochila acessível direto pela sidebar (grupo Loja)
   - `pages/ovos.py`: página de ovos em incubação com grade de cards, barra de progresso e spoiler toggle de espécie
+- **Release 6 — Felicidade / Amizade:**
+  - Coluna `happiness SMALLINT DEFAULT 70` em `user_pokemon`; range 0–255
+  - Incrementos: +2/level-up, +1/treino (`do_exercise_event`), +1/check-in, +5/descanso; penalidade −5 por inatividade ≥7 dias
+  - Efeito em `award_xp()`: happiness ≥ 180 → +5% XP; < 50 → −5% XP
+  - Evoluções por amizade via `min_happiness` em `pokemon_evolutions` (threshold 220)
+  - `register_rest(user_id)` + `get_monthly_rest_days()` + tabela `user_rest_days`
+  - Botão "😴 Registrar Descanso" em `calendario.py` com estado no grid mensal
+  - Migration: `scripts/migrate_happiness.sql`
+- **Release 7 — Insígnias de Ginásio:**
+  - 8 insígnias Kanto como categoria `"ginasio"` em `utils/achievements.py`
+  - `GYM_BADGES` list exportada com slug, name, icon, badge_color
+  - Tab "Ginásio" em `pages/conquistas.py` com badge rack visual
+  - Contador "Insígnias: X/8" com mini badge rack colorido em `pages/hub.py`
+  - `evolved_count` adicionado a `_collect_achievement_stats` em `db.py`
+- **Release 8 — Analytics de Treino:**
+  - Tab "📊 Análise" em `treino.py` com três seções
+  - `get_volume_history()`, `get_exercise_bests_all()`, `get_muscle_distribution()` em `utils/db.py`
+  - Dados derivados de `exercise_logs.sets_data` — sem mudança de schema
+- **Spawn Tiers:**
+  - Colunas `is_spawnable` e `rarity_tier` em `pokemon_species`
+  - `migrate_spawn_tiers.sql` + `seed_spawn_tiers.py` (refina lendários/míticos via PokéAPI)
 
 ### A implementar
 
@@ -1088,8 +1148,8 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 ## Sistema de Conquistas
 
 ### Arquivos
-- **`utils/achievements.py`** — catálogo (`CATALOG`), `CATEGORY_META`, `badge_url(slug, unlocked)`
-- **`pages/conquistas.py`** — página 🏅 Conquistas com badges shields.io
+- **`utils/achievements.py`** — catálogo (`CATALOG`), `CATEGORY_META`, `GYM_BADGES`, `badge_url(slug, unlocked)`
+- **`pages/conquistas.py`** — página 🏅 Conquistas com duas tabs: **Conquistas** (badges shields.io por categoria) e **Ginásio** (badge rack visual das 8 insígnias Kanto)
 - **`scripts/migrate_achievements.sql`** — cria `user_achievements` (executar no Supabase)
 
 ### Banco — `user_achievements`
@@ -1108,7 +1168,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 | `get_user_achievements(user_id)` | `dict[slug, datetime]` | Conquistas desbloqueadas |
 | `check_and_award_achievements(user_id)` | `list[str]` | Verifica condições, desbloqueia elegíveis, retorna novos slugs |
 
-### Catálogo — 23 conquistas em 5 categorias
+### Catálogo — 31 conquistas em 6 categorias
 | Categoria | Slugs | Métrica verificada |
 |---|---|---|
 | `treino` | `first_workout`, `workouts_10/50/100`, `workout_streak_7/30` | `workout_count`, `workout_streak` |
@@ -1116,6 +1176,9 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 | `checkin` | `checkin_streak_7/30/100/365` | `MAX(streak)` em `user_checkins` |
 | `batalha` | `first_win`, `wins_10/50` | `COUNT` em `user_battles WHERE winner_id` |
 | `especial` | `first_evolution`, `shiny_catch`, `regional_form`, `stone_evolution` | flags booleanas derivadas de joins |
+| `ginasio` | `badge_pedra`, `badge_cascata`, `badge_trovao`, `badge_arco_iris`, `badge_alma`, `badge_pantano`, `badge_vulcao`, `badge_terra` | milestones progressivos (treinos, streak, batalhas, capturas, evolucões, PRs) |
+
+**`GYM_BADGES`** — lista de 8 dicts `{slug, name, icon, badge_color, category}` exportada de `utils/achievements.py`; usada em `hub.py` (contador "Insígnias: X/8") e `conquistas.py` (tab Ginásio com badge rack visual).
 
 ### Gatilhos de verificação automática
 `check_and_award_achievements(user_id)` é chamado após:

@@ -18,12 +18,16 @@
 | Widget de missões no hub | Release 5B |
 | Indicador de cap de vitaminas na equipe | Release 5C |
 | Toast global de conquistas | Release 5D |
+| Felicidade / Amizade (happiness 0–255, modificador XP, evoluções por amizade) | Release 6 |
+| Mecânica de Descanso (botão em calendario.py, +5 happiness, user_rest_days) | Release 6 |
+| Insígnias de Ginásio (8 insígnias Kanto, badge rack, contador no hub) | Release 7 |
+| Analytics de Treino (tab Análise em treino.py: volume, distribuição, bests) | Release 8 |
 
 ---
 
-## Prioridade 1 — Vínculo Emocional com o Pokémon
+## ~~Prioridade 1 — Vínculo Emocional com o Pokémon~~ ✅ *Releases 6–8 completos*
 
-### 1.1 Felicidade / Amizade *(Release 6)*
+### ~~1.1 Felicidade / Amizade~~ ✅ *(Release 6)*
 
 **O que é:** coluna `happiness SMALLINT DEFAULT 70` em `user_pokemon`. Sobe com treinos, check-ins e descanso; cai com inatividade prolongada. Desbloqueia evoluções por amizade (Eevee→Espeon/Umbreon, Chansey→Blissey, Golbat→Crobat) sem depender do bypass `_BYPASS_LEVEL = 36`.
 
@@ -38,7 +42,7 @@
 
 ---
 
-### 1.2 Mecânica de Descanso *(Release 6, junto com 1.1)*
+### ~~1.2 Mecânica de Descanso~~ ✅ *(Release 6, junto com 1.1)*
 
 **O que é:** botão "Registrar Descanso" em `calendario.py`. Concede +5 happiness ao slot 1, não quebra streak de check-in e exibe nota visual no grid do calendário.
 
@@ -56,9 +60,9 @@
 
 ---
 
-## Prioridade 2 — Progressão de Longo Prazo
+## ~~Prioridade 2 — Progressão de Longo Prazo~~ ✅ *Releases 7–8 completos*
 
-### 2.1 Insígnias de Ginásio *(Release 7)*
+### ~~2.1 Insígnias de Ginásio~~ ✅ *(Release 7)*
 
 **O que é:** 8 insígnias Kanto desbloqueáveis por milestones progressivos. Extensão natural de `utils/achievements.py` com visual distinto.
 
@@ -77,7 +81,7 @@
 
 ---
 
-### 2.2 Analytics de Treino *(Release 8)*
+### ~~2.2 Analytics de Treino~~ ✅ *(Release 8)*
 
 **O que é:** nova tab "📊 Análise" em `treino.py` com gráficos derivados de `exercise_logs.sets_data` — sem mudança de schema.
 
@@ -188,11 +192,11 @@
 
 | Sugestão | Esforço | Impacto | Status |
 |---|---|---|---|
-| Felicidade / amizade | Médio | Alto | 🔴 Release 6 |
-| Mecânica de descanso | Baixo | Médio | 🔴 Release 6 (junto) |
+| Felicidade / amizade | Médio | Alto | ✅ Release 6 |
+| Mecânica de descanso | Baixo | Médio | ✅ Release 6 (junto) |
 | Animação de evolução | Baixo | Médio | 🟡 Quick win |
-| Insígnias de Ginásio | Médio | Alto | 🔴 Release 7 |
-| Analytics de treino | Médio | Alto | 🔴 Release 8 |
+| Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
+| Analytics de treino | Médio | Alto | ✅ Release 8 |
 | Indicador de equilíbrio muscular | Baixo | Alto | 🟡 Quick win |
 | Streak Shield | Baixo | Alto | 🟡 Quick win |
 | Rival semanal | Baixo | Alto | 🟠 Importante |
