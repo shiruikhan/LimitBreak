@@ -1,8 +1,8 @@
 # LimitBreak — Next Steps
 
-> Atualizado: 30 de abril de 2026 após auditoria completa do repositório.
+> Atualizado: 03 de maio de 2026 após auditoria completa do repositório.
 >
-> Estado: **Release 4.0 + Priority B completos.** Todos os sistemas core estão implementados e estáveis.
+> Estado: **Release 5 completo.** Todos os sistemas core + qualidade de vida estão implementados e estáveis.
 
 ---
 
@@ -35,62 +35,14 @@
 | Workout Builder (Rotinas → Dias → Exercícios) | ✅ |
 | Routine Log com cap 300 XP/dia e histórico 7 dias | ✅ |
 | Shell visual unificado + hub central + cache compartilhado | ✅ |
-
----
-
-## Lacunas encontradas na auditoria
-
-### Funcionalidades listadas em "A implementar" no CLAUDE.md
-
-| Item | Esforço estimado | Prioridade |
-|---|---|---|
-| **Página de Ovos pendentes** | ~3h | Alta — único item incompleto do spec |
-| **Formas de Paldea** | ~8h | Baixa — opcional no CLAUDE.md |
-
-### Melhorias de UX identificadas na auditoria
-
-| Item | Descrição | Esforço |
-|---|---|---|
-| Widget de missões no hub | Missões visíveis só na sidebar; hub não mostra progresso diário | ~2h |
-| Indicador visual de cap de vitaminas | Usuário só descobre o limite ao tentar usar o item | ~1h |
-| Banner de conquistas fora de conquistas.py | `new_achievements_pending` só aparece em conquistas.py | ~1h |
-
-### Dívida técnica
-
-| Item | Descrição | Urgência |
-|---|---|---|
-| `db.py` com 4370 linhas | Split em submódulos (pokemon, progression, combat, shop, workout, admin) | Baixa |
-| Sem testes automatizados | `award_xp`, `_roll_loot_box`, `_detect_prs`, `check_and_award_achievements` sem cobertura | Baixa |
-| Retry na conexão DB | `get_connection()` reconecta mas não tem backoff — pode falhar no cold start do Streamlit Cloud | Baixa |
-| Cache de sprites regionais | HTTP GET a cada request para forms regionais (id > 10000) | Baixa |
+| Página de Ovos pendentes com spoiler toggle e barras de progresso | ✅ |
+| Widget de missões no hub com progresso individual por missão | ✅ |
+| Indicador de cap de vitaminas na equipe (🔒 por stat) | ✅ |
+| Toast global de conquistas em app.py | ✅ |
 
 ---
 
 ## Próximas features (priorizadas)
-
-### ~~Release 5 — Qualidade de Vida~~ ✅ ENTREGUE (30/04/2026)
-
-**5A · Página de Ovos** ✅
-- `pages/ovos.py`: grade de cards com raridade, barra de progresso, spoiler toggle de espécie
-- `get_user_eggs` atualizado para incluir `species_id/name/sprite_url` via JOIN
-- Registrada na sidebar (grupo "Treinador") e no hub SECTION_CARDS
-- `db.py`: nova função `get_team_stat_boost_counts` em uma query
-
-**5B · Widget de Missões no Hub** ✅
-- `hub.py`: painel de missões diárias expandido com progresso individual por missão
-- Barras de progresso coloridas: azul (em andamento), verde (completa), cinza (coletada)
-- Importa `get_mission()` do catálogo para ícone e label de recompensa
-
-**5C · Indicador de Cap de Vitaminas na Equipe** ✅
-- `equipe.py`: importa `_MAX_STAT_BOOSTS_PER_STAT` e `get_cached_team_stat_boost_counts`
-- `_stat_bars()` aceita `boost_counts` opcional; exibe 🔒 dourado quando stat está no limite
-- `app_cache.py`: `get_cached_team_stat_boost_counts` (TTL 30s) + limpeza em `clear_user_cache()`
-
-**5D · Toast de Conquistas Global** ✅
-- `app.py`: toast `st.toast()` disparado uma única vez por conjunto de conquistas desbloqueadas
-- Chave de controle derivada dos slugs evita repetição em rerenders
-
----
 
 ### Release 6 — Felicidade / Amizade *(estimativa: ~1 semana)*
 
@@ -104,7 +56,7 @@
 - Happiness ≥ 180 → +5% XP em `award_xp()`
 - Happiness < 50 → −5% XP + indicador "desmotivado" na equipe
 
-**Mechânica de Descanso (baixo esforço, incluso aqui):**
+**Mecânica de Descanso (inclusa aqui):**
 - Botão "Registrar Descanso" em `calendario.py`
 - +5 happiness no slot 1, não quebra streak de check-in
 - Nota visual no grid do calendário
@@ -146,6 +98,17 @@
 
 ---
 
+## Dívida Técnica
+
+| Item | Descrição | Urgência |
+|---|---|---|
+| `db.py` com ~4400 linhas | Split em submódulos (pokemon, progression, combat, shop, workout, admin) | Baixa |
+| Sem testes automatizados | `award_xp`, `_roll_loot_box`, `_detect_prs`, `check_and_award_achievements` sem cobertura | Baixa |
+| Retry na conexão DB | `get_connection()` reconecta mas não tem backoff — pode falhar no cold start do Streamlit Cloud | Baixa |
+| Cache de sprites regionais | HTTP GET a cada request para forms regionais (id > 10000) | Baixa |
+
+---
+
 ## Deferred (V2 / Camada Social)
 
 Valiosos, mas dependem do loop core estar mais profundo antes.
@@ -164,10 +127,6 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 
 | Feature | Esforço | Impacto | Status |
 |---|---|---|---|
-| Página de Ovos | Baixo | Alto | 🔴 Release 5 |
-| Widget de missões no hub | Baixo | Médio | 🔴 Release 5 |
-| Indicador cap vitaminas | Baixo | Baixo | 🟡 Release 5 |
-| Banner conquistas global | Baixo | Médio | 🟡 Release 5 |
 | Felicidade / amizade | Médio | Alto | 🔴 Release 6 |
 | Mecânica de descanso | Baixo | Médio | 🔴 Release 6 (junto) |
 | Insígnias de Ginásio | Médio | Alto | 🔴 Release 7 |
