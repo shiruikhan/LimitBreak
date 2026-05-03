@@ -1,8 +1,8 @@
 # LimitBreak — Next Steps
 
-> Atualizado: 03 de maio de 2026 após auditoria completa do repositório.
+> Atualizado: 03 de maio de 2026 após implementação do Release 7.
 >
-> Estado: **Release 5 completo.** Todos os sistemas core + qualidade de vida estão implementados e estáveis.
+> Estado: **Release 7 completo.** Insígnias de Ginásio implementadas.
 
 ---
 
@@ -39,6 +39,7 @@
 | Widget de missões no hub com progresso individual por missão | ✅ |
 | Indicador de cap de vitaminas na equipe (🔒 por stat) | ✅ |
 | Toast global de conquistas em app.py | ✅ |
+| Insígnias de Ginásio: 8 badges Kanto com badge rack visual | ✅ |
 
 ---
 
@@ -63,24 +64,9 @@
 
 ---
 
-### Release 7 — Insígnias de Ginásio *(estimativa: ~1 semana)*
+### ~~Release 7 — Insígnias de Ginásio~~ ✅ *Completo*
 
-**Por que agora:** cria espinha de progressão de longo prazo reconhecível. Extensão do catálogo de conquistas existente — baixa complexidade incremental.
-
-**8 insígnias temáticas (Kanto):**
-
-| Insígnia | Marco |
-|---|---|
-| Pedra | 10 sessões de treino |
-| Cascata | Streak de 7 dias de check-in |
-| Trovão | 5 vitórias em batalha |
-| Arco-íris | 25 Pokémon capturados |
-| Alma | Streak de 30 dias de treino |
-| Pântano | 10 PRs detectados |
-| Vulcão | 10 Pokémon evoluídos |
-| Terra | 100 sessões de treino |
-
-**Implementação:** subconjunto de `CATALOG` em `utils/achievements.py` com visual distinto (sprite de insígnia). Exibir contador "Insígnias: 3/8" em `equipe.py` ou hub.
+8 insígnias Kanto implementadas como categoria `"ginasio"` em `utils/achievements.py` (+ `GYM_BADGES` list). Badge rack visual em `pages/conquistas.py` (tab Ginásio). Contador "Insígnias: X/8" com mini badge rack colorido em `pages/hub.py`. Stat `evolved_count` adicionado a `_collect_achievement_stats` em `db.py`.
 
 ---
 
@@ -129,7 +115,7 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 |---|---|---|---|
 | Felicidade / amizade | Médio | Alto | 🔴 Release 6 |
 | Mecânica de descanso | Baixo | Médio | 🔴 Release 6 (junto) |
-| Insígnias de Ginásio | Médio | Alto | 🔴 Release 7 |
+| Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
 | Analytics de treino | Médio | Alto | 🔴 Release 8 |
 | Trocas de Pokémon | Alto | Alto | 🔵 V2 |
 | Guilds | Alto | Muito Alto | 🔵 V2 |

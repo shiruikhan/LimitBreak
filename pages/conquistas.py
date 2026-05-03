@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.db import get_user_achievements, check_and_award_achievements
-from utils.achievements import CATALOG, CATEGORY_META, badge_url
+from utils.achievements import CATALOG, CATEGORY_META, GYM_BADGES, badge_url
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
 
@@ -102,6 +102,48 @@ st.markdown("""
 .cat-chip {
     font-size: 0.7rem; font-weight: 700; padding: 3px 10px;
     border-radius: 20px; letter-spacing: 0.5px;
+}
+
+/* Gym badge rack */
+.gym-rack {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    background: rgba(15,23,42,0.7); border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 20px; padding: 24px 28px; margin-bottom: 20px;
+    align-items: center;
+}
+.gym-rack-title {
+    font-family: "Bebas Neue", sans-serif; font-size: 0.75rem;
+    color: #f59e0b; letter-spacing: 3px; text-transform: uppercase;
+    width: 100%; margin-bottom: 4px;
+}
+.gym-badge-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    cursor: default;
+}
+.gym-badge-circle {
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem;
+    border: 2px solid transparent;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.gym-badge-circle.unlocked {
+    box-shadow: 0 0 14px 3px var(--badge-glow);
+    border-color: var(--badge-color);
+}
+.gym-badge-circle.locked {
+    background: #1c2332 !important;
+    filter: grayscale(1) opacity(0.35);
+}
+.gym-badge-label {
+    font-size: 0.62rem; color: #94a3b8; font-weight: 600;
+    letter-spacing: 0.04em; text-align: center; max-width: 64px;
+}
+.gym-badge-label.unlocked { color: #f59e0b; }
+.gym-badge-progress {
+    font-family: "Bebas Neue", sans-serif; font-size: 1.1rem;
+    color: #f59e0b; letter-spacing: 2px; margin-left: auto;
+    white-space: nowrap;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -231,6 +273,48 @@ def _render_grid(slugs: list[str]) -> None:
     st.markdown(f'<div class="ach-grid">{cards_html}</div>', unsafe_allow_html=True)
 
 
+def _render_gym_rack() -> None:
+    """Render the 8 Kanto gym badges as a visual badge rack."""
+    earned_slugs = {b["slug"] for b in GYM_BADGES if b["slug"] in unlocked}
+    count = len(earned_slugs)
+    total = len(GYM_BADGES)
+
+    badges_html = ""
+    for b in GYM_BADGES:
+        slug = b["slug"]
+        is_unlocked = slug in unlocked
+        color = b["color"]
+        css_cls = "unlocked" if is_unlocked else "locked"
+        glow = color + "88"
+        bg_style = f"background:{color}22;" if is_unlocked else ""
+        style = (
+            f"style='--badge-color:{color};--badge-glow:{glow};{bg_style}'"
+            if is_unlocked
+            else "style=''"
+        )
+        label_cls = "unlocked" if is_unlocked else ""
+        tooltip = b["desc"]
+        badges_html += (
+            f"<div class='gym-badge-wrap' title='{tooltip}'>"
+            f"<div class='gym-badge-circle {css_cls}' {style}>{b['icon']}</div>"
+            f"<span class='gym-badge-label {label_cls}'>{b['name']}</span>"
+            f"</div>"
+        )
+
+    st.markdown(
+        f"""
+<div class="gym-rack">
+  <div style="display:flex;align-items:center;width:100%;margin-bottom:8px">
+    <span class="gym-rack-title">Insígnias de Ginásio — Kanto</span>
+    <span class="gym-badge-progress">{count}/{total}</span>
+  </div>
+  {badges_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def _category_progress(cat: str) -> tuple[int, int]:
     cat_slugs = [s for s, a in CATALOG.items() if a["category"] == cat]
     done = sum(1 for s in cat_slugs if s in unlocked)
@@ -265,5 +349,7 @@ for tab, cat_key in zip(tabs, cat_order):
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            if cat_key == "ginasio":
+                _render_gym_rack()
 
         _render_grid(slugs)

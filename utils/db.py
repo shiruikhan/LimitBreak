@@ -3824,6 +3824,15 @@ def _collect_achievement_stats(user_id: str, cur) -> dict:
     """, (user_id,))
     stats["has_stone_evolved"] = cur.fetchone()[0]
 
+    # Count of evolved Pokémon in the user's collection (for Vulcão badge)
+    cur.execute("""
+        SELECT COUNT(DISTINCT up.id)
+        FROM user_pokemon up
+        JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
+        WHERE up.user_id = %s;
+    """, (user_id,))
+    stats["evolved_count"] = cur.fetchone()[0]
+
     # Workout streak (reuse the same logic as get_workout_streak)
     cur.execute("""
         SELECT DISTINCT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d

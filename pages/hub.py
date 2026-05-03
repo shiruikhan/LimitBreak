@@ -7,7 +7,8 @@ from utils.app_cache import (
     get_cached_user_profile,
     get_cached_user_team,
 )
-from utils.db import _MAX_BATTLES_PER_DAY, _today_brt
+from utils.db import _MAX_BATTLES_PER_DAY, _today_brt, get_user_achievements
+from utils.achievements import GYM_BADGES
 from utils.missions import get_mission
 
 
@@ -107,6 +108,33 @@ st.markdown(
     font-size: 0.75rem;
     margin: 0 8px 8px 0;
 }
+
+/* Gym badge mini-rack in hub */
+.hub-gym-rack {
+    background: rgba(15,23,42,0.82);
+    border: 1px solid rgba(245,158,11,0.18);
+    border-radius: 18px;
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 18px;
+}
+.hub-gym-label {
+    color: #94a3b8; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.18em; font-weight: 700; white-space: nowrap;
+    margin-right: 4px;
+}
+.hub-gym-count {
+    color: #f59e0b; font-size: 1rem; font-weight: 800;
+    white-space: nowrap; margin-right: 12px;
+}
+.hub-gym-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.hub-gym-dot {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.9rem;
+    transition: transform 0.1s;
+}
+.hub-gym-dot.locked { background: #1c2332; filter: grayscale(1) opacity(0.3); }
 </style>
 """,
     unsafe_allow_html=True,
@@ -195,6 +223,39 @@ def _render_snapshot() -> None:
 """,
         unsafe_allow_html=True,
     )
+
+    # ── Gym badge mini-rack ────────────────────────────────────────────────────
+    try:
+        user_achievements = get_user_achievements(user_id)
+        gym_earned = sum(1 for b in GYM_BADGES if b["slug"] in user_achievements)
+        gym_total = len(GYM_BADGES)
+        dots_html = ""
+        for b in GYM_BADGES:
+            is_unlocked = b["slug"] in user_achievements
+            b_name = b["name"]
+            b_desc = b["desc"]
+            b_icon = b["icon"]
+            css_cls = "hub-gym-dot"
+            if is_unlocked:
+                color = b["color"]
+                style = f"background:{color}33;border:1.5px solid {color};"
+            else:
+                style = ""
+                css_cls += " locked"
+            dots_html += f"<div class='{css_cls}' style='{style}' title='{b_name}: {b_desc}'>{b_icon}</div>"
+
+        st.markdown(
+            f"""
+<div class="hub-gym-rack">
+  <span class="hub-gym-label">Insígnias</span>
+  <span class="hub-gym-count">{gym_earned}/{gym_total}</span>
+  <div class="hub-gym-badges">{dots_html}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
 
     left, right = st.columns([1.4, 1])
     with left:

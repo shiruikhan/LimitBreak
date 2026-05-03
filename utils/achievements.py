@@ -8,7 +8,21 @@ CATEGORY_META: dict[str, dict] = {
     "checkin":  {"label": "CHECK-IN", "display": "Check-in",  "icon": "📅", "color": "f97316"},
     "batalha":  {"label": "ARENA",    "display": "Arena",     "icon": "⚔️", "color": "ef4444"},
     "especial": {"label": "ESPECIAL", "display": "Especial",  "icon": "✨", "color": "a855f7"},
+    "ginasio":  {"label": "GINASIO",  "display": "Ginásio",   "icon": "🏅", "color": "f59e0b"},
 }
+
+# Gym badge metadata: slug → {name, icon, color, description}
+# Used to render the badge rack independently of the full CATALOG.
+GYM_BADGES: list[dict] = [
+    {"slug": "badge_pedra",     "name": "Pedra",     "icon": "🪨", "color": "#6b7280", "desc": "10 sessões de treino"},
+    {"slug": "badge_cascata",   "name": "Cascata",   "icon": "💧", "color": "#0ea5e9", "desc": "Streak de 7 dias de check-in"},
+    {"slug": "badge_trovao",    "name": "Trovão",    "icon": "⚡", "color": "#eab308", "desc": "5 vitórias em batalha"},
+    {"slug": "badge_arco_iris", "name": "Arco-íris", "icon": "🌈", "color": "#a855f7", "desc": "25 Pokémon capturados"},
+    {"slug": "badge_alma",      "name": "Alma",      "icon": "👻", "color": "#8b5cf6", "desc": "Streak de 30 dias de treino"},
+    {"slug": "badge_pantano",   "name": "Pântano",   "icon": "🌿", "color": "#16a34a", "desc": "10 PRs detectados"},
+    {"slug": "badge_vulcao",    "name": "Vulcão",    "icon": "🌋", "color": "#ef4444", "desc": "10 Pokémon evoluídos"},
+    {"slug": "badge_terra",     "name": "Terra",     "icon": "🌍", "color": "#92400e", "desc": "100 sessões de treino"},
+]
 
 # Full achievement catalog
 # Each entry: slug → {name, description, category, icon, badge_color, check: stats→bool}
@@ -152,6 +166,56 @@ CATALOG: dict[str, dict] = {
         "description": "Venca 50 batalhas PvP",
         "category": "batalha", "icon": "🏆", "badge_color": "b91c1c",
         "check": lambda s: s["battle_wins"] >= 50,
+    },
+
+    # ── Ginásio ───────────────────────────────────────────────────────────────
+    "badge_pedra": {
+        "name": "Insígnia Pedra",
+        "description": "Complete 10 sessões de treino",
+        "category": "ginasio", "icon": "🪨", "badge_color": "6b7280",
+        "check": lambda s: s["workout_count"] >= 10,
+    },
+    "badge_cascata": {
+        "name": "Insígnia Cascata",
+        "description": "Alcance um streak de 7 dias de check-in",
+        "category": "ginasio", "icon": "💧", "badge_color": "0ea5e9",
+        "check": lambda s: s["checkin_streak_max"] >= 7,
+    },
+    "badge_trovao": {
+        "name": "Insígnia Trovão",
+        "description": "Vença 5 batalhas PvP",
+        "category": "ginasio", "icon": "⚡", "badge_color": "eab308",
+        "check": lambda s: s["battle_wins"] >= 5,
+    },
+    "badge_arco_iris": {
+        "name": "Insígnia Arco-íris",
+        "description": "Capture 25 Pokémon diferentes",
+        "category": "ginasio", "icon": "🌈", "badge_color": "a855f7",
+        "check": lambda s: s["pokemon_count"] >= 25,
+    },
+    "badge_alma": {
+        "name": "Insígnia Alma",
+        "description": "Alcance um streak de 30 dias consecutivos de treino",
+        "category": "ginasio", "icon": "👻", "badge_color": "8b5cf6",
+        "check": lambda s: s["workout_streak"] >= 30,
+    },
+    "badge_pantano": {
+        "name": "Insígnia Pântano",
+        "description": "Quebre 10 recordes pessoais",
+        "category": "ginasio", "icon": "🌿", "badge_color": "16a34a",
+        "check": lambda s: s.get("pr_count", 0) >= 10,
+    },
+    "badge_vulcao": {
+        "name": "Insígnia Vulcão",
+        "description": "Tenha 10 Pokémon evoluídos na sua coleção",
+        "category": "ginasio", "icon": "🌋", "badge_color": "ef4444",
+        "check": lambda s: s.get("evolved_count", 0) >= 10,
+    },
+    "badge_terra": {
+        "name": "Insígnia Terra",
+        "description": "Complete 100 sessões de treino",
+        "category": "ginasio", "icon": "🌍", "badge_color": "92400e",
+        "check": lambda s: s["workout_count"] >= 100,
     },
 
     # ── Especial ──────────────────────────────────────────────────────────────
