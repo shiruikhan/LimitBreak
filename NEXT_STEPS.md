@@ -59,41 +59,55 @@ Três features de retenção: Streak Shield (item protetor), Rival Semanal (comp
 
 **Schema:**
 ```sql
--- Adicionar item na loja
+-- Adicionar item na loja (comprável + recompensável)
 INSERT INTO shop_items (slug, name, description, icon, category, price)
-VALUES ('streak-shield', 'Escudo de Streak', 'Protege seu streak por um dia perdido.', '🛡️', 'other', 80)
+VALUES ('streak-shield', 'Escudo de Streak', 'Protege seu streak por um dia perdido. Consumido automaticamente.', '🛡️', 'other', 100)
 ON CONFLICT (slug) DO NOTHING;
 ```
 Sem migration de tabela — usa `user_inventory` já existente.
 
-**Lógica em `do_checkin()` (`utils/db.py`):**
+**Formas de obter o item:**
+1. **Compra na loja** — 100 moedas, na grade de itens `other` (junto com XP Share). Sem limite de compra por mês; o limite é natural (1 uso por gap de 2 dias).
+2. **Recompensa do calendário** — concedido automaticamente em dois dias fixos por mês:
+   - **Dia 7** do mês: 1× streak-shield no inventário.
+   - **Dia 21** do mês: 1× streak-shield no inventário.
+   - Lógica em `do_checkin()`: após o check-in bem-sucedido, verificar se `today.day in (7, 21)` e conceder via upsert em `user_inventory`. Retornar `{"bonus_shield": True}` no resultado.
+   - Exibir card dourado distinto dos dias 15/último (XP Share): "🛡️ +1 Escudo de Streak recebido!"
+
+**Lógica de ativação em `do_checkin()` (`utils/db.py`):**
 1. Buscar a data do último check-in do usuário.
 2. Calcular `gap = hoje - last_checkin_date` (em dias).
 3. Se `gap == 2` (um dia perdido ontem):
    a. Buscar `streak-shield` no inventário do usuário (`user_inventory JOIN shop_items WHERE slug = 'streak-shield' AND quantity > 0`).
-   b. Se tiver: decrementar `quantity` em 1, manter `streak` atual (não zerar para 1), registrar check-in normalmente.
+   b. Se tiver: decrementar `quantity` em 1, manter `streak` atual (não zerar para 1), registrar check-in normalmente. Setar `shield_used = True`.
    c. Se não tiver: comportamento atual (streak zera para 1).
 4. Se `gap > 2`: streak sempre zera, independente de shield.
 5. Se `gap == 1`: comportamento normal (streak incrementa).
+6. Após registrar o check-in: verificar `today.day in (7, 21)` → conceder 1× streak-shield se for o caso. Setar `bonus_shield = True`.
 
 **Exibição:**
-- Em `loja.py`, mostrar `streak-shield` na grade de itens categoria `other` (junto com XP Share).
-- Em `bag_ui.py`, adicionar seção "Proteção" ou incluir no grupo `other` existente: mostrar quantidade + botão "Usar" desabilitado com tooltip ("Consumido automaticamente no check-in").
-- Em `calendario.py`, se shield foi consumido na chamada de `do_checkin()`, retornar `{"shield_used": True}` no dict de resultado e exibir card informativo: "🛡️ Escudo de Streak ativado! Seu streak de N dias foi preservado."
+- Em `loja.py`, mostrar `streak-shield` na grade de itens `other`. Botão de compra padrão (sem fluxo especial — só incrementa inventário).
+- Em `bag_ui.py`: mostrar quantidade + botão "Usar" desabilitado com tooltip "Consumido automaticamente no check-in".
+- Em `calendario.py`, encadear dois cards possíveis no resultado do check-in:
+  - Se `shield_used = True`: card azul "🛡️ Escudo de Streak ativado! Seu streak de N dias foi preservado."
+  - Se `bonus_shield = True`: card dourado "🛡️ +1 Escudo de Streak recebido! (Dia 7/21 do mês)"
+- No grid mensal: marcar os dias 7 e 21 com ícone de escudo pequeno (🛡️) nos dias futuros/passados para o usuário saber quando vêm as recompensas.
 
 **Retorno atualizado de `do_checkin()`:**
 ```python
 {"success", "already_done", "streak", "coins_earned", "bonus_xp_share",
- "spawn_rolled", "spawned", "xp_result", "shield_used", "error"}
+ "spawn_rolled", "spawned", "xp_result", "shield_used", "bonus_shield", "error"}
 ```
 
 **Checklist de implementação:**
 - [ ] SQL: inserir `streak-shield` em `shop_items` (executar no Supabase)
-- [ ] `db.py`: modificar `do_checkin()` com lógica de gap + shield
-- [ ] `db.py`: garantir que `clear_user_cache()` é chamado se shield consumido
-- [ ] `loja.py`: exibir item na grade (não precisa de fluxo especial de ativação)
-- [ ] `bag_ui.py`: exibir quantidade de shields na mochila, botão desabilitado com tooltip
-- [ ] `calendario.py`: card "🛡️ Escudo ativado" no resultado do check-in
+- [ ] `db.py`: modificar `do_checkin()` — lógica de gap + ativação do shield
+- [ ] `db.py`: modificar `do_checkin()` — concessão nos dias 7 e 21 via upsert em `user_inventory`
+- [ ] `db.py`: garantir que `clear_user_cache()` é chamado se shield consumido ou concedido
+- [ ] `loja.py`: exibir item na grade `other` com botão de compra padrão
+- [ ] `bag_ui.py`: exibir quantidade na mochila, botão desabilitado com tooltip
+- [ ] `calendario.py`: card azul "shield ativado" + card dourado "shield recebido"
+- [ ] `calendario.py`: marcar dias 7 e 21 com ícone 🛡️ no grid mensal
 
 ---
 
