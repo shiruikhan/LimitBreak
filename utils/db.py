@@ -733,7 +733,8 @@ def get_user_team(user_id: str) -> list[dict]:
                        p.base_sp_attack, p.base_sp_defense, p.base_speed,
                        {nature_select},
                        p.ability_slug,
-                       up.is_shiny, p.sprite_shiny_url
+                       up.is_shiny, p.sprite_shiny_url,
+                       up.happiness
                 FROM user_team ut
                 JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                 JOIN pokemon_species p ON up.species_id = p.id
@@ -757,6 +758,7 @@ def get_user_team(user_id: str) -> list[dict]:
                     "ability_slug": r[22] if len(r) > 22 else None,
                     "is_shiny": bool(r[23]) if len(r) > 23 else False,
                     "sprite_shiny_url": r[24] if len(r) > 24 else None,
+                    "happiness": r[25] if len(r) > 25 else 70,
                 }
                 for r in rows
             ]
@@ -1773,6 +1775,7 @@ def do_checkin(user_id: str) -> dict:
         # Quando o módulo de treinos estiver integrado, o XP virá de lá;
         # o check-in apenas garante um pequeno progresso diário.
         xp_result = None
+        slot1_id_checkin = None
         try:
             with get_connection().cursor() as cur2:
                 cur2.execute("""
@@ -1782,10 +1785,21 @@ def do_checkin(user_id: str) -> dict:
                 """, (user_id,))
                 main_row = cur2.fetchone()
             if main_row:
-                xp_result = award_xp(main_row[0], 10, "check-in")
+                slot1_id_checkin = main_row[0]
+                xp_result = award_xp(slot1_id_checkin, 10, "check-in")
         except Exception:
             pass  # XP é bônus — falha silenciosa para não cancelar o check-in
         result["xp_result"] = xp_result
+
+        # +1 happiness no slot 1 pelo check-in
+        try:
+            if slot1_id_checkin:
+                _hconn = get_connection()
+                with _hconn.cursor() as _hc:
+                    _bump_happiness(_hc, slot1_id_checkin, 1)
+                _hconn.commit()
+        except Exception:
+            pass
 
         return result
 
@@ -1793,6 +1807,65 @@ def do_checkin(user_id: str) -> dict:
         conn.rollback()
         result["error"] = str(e)
         return result
+
+
+# ── Descanso e Felicidade ──────────────────────────────────────────────────────
+
+def register_rest(user_id: str) -> dict:
+    """Registra um dia de descanso para o usuário.
+
+    Não quebra o streak de check-in. Concede +5 happiness ao Pokémon do slot 1.
+
+    Returns:
+        {"success": bool, "already_done": bool, "happiness_gained": int, "error": str | None}
+    """
+    result = {"success": False, "already_done": False, "happiness_gained": 0, "error": None}
+    conn  = get_connection()
+    today = _today_brt()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO user_rest_days (user_id, rest_date) VALUES (%s, %s);
+                """, (user_id, today))
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+                result["already_done"] = True
+                return result
+
+            cur.execute("""
+                SELECT up.id FROM user_team ut
+                JOIN user_pokemon up ON ut.user_pokemon_id = up.id
+                WHERE ut.user_id = %s AND ut.slot = 1;
+            """, (user_id,))
+            row = cur.fetchone()
+            if row:
+                _bump_happiness(cur, row[0], 5)
+
+        conn.commit()
+        result["success"] = True
+        result["happiness_gained"] = 5
+        return result
+    except Exception as e:
+        conn.rollback()
+        result["error"] = str(e)
+        return result
+
+
+def get_monthly_rest_days(user_id: str, year: int, month: int) -> set:
+    """Retorna conjunto de números de dias com descanso registrado no mês."""
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                SELECT EXTRACT(DAY FROM rest_date)::int
+                FROM user_rest_days
+                WHERE user_id = %s
+                  AND EXTRACT(YEAR  FROM rest_date) = %s
+                  AND EXTRACT(MONTH FROM rest_date) = %s;
+            """, (user_id, year, month))
+            return {r[0] for r in cur.fetchall()}
+    except Exception:
+        return set()
 
 
 # ── XP, level-up e evolução ────────────────────────────────────────────────────
@@ -1816,6 +1889,15 @@ def _recalc_stats_for_level(
 def _recalc_stats_on_evolution(cur, user_pokemon_id: int) -> None:
     """Força recálculo completo após evolução usando a nova espécie persistida."""
     _sync_user_pokemon_stats(cur, user_pokemon_id)
+
+
+def _bump_happiness(cur, user_pokemon_id: int, delta: int) -> None:
+    """Incrementa (ou decrementa) happiness de um user_pokemon, respeitando [0, 255]."""
+    cur.execute("""
+        UPDATE user_pokemon
+        SET happiness = LEAST(255, GREATEST(0, happiness + %s))
+        WHERE id = %s;
+    """, (delta, user_pokemon_id))
 
 
 def get_xp_share_status(user_id: str) -> dict:
@@ -1924,7 +2006,7 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
         with conn.cursor() as cur:
             # Estado atual (FOR UPDATE garante consistência em acessos simultâneos)
             cur.execute("""
-                SELECT level, xp, species_id, user_id
+                SELECT level, xp, species_id, user_id, happiness
                 FROM user_pokemon WHERE id = %s FOR UPDATE;
             """, (user_pokemon_id,))
             row = cur.fetchone()
@@ -1932,22 +2014,32 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 result["error"] = "Pokémon não encontrado."
                 return result
 
-            level, xp, species_id, user_id = row
+            level, xp, species_id, user_id, happiness = row
+            happiness = happiness or 70
             result["old_level"] = level
+
+            # Happiness XP modifier: ≥180 → +5%, <50 → −5%
+            if happiness >= 180:
+                amount = max(1, int(amount * 1.05))
+            elif happiness < 50:
+                amount = max(1, int(amount * 0.95))
+
             xp += amount
 
             # ── Loop de level-up ──────────────────────────────────────────────
             # Fórmula: level * 100 XP para o próximo nível. Cap: nível 100.
             _BYPASS_LEVEL = 36
+            happiness_delta = 0
             while xp >= level * 100 and level < 100:
                 xp    -= level * 100
                 level += 1
                 result["levels_gained"] += 1
+                happiness_delta += 2  # +2 happiness per level-up
 
                 # Verifica evolução por nível (limite de 3 por chamada).
-                # Triggers não-padrão (trade, spin, three-critical-hits, take-damage,
-                # agile/strong-style-move, recoil-damage, tower-*, other) disparam
-                # no nível 36 como bypass. 'use-item' e 'shed' são tratados à parte.
+                # Triggers não-padrão sem min_happiness (trade, spin, etc.) disparam
+                # no nível 36 como bypass. Evoluções com min_happiness (amizade) exigem
+                # happiness ≥ min_happiness. 'use-item' e 'shed' são tratados à parte.
                 if len(result["evolutions"]) < 3:
                     cur.execute("""
                         SELECT e.to_species_id, p2.name, p2.sprite_url,
@@ -1957,13 +2049,14 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                         JOIN pokemon_species p1 ON e.from_species_id = p1.id
                         WHERE e.from_species_id = %s
                           AND (
-                              (e.trigger_name = 'level-up' AND e.min_level <= %s)
+                              (e.trigger_name = 'level-up' AND e.min_level <= %s
+                               AND (e.min_happiness IS NULL OR %s >= e.min_happiness))
                               OR (e.trigger_name NOT IN ('level-up', 'use-item', 'shed')
-                                  AND %s >= %s)
+                                  AND e.min_happiness IS NULL AND %s >= %s)
                           )
                         ORDER BY e.min_level DESC NULLS LAST
                         LIMIT 1;
-                    """, (species_id, level, level, _BYPASS_LEVEL))
+                    """, (species_id, level, happiness + happiness_delta, level, _BYPASS_LEVEL))
                     evo = cur.fetchone()
                     if evo:
                         to_id, to_name, to_sprite, from_name = evo
@@ -2025,12 +2118,13 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 level = 100
                 xp = 0
 
-            # ── Persiste level, xp e espécie ─────────────────────────────────
+            # ── Persiste level, xp, espécie e happiness ──────────────────────
             cur.execute("""
                 UPDATE user_pokemon
-                SET level = %s, xp = %s, species_id = %s
+                SET level = %s, xp = %s, species_id = %s,
+                    happiness = LEAST(255, GREATEST(0, happiness + %s))
                 WHERE id = %s;
-            """, (level, xp, species_id, user_pokemon_id))
+            """, (level, xp, species_id, happiness_delta, user_pokemon_id))
 
             # ── Recalcula stats por nível e/ou evolução ──────────────────────
             if result["evolutions"]:
@@ -3365,6 +3459,40 @@ def do_exercise_event(
 
         conn.commit()
         result["xp_earned"] = xp_to_award
+
+        # Release 6 — Happiness: inactivity penalty + workout boost
+        try:
+            _hconn = get_connection()
+            with _hconn.cursor() as _hc:
+                # Inactivity: check the workout BEFORE this one
+                _hc.execute("""
+                    SELECT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date
+                    FROM workout_logs WHERE user_id = %s
+                    ORDER BY completed_at DESC
+                    LIMIT 1 OFFSET 1;
+                """, (user_id,))
+                _prev = _hc.fetchone()
+                if _prev:
+                    _days_gap = (_today_brt() - _prev[0]).days
+                    if _days_gap > 7:
+                        _hc.execute("""
+                            SELECT up.id FROM user_team ut
+                            JOIN user_pokemon up ON ut.user_pokemon_id = up.id
+                            WHERE ut.user_id = %s;
+                        """, (user_id,))
+                        for (_tid,) in _hc.fetchall():
+                            _bump_happiness(_hc, _tid, -5)
+                # Slot 1 gets +1 happiness for completing a workout
+                _hc.execute("""
+                    SELECT ut.user_pokemon_id FROM user_team ut
+                    WHERE ut.user_id = %s AND ut.slot = 1;
+                """, (user_id,))
+                _s1 = _hc.fetchone()
+                if _s1:
+                    _bump_happiness(_hc, _s1[0], 1)
+            _hconn.commit()
+        except Exception:
+            pass
 
         # Release 3A — pickup: 10% chance for a bonus vitamin after commit
         if slot1_ability == "pickup" and random.random() < 0.10:

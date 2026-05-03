@@ -100,6 +100,26 @@ _STAT_LABEL_TO_KEY = {
 }
 
 
+def _happiness_html(member: dict) -> str:
+    happiness = member.get("happiness", 70) or 70
+    pct = min(happiness / 255 * 100, 100)
+    if happiness >= 180:
+        color = "#2ea043"   # green — happy
+    elif happiness >= 50:
+        color = "#F8D030"   # yellow — neutral
+    else:
+        color = "#FF5959"   # red — demotivated
+    return (
+        f"<div class='happiness-row'>"
+        f"<span style='font-size:0.75rem'>❤️</span>"
+        f"<div class='happiness-track'>"
+        f"<div class='happiness-fill' style='width:{pct:.0f}%;background:{color}'></div>"
+        f"</div>"
+        f"<span class='happiness-val'>{happiness}</span>"
+        f"</div>"
+    )
+
+
 def _stat_bars(member: dict, boost_counts: dict | None = None) -> str:
     """Retorna o HTML do mini-grid de stats para um card de Pokémon.
 
@@ -231,6 +251,22 @@ st.markdown("""
     border-radius: 9999px; padding: 3px 10px;
     font-size: 0.6rem; font-weight: 700; color: #d8b4fe;
     text-transform: uppercase; letter-spacing: 0.5px; margin-top: 5px;
+}
+
+/* Happiness bar */
+.happiness-row {
+    display: grid; grid-template-columns: 20px 1fr 32px;
+    align-items: center; gap: 6px; margin-top: 8px;
+}
+.happiness-track { background: #21262d; border-radius: 3px; height: 5px; overflow: hidden; }
+.happiness-fill  { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.happiness-val   { font-size: 0.58rem; font-weight: 700; color: #8b949e; text-align: right;
+                   font-family: "JetBrains Mono", monospace; }
+.demotivated-badge {
+    display: inline-block; background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.4);
+    border-radius: 9999px; padding: 2px 8px;
+    font-size: 0.55rem; font-weight: 700; color: #ff8080;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-left: 5px;
 }
 
 /* Egg section */
@@ -554,8 +590,9 @@ for slot in range(1, 7):
             needed   = member["level"] * XP_PER_LV
 
             member_boost_counts = team_boost_counts.get(member["user_pokemon_id"])
-            stat_html = _stat_bars(member, boost_counts=member_boost_counts)
-            nature_html = _nature_html(member)
+            stat_html      = _stat_bars(member, boost_counts=member_boost_counts)
+            nature_html    = _nature_html(member)
+            happiness_html = _happiness_html(member)
 
             ability_html = ""
             if slot == 1:
@@ -568,12 +605,18 @@ for slot in range(1, 7):
                         f"</div>"
                     )
 
-            poke_name = member['name'].upper()
+            _happiness_val = member.get("happiness", 70) or 70
+            demot_badge = (
+                "<span class='demotivated-badge'>😔 Desmotivado</span>"
+                if _happiness_val < 50 else ""
+            )
+
+            poke_name  = member['name'].upper()
             species_id = member['species_id']
-            level = member['level']
+            level      = member['level']
             st.markdown(
                 f"<div class='{card_cls}'>{lbl_html}{img_tag}"
-                f"<div class='poke-card-name'>#{species_id} {poke_name}{shiny_badge}</div>"
+                f"<div class='poke-card-name'>#{species_id} {poke_name}{shiny_badge}{demot_badge}</div>"
                 f"<div style='text-align:center'>{t1}{t2}</div>"
                 f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {level}</div>"
                 f"{nature_html}"
@@ -581,6 +624,7 @@ for slot in range(1, 7):
                 f"<div class='xp-track'><div class='xp-fill' style='width:{prog*100:.0f}%'></div></div>"
                 f"<div class='xp-label'>{member['xp']} / {needed} XP</div>"
                 f"{stat_html}"
+                f"{happiness_html}"
                 f"</div>",
                 unsafe_allow_html=True,
             )

@@ -9,7 +9,8 @@ from utils.app_cache import (
     get_cached_user_profile,
 )
 from utils.db import (
-    do_checkin, sprite_img_tag, hq_sprite_url,
+    do_checkin, register_rest, get_monthly_rest_days,
+    sprite_img_tag, hq_sprite_url,
     _today_brt, check_and_award_achievements, update_mission_progress,
 )
 from utils.type_colors import get_type_color
@@ -83,6 +84,7 @@ st.markdown("""
 .cal-day.spawned { background: rgba(112,56,248,0.12); border-color: rgba(112,56,248,0.5); }
 .cal-day.checked.bonus   { background: linear-gradient(135deg,rgba(184,248,47,0.12),rgba(255,197,49,0.1)); border-color: rgba(255,197,49,0.5); }
 .cal-day.checked.spawned { background: linear-gradient(135deg,rgba(184,248,47,0.12),rgba(112,56,248,0.12)); border-color: rgba(112,56,248,0.5); }
+.cal-day.rested { background: rgba(255,130,130,0.07); border-color: rgba(255,130,130,0.35); }
 
 .day-num   { font-size: 0.78rem; font-weight: 700; color: #8b949e; line-height: 1; font-family: "JetBrains Mono", monospace; }
 .day-num.today-num { color: #B8F82F; }
@@ -108,6 +110,7 @@ st.markdown("""
 .result-card.bonus    { background: rgba(255,197,49,0.08); border-color: rgba(255,197,49,0.5); }
 .result-card.levelup  { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.5); }
 .result-card.evolution{ background: #1f0f2e; border-color: #BC8CFF; }
+.result-card.rest     { background: rgba(255,130,130,0.08); border-color: rgba(255,130,130,0.5); }
 .result-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
 .result-body  { color: #8b949e; font-size: 0.85rem; }
 .spawn-name   { font-size: 1.2rem; font-weight: 800; color: #A27DFA; }
@@ -124,6 +127,7 @@ for k, v in [
     ("cal_year",  today.year),
     ("cal_month", today.month),
     ("checkin_result", None),
+    ("rest_result", None),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -191,30 +195,52 @@ st.markdown(f"""
 
 # ── Botão de check-in ─────────────────────────────────────────────────────────
 
-if already_checked:
-    st.success("✅ Check-in de hoje já realizado! Volte amanhã.")
-else:
-    bonus_hint = " · 🎁 Dia especial — +1 XP Share!" if is_bonus_day else ""
-    streak_hint = f" · 🎲 Dia de streak #{streak+1}" if (streak + 1) % 3 == 0 else ""
-    st.markdown(
-        f"<div style='color:#8b949e;font-size:0.82rem;margin-bottom:8px'>"
-        f"Recompensa: 🪙 +1 moeda{bonus_hint}{streak_hint}</div>",
-        unsafe_allow_html=True,
-    )
-    if st.button("✔ Fazer Check-in", type="primary", use_container_width=False):
-        res = do_checkin(user_id)
-        clear_user_cache()
-        st.session_state.checkin_result = res
-        if res.get("success"):
-            new_ach = check_and_award_achievements(user_id)
-            if new_ach:
-                pending = st.session_state.get("new_achievements_pending", [])
-                seen = {a["slug"] for a in pending}
-                st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
-            _m_done = update_mission_progress(user_id, "checkin")
-            for _md in (_m_done or []):
-                st.toast(f"🎯 Missão concluída: {_md.get('icon','')} {_md.get('label','')} — {_md.get('reward_label','')}", icon="✅")
-        st.rerun()
+already_rested = today.day in get_monthly_rest_days(user_id, today.year, today.month)
+
+col_checkin, col_rest = st.columns([3, 2])
+with col_checkin:
+    if already_checked:
+        st.success("✅ Check-in de hoje já realizado! Volte amanhã.")
+    else:
+        bonus_hint = " · 🎁 Dia especial — +1 XP Share!" if is_bonus_day else ""
+        streak_hint = f" · 🎲 Dia de streak #{streak+1}" if (streak + 1) % 3 == 0 else ""
+        st.markdown(
+            f"<div style='color:#8b949e;font-size:0.82rem;margin-bottom:8px'>"
+            f"Recompensa: 🪙 +1 moeda{bonus_hint}{streak_hint}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("✔ Fazer Check-in", type="primary", use_container_width=False):
+            res = do_checkin(user_id)
+            clear_user_cache()
+            st.session_state.checkin_result = res
+            if res.get("success"):
+                new_ach = check_and_award_achievements(user_id)
+                if new_ach:
+                    pending = st.session_state.get("new_achievements_pending", [])
+                    seen = {a["slug"] for a in pending}
+                    st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
+                _m_done = update_mission_progress(user_id, "checkin")
+                for _md in (_m_done or []):
+                    st.toast(f"🎯 Missão concluída: {_md.get('icon','')} {_md.get('label','')} — {_md.get('reward_label','')}", icon="✅")
+            st.rerun()
+
+with col_rest:
+    if already_rested:
+        st.markdown(
+            "<div style='color:#8b949e;font-size:0.82rem;margin-top:28px'>😴 Descanso registrado hoje</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='color:#8b949e;font-size:0.82rem;margin-bottom:8px'>"
+            "Descansando? ❤️ +5 felicidade</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("😴 Registrar Descanso", use_container_width=False):
+            rr = register_rest(user_id)
+            clear_user_cache()
+            st.session_state.rest_result = rr
+            st.rerun()
 
 # ── Resultado do check-in ─────────────────────────────────────────────────────
 
@@ -385,6 +411,23 @@ if res:
 
     st.session_state.checkin_result = None
 
+rr = st.session_state.rest_result
+if rr:
+    if rr.get("already_done"):
+        st.warning("Você já registrou descanso hoje!")
+    elif rr.get("success"):
+        st.markdown(
+            "<div class='result-card rest'>"
+            "<div class='result-title'>😴 Descanso registrado!</div>"
+            "<div class='result-body'>❤️ +5 felicidade para seu Pokémon principal. "
+            "Recuperação é parte do treino!</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    elif rr.get("error"):
+        st.error(f"Erro ao registrar descanso: {rr['error']}")
+    st.session_state.rest_result = None
+
 st.markdown("---")
 
 def _calendar_view():
@@ -423,6 +466,7 @@ def _calendar_view():
     disp_year  = st.session_state.cal_year
     disp_month = st.session_state.cal_month
     checkins   = get_cached_monthly_checkins(user_id, disp_year, disp_month)
+    rest_days  = get_monthly_rest_days(user_id, disp_year, disp_month)
     last_day_m = calendar.monthrange(disp_year, disp_month)[1]
     weeks      = calendar.monthcalendar(disp_year, disp_month)  # Mon=0 … Sun=6
 
@@ -446,6 +490,7 @@ def _calendar_view():
             is_future  = cell_date > today
             is_special = day in (15, last_day_m)
             ck         = checkins.get(day)
+            is_rest    = day in rest_days
 
             classes = ["cal-day"]
             if is_future:
@@ -458,6 +503,8 @@ def _calendar_view():
                     classes.append("bonus")
                 if ck["spawned_species_id"]:
                     classes.append("spawned")
+            elif is_rest:
+                classes.append("rested")
 
             num_cls = "day-num today-num" if is_today else "day-num"
             icons   = ""
@@ -467,6 +514,10 @@ def _calendar_view():
                     icons += "<span class='day-icon'>📡</span>"
                 if ck["spawned_species_id"]:
                     icons += "<span class='day-icon'>🌟</span>"
+                if is_rest:
+                    icons += "<span class='day-icon'>😴</span>"
+            elif is_rest:
+                icons += "<span class='day-icon'>😴</span>"
             elif not is_future and is_special:
                 icons += "<span class='day-icon' style='opacity:.35'>🎁</span>"
 
@@ -503,6 +554,9 @@ st.markdown("""
   </div>
   <div style='display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#8b949e'>
     <div style='width:12px;height:12px;border-radius:3px;background:#1a1030;border:1px solid #7038F8'></div> 🌟 Pokémon capturado
+  </div>
+  <div style='display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#8b949e'>
+    <div style='width:12px;height:12px;border-radius:3px;background:#2a1010;border:1px solid rgba(255,130,130,0.4)'></div> 😴 Dia de descanso
   </div>
   <div style='display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#8b949e'>
     ★ = dia com bônus potencial
