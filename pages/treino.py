@@ -24,7 +24,7 @@ if not st.session_state.get("user"):
     st.warning("Faça login para acessar esta página.")
     st.stop()
 
-user_id = st.session_state.user_id
+user_id = st.session_state.get("user_id")
 BASE_DIR = os.getcwd()
 _DAILY_CAP = 300
 
