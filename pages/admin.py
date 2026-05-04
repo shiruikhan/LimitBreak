@@ -1,9 +1,31 @@
+import uuid
 import streamlit as st
 from utils.db import (
     is_admin, get_all_users, admin_update_user, admin_delete_user,
     set_admin_role, get_system_logs, get_global_stats, log_admin_action,
     admin_gift_loot_box, admin_create_exercise, get_exercises,
 )
+from utils.supabase_client import get_supabase_admin
+
+_GIF_BUCKET = "exercise-gifs"
+
+
+def _upload_exercise_gif(uploaded_file) -> tuple[bool, str]:
+    """Uploads a GIF to Supabase Storage and returns (ok, public_url_or_error)."""
+    try:
+        client = get_supabase_admin()
+        ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
+        filename = f"{uuid.uuid4()}.{ext}"
+        file_bytes = uploaded_file.read()
+        client.storage.from_(_GIF_BUCKET).upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": uploaded_file.type or "image/gif"},
+        )
+        public_url = client.storage.from_(_GIF_BUCKET).get_public_url(filename)
+        return True, public_url
+    except Exception as e:
+        return False, str(e)
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
 user_id = st.session_state.get("user_id")
@@ -248,18 +270,28 @@ with tab_exercises:
             placeholder="pectorals, triceps, anterior deltoid",
         )
 
-        ex_gif_url = st.text_input(
-            "URL do GIF (opcional)",
-            placeholder="https://v2.exercisedb.io/image/...",
+        ex_gif_file = st.file_uploader(
+            "GIF do exercício (opcional)",
+            type=["gif", "png", "jpg", "jpeg", "webp"],
+            help=f"Enviado para o bucket '{_GIF_BUCKET}' no Supabase Storage.",
         )
 
         submitted = st.form_submit_button("➕ Criar Exercício", type="primary")
 
     if submitted:
-        muscles   = [m.strip() for m in ex_muscles_raw.split(",") if m.strip()]
-        equips    = [e.strip() for e in ex_equipments_raw.split(",") if e.strip()]
+        muscles = [m.strip() for m in ex_muscles_raw.split(",") if m.strip()]
+        equips  = [e.strip() for e in ex_equipments_raw.split(",") if e.strip()]
+
+        gif_url = None
+        if ex_gif_file is not None:
+            upload_ok, upload_result = _upload_exercise_gif(ex_gif_file)
+            if not upload_ok:
+                st.error(f"Falha ao enviar GIF: {upload_result}")
+                st.stop()
+            gif_url = upload_result
+
         ok, msg, new_id = admin_create_exercise(
-            ex_name, ex_name_pt, muscles, ex_body_parts, equips, ex_gif_url or None,
+            ex_name, ex_name_pt, muscles, ex_body_parts, equips, gif_url,
         )
         if ok:
             log_admin_action(
