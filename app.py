@@ -100,6 +100,15 @@ div[data-testid="stSidebar"] div.stButton > button:hover {
     border-color: rgba(184, 248, 47, 0.42) !important;
     background: rgba(30, 41, 59, 0.98) !important;
 }
+div[data-testid="stSidebar"] div.stButton:has(button[data-testid*="shell_logout"]) > button {
+    justify-content: center !important;
+    color: #f85149 !important;
+    border-color: rgba(248, 81, 73, 0.25) !important;
+}
+div[data-testid="stSidebar"] div.stButton:has(button[data-testid*="shell_logout"]) > button:hover {
+    background: rgba(248, 81, 73, 0.08) !important;
+    border-color: rgba(248, 81, 73, 0.5) !important;
+}
 div[data-testid="stSidebar"] details {
     background: rgba(15, 23, 42, 0.72);
     border: 1px solid rgba(148, 163, 184, 0.12);
@@ -294,6 +303,18 @@ def _render_sidebar_shell(groups: list[tuple[str, list[dict]]], user_id: str) ->
 """,
                 unsafe_allow_html=True,
             )
+
+        st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+        if st.button("↩ Sair", key="shell_logout", use_container_width=True):
+            try:
+                get_supabase().auth.sign_out()
+            except Exception:
+                pass
+            cookie_manager.delete("lb_refresh_token", key="shell_delete_cookie")
+            for k in ["user", "user_id", "access_token", "refresh_token",
+                      "needs_starter", "starter_checked"]:
+                st.session_state[k] = None
+            st.rerun()
 
 # ── Toast de conquistas ────────────────────────────────────────────────────────
 # Mostra notificação flutuante quando novos achievements foram desbloqueados.
