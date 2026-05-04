@@ -490,7 +490,7 @@ def _calendar_view():
     disp_year  = st.session_state.cal_year
     disp_month = st.session_state.cal_month
     checkins   = get_cached_monthly_checkins(user_id, disp_year, disp_month)
-    rest_days  = get_monthly_rest_days(user_id, disp_year, disp_month)
+    rest_days  = get_cached_monthly_rest_days(user_id, disp_year, disp_month)
     last_day_m = calendar.monthrange(disp_year, disp_month)[1]
     weeks      = calendar.monthcalendar(disp_year, disp_month)  # Mon=0 … Sun=6
 
