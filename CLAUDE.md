@@ -63,6 +63,9 @@ port     = "6543"
 name     = "postgres"
 user     = "postgres.SEU_PROJECT_ID"
 password = "sua_senha"
+
+[app]
+url = "http://localhost:8501"   # URL de callback OAuth; em produção = URL pública do app
 ```
 
 ### Produção — Streamlit Cloud
@@ -87,7 +90,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── hub.py                   # Hub central com atalhos, snapshot do progresso e navegação rápida
 │   ├── equipe.py                # Equipe ativa + banco de Pokémon
 │   ├── batalha.py               # Arena PvP — desafiar outros usuários
-│   ├── conquistas.py            # Sistema de conquistas — 23 badges em 5 categorias
+│   ├── conquistas.py            # Sistema de conquistas — 34 conquistas em 6 categorias
 │   ├── leaderboard.py           # Ranking — XP de treino / streak de check-in / coleção Pokémon
 │   ├── pokedex.py               # Pokédex nacional completo
 │   ├── pokedex_pessoal.py       # Pokédex pessoal — capturados vs não capturados
@@ -122,6 +125,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── seed_species_abilities.py             # Popula abilities em pokemon_species via PokéAPI (Release 3A)
     ├── audit_team_stats.py                   # Audita e sincroniza stat_* da equipe ativa (--dry-run / --user-id)
     ├── retroactive_loot.py                   # Concede loot boxes retroativos a usuários existentes
+    ├── retroactive_badges.py                 # Distribui badges de ginásio retroativamente a usuários existentes
     ├── migrate_missions.sql                  # Cria user_missions (executar no Supabase)
     ├── migrate_drop_regional_catalog.sql     # Remove pokemon_regional_forms e user_pokemon_forms (executar no Supabase)
     ├── migrate_battles.sql                   # Cria user_battles e user_battle_turns (executar no Supabase)
@@ -131,6 +135,12 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── migrate_achievements.sql              # Cria user_achievements (executar no Supabase)
     ├── migrate_happiness.sql                 # Adiciona happiness a user_pokemon, min_happiness a pokemon_evolutions, cria user_rest_days
     ├── migrate_spawn_tiers.sql               # Adiciona is_spawnable e rarity_tier a pokemon_species
+    ├── migrate_priority1_eggs.sql            # Cria user_eggs (executar no Supabase — Release 3A)
+    ├── migrate_priority1_abilities.sql       # Adiciona ability à pokemon_species (executar no Supabase — Release 3A)
+    ├── migrate_nature_mint.sql               # Suporte a nature_mint em shop_items/user_inventory
+    ├── migrate_rival.sql                     # Adiciona weekly_rival_id e rival_assigned_week a user_profiles
+    ├── migrate_weekly_challenge.sql          # Cria weekly_challenges e weekly_challenge_participants
+    ├── seed_streak_shield.sql                # Insere item streak-shield em shop_items (executar uma vez)
     ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
     ├── seed_spawn_tiers.py                   # Refina is_spawnable/rarity_tier via PokéAPI (lendários/míticos)
     ├── seed_wmx_exercises.py                 # Cadastra exercícios do protocolo WMX (idempotente por name_pt)
@@ -267,6 +277,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | coins | INT | Moedas acumuladas |
 | starter_pokemon_id | INT FK | Pokémon inicial escolhido |
 | xp_share_expires_at | TIMESTAMPTZ | Data/hora de expiração do XP Share ativo (nullable) |
+| weekly_rival_id | UUID FK | FK → user_profiles.id — rival atribuído para a semana atual (nullable, ON DELETE SET NULL) |
+| rival_assigned_week | DATE | Segunda-feira da semana em que o rival foi atribuído (nullable) |
 
 #### `user_pokemon`
 | Coluna | Tipo | Descrição |
@@ -408,6 +420,29 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | rest_date | DATE | Data do descanso registrado |
 
 > Constraint UNIQUE: `(user_id, rest_date)`. Não quebra streak de check-in. Concede +5 happiness ao Pokémon do slot 1.
+
+#### `weekly_challenges`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| week_start | DATE UNIQUE | Segunda-feira da semana do desafio |
+| goal_type | TEXT | `'total_xp'`, `'total_workouts'` ou `'total_sets'` |
+| goal_value | INT | Meta da comunidade |
+| current_value | INT | Progresso atual acumulado |
+| reward_item_slug | TEXT | Slug do item de recompensa |
+| reward_quantity | INT | Quantidade do item de recompensa |
+| completed | BOOL | `TRUE` quando `current_value >= goal_value` |
+| reward_distributed | BOOL | `TRUE` após recompensa enviada |
+
+#### `weekly_challenge_participants`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| challenge_id | INT FK | CASCADE DELETE |
+| user_id | UUID FK | ON DELETE CASCADE |
+| contributed | INT | Contribuição individual do usuário |
+| reward_claimed | BOOL | `TRUE` após `claim_weekly_challenge_reward()` |
+
+> PK: `(challenge_id, user_id)`.
 
 ---
 
@@ -576,7 +611,7 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `admin_delete_user(acting_admin_id, target_id)` | Deleta conta; proibido auto-deletar |
 | `set_admin_role(target_id, is_admin)` | Concede ou revoga papel admin |
 | `log_admin_action(admin_id, action, details)` | Registra ação no log de auditoria |
-| `get_system_logs(limit=50)` | Últimas entradas do log administrativo |
+| `get_system_logs(limit=200, action_filter="", user_filter="")` | Últimas entradas do log administrativo (filtrável por ação e usuário) |
 | `admin_gift_loot_box(admin_id, target_id, count=1)` | Concede `count` loot boxes; retorna `(bool, msg, list[dict])` |
 | `admin_create_exercise(name, name_pt, ...)` | Cria exercício no catálogo |
 | `get_global_stats()` | Métricas do sistema: total usuários, treinos, batalhas, Pokémon capturados |
@@ -588,8 +623,22 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `update_mission_progress(user_id, event_type, data=None)` | Incrementa progresso nas missões ativas que correspondem ao `event_type`; retorna lista de missões recém-concluídas. Chamado em `treino.py`, `batalha.py`, `calendario.py` após cada evento |
 | `claim_mission_reward(user_id, mission_id)` | Consome a recompensa de uma missão completa; retorna `(bool, msg, reward_dict)`. Tipos de recompensa: `xp`, `coins`, `stone`, `vitamin`, `loot_box` |
 
+### Rival Semanal e Desafio Comunitário
+| Função | Descrição |
+|---|---|
+| `assign_weekly_rival(user_id)` | Atribui (ou mantém) o rival da semana; na virada de semana avalia se o usuário venceu o rival anterior (+10 moedas); retorna `{rival_username, rival_xp, my_xp, diff, rival_sprite, won_last_week, bonus_coins}` |
+| `get_current_challenge(user_id)` | Retorna estado do desafio comunitário desta semana, criando-o se necessário; inclui contribuição e status de coleta do usuário. Retorna `dict` ou `None` |
+| `claim_weekly_challenge_reward(user_id)` | Coleta a recompensa do desafio comunitário quando `completed=True`; retorna `(bool, msg, reward_dict)` |
+| `_ensure_weekly_challenge(cur)` | **Interno.** Garante que existe um desafio para a semana atual; retorna `challenge_id` |
+| `_update_weekly_challenge(cur, user_id, xp_earned, sets_total)` | **Interno.** Atualiza progresso do desafio comunitário após treino |
+
+**Tipos de meta (`goal_type`):** `"total_xp"`, `"total_workouts"`, `"total_sets"` — acumulados por todos os usuários participantes.
+
 **`event_type` e dados esperados:**
-- `"workout"` — `{sets_total, max_weight, xp_earned}` → atualiza `register_workout`, `log_5_sets`, `log_heavy_set`, `weekly_workout_3`, `weekly_xp_200`
+- `"workout"` — `{sets_total, max_weight, xp_earned}` → atualiza `register_workout`, `weekly_workout_3`
+- `"workout_sets"` — `{sets_total}` → atualiza `log_5_sets`
+- `"workout_heavy"` — `{max_weight}` → atualiza `log_heavy_set`
+- `"workout_xp"` — `{xp_earned}` → atualiza `weekly_xp_200`
 - `"pr"` — `{count}` → atualiza `beat_pr`
 - `"battle_win"` — `{}` → atualiza `win_battle`, `weekly_wins_3`
 - `"checkin"` — `{}` → atualiza `daily_checkin`, `weekly_checkin_5`
@@ -612,16 +661,22 @@ Navegador abre o app
         │         └── FAIL → apaga cookie → vai para login
         └── NÃO → session_state.user == None → pages/login.py
                           │
-                          ├── Login OK → salva cookie "lb_refresh_token"
-                          └── Signup OK → idem, se session disponível
+                          ├── Email/senha OK → salva cookie "lb_refresh_token"
+                          ├── Signup OK → idem, se session disponível
+                          └── OAuth (Google/Discord) → _start_oauth(provider)
+                                    └── redireciona para provedor via meta-refresh
+                                    └── callback com ?code=... → exchange_code_for_session (PKCE)
+                                    └── salva cookie "lb_refresh_token" + verifica starter
 ```
 
 - **Cookie:** `lb_refresh_token` com validade de 30 dias; rotação automática (Supabase renova o refresh_token a cada uso)
+- **Cookie OAuth PKCE:** `lb_oauth_verifier` com validade de 15 min — armazena `code_verifier` antes do redirect; deletado após troca pelo token
 - **Keys do CookieManager:** cada arquivo usa uma key única para evitar `StreamlitDuplicateElementKey`:
-  - `app.py` → `key="lb_cookies"`
-  - `login.py` → `key="lb_cookies_login"`
-  - `equipe.py` → `key="lb_cookies_logout"`
-- **Logout:** botão em `equipe.py` → deleta cookie + limpa session_state
+  - `app.py` → `key="lb_cookies"` (shell principal + logout do sidebar)
+  - `login.py` → `key="lb_cookies_login"` (login, signup, OAuth)
+  - `equipe.py` → `key="lb_cookies_logout"` (botão "Sair" na página de equipe)
+- **Logout:** botão "↩ Sair" no sidebar shell em `app.py` (presente em todas as páginas); botão "Sair" também em `equipe.py` — ambos deletam cookie + limpam session_state
+- **Secret obrigatório para OAuth:** `st.secrets["app"]["url"]` — URL de callback; fallback para `http://localhost:8501`
 
 ---
 
@@ -769,7 +824,9 @@ Duas tabs: **🏋️ Treino** e **📊 Análise**.
 
 ### `pages/login.py`
 - Tabs "Entrar" / "Criar conta"
-- Após login: `_save_session(session)` persiste `lb_refresh_token` em cookie 30 dias
+- Após login email/senha: `_save_session(session)` persiste `lb_refresh_token` em cookie 30 dias
+- **Login social (OAuth):** botões Google e Discord abaixo de divisor "ou continue com"; chama `_start_oauth(provider)` que inicia fluxo PKCE (salva `lb_oauth_verifier` em cookie + meta-refresh para o provedor)
+- **Callback OAuth:** ao retornar com `?code=...`, troca código por sessão via `exchange_code_for_session`; verifica se usuário precisa de starter; faz `st.rerun()` uma vez se o cookie verifier ainda não foi lido
 
 ### `pages/starter.py`
 - Grade de 27 iniciais + 2 secretos (Cubone, Mimikyu) via easter egg (7 cliques em área vazia)
@@ -974,6 +1031,7 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 | `stone` | 10 pedras de evolução (fire, water, thunder, leaf, moon, sun, shiny, dusk, dawn, ice) | Evolução permanente de espécie via `evolve_with_stone()` |
 | `stat_boost` | hp-up, protein, iron, calcium, zinc, carbos | Boost permanente de stat via `use_stat_item()` → `apply_stat_boost()`; cap de 5 usos por stat por Pokémon |
 | `other` | xp-share | Ativa/estende XP Share por 15 dias — distribui 30% do XP recebido pelo slot 1 para os demais Pokémon da equipe |
+| `other` | streak-shield 🛡️ | **100 moedas.** Protege o streak de check-in por um dia perdido; consumido automaticamente dentro de `do_checkin()` quando detecta gap de 1 dia e o usuário tem o item no inventário |
 | `other` | loot-box | **Não comprável na loja** (concedida via admin/milestone); aberta na Mochila via `open_loot_box()` — prêmio sorteado na tabela de raridade abaixo |
 | `nature_mint` | nature-mint | Troca a natureza de um Pokémon via `use_nature_mint()`; consome 1 item do inventário; pode ser obtida via loot box (5%) |
 
@@ -1052,6 +1110,12 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `migrate_v2.sql`: migrações v2 diversas — executar no Supabase quando necessário.
 `migrate_drop_regional_catalog.sql`: executar para remover tabelas obsoletas `pokemon_regional_forms` e `user_pokemon_forms`.
 `migrate_consolidate_profiles.sql`: executar para migrar FK de `workout_logs` para `user_profiles` e remover a tabela `profiles` legada.
+`migrate_priority1_eggs.sql`: cria `user_eggs` (Release 3A).
+`migrate_priority1_abilities.sql`: adiciona coluna `ability` a `pokemon_species` (Release 3A).
+`migrate_nature_mint.sql`: suporte a nature_mint em `shop_items`.
+`migrate_rival.sql`: adiciona `weekly_rival_id` e `rival_assigned_week` a `user_profiles`.
+`migrate_weekly_challenge.sql`: cria tabelas `weekly_challenges` e `weekly_challenge_participants`.
+`seed_streak_shield.sql`: insere item `streak-shield` em `shop_items` (executar uma vez).
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
@@ -1060,7 +1124,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 ## Estado Atual do Projeto (maio 2026)
 
 ### Implementado ✅
-- Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática)
+- Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática); **login social via OAuth (Google e Discord)** com fluxo PKCE
 - Shell de navegação customizado: sidebar agrupada + hub central (`pages/hub.py`) com snapshot e atalhos
 - Onboarding: 27 iniciais (Gen 1–9) + easter egg (Cubone, Mimikyu)
 - Pokédex nacional: sprites, tipos, moveset, cadeia evolutiva, base stats
@@ -1074,14 +1138,14 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - **`xp_share_distributed`** em `award_xp` return: lista `[{name, xp, user_pokemon_id}]` com o que cada Pokémon da equipe recebeu; exibido como chips azuis em `equipe.py`
 - Evolução por pedra: `evolve_with_stone()` com recálculo de stats e preservação de boosts
 - Cap de vitaminas: máximo 5 usos por stat por Pokémon (`_MAX_STAT_BOOSTS_PER_STAT = 5`)
-- Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; loot box (não-comprável, aberta na mochila); nature mint (troca de natureza); mochila funcional
+- Loja: pedras de evolução (10), vitaminas (6), XP Share com botão de ativar/renovar; **Streak Shield** (🛡️ 100 moedas, protege streak por 1 dia perdido); loot box (não-comprável, aberta na mochila); nature mint (troca de natureza); mochila funcional
 - **Formas regionais:** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1) como entidades padrão em `pokemon_species` (id > 10000); adquiridas pelas mesmas mecânicas de qualquer Pokémon (spawn, captura); sprites via CDN HybridShivam
 - XP Share: distribui 30% do XP do slot 1 para os demais membros da equipe; ativado por check-in ou comprado na loja; badge de status em equipe.py e loja.py
 - Calendário: check-in diário, streak, spawns nível 5 em streak ×3, extensão de XP Share nos dias 15/fim-de-mês
 - Notificações de evolução: banner em equipe.py + cards em calendario.py
 - Deploy em produção: Streamlit Cloud com CDN fallback para imagens
 - Batalhas PvP offline: arena com limite de 3/dia, simulação por turnos, XP e moedas como recompensa
-- **Conquistas:** 23 badges em 5 categorias; `check_and_award_achievements()` chamado após treino/check-in/batalha; banner de novos badges em `conquistas.py`
+- **Conquistas:** 34 conquistas em 6 categorias; `check_and_award_achievements()` chamado após treino/check-in/batalha; banner de novos badges em `conquistas.py`
 - **Leaderboard (`leaderboard.py`):** ranking mensal de XP de treino e streak de check-in; ranking all-time de coleção Pokémon; badge "Você" na linha do usuário logado
 - **Phase 2 — Módulo de treinos completo:**
   - Biblioteca de exercícios (`biblioteca.py`): grade 4 colunas, GIF thumbnail, badge de tipo Pokémon, filtros por nome/grupo muscular/equipamento, expander de detalhes
@@ -1137,6 +1201,16 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 - **Spawn Tiers:**
   - Colunas `is_spawnable` e `rarity_tier` em `pokemon_species`
   - `migrate_spawn_tiers.sql` + `seed_spawn_tiers.py` (refina lendários/míticos via PokéAPI)
+- **Streak Shield:**
+  - Item `streak-shield` na loja (100 moedas, categoria `other`)
+  - Consumido automaticamente em `do_checkin()` quando detecta 1 dia de gap — preserva o streak
+  - `scripts/seed_streak_shield.sql` para inserir o item no banco
+- **Rival Semanal + Desafio Comunitário:**
+  - `assign_weekly_rival()`: atribui rival por proximidade de XP semanal; avalia resultado da semana anterior (+10 moedas ao vencedor)
+  - `weekly_challenges` + `weekly_challenge_participants`: desafio coletivo semanal com meta de XP/treinos/séries; recompensa em item ao completar
+  - Colunas `weekly_rival_id` e `rival_assigned_week` adicionadas a `user_profiles`
+  - Migrations: `scripts/migrate_rival.sql` e `scripts/migrate_weekly_challenge.sql`
+- **GIF upload via Supabase Storage:** admin pode fazer upload de GIF ao criar exercício em `admin.py` — armazenado no Supabase Storage e URL salva em `exercises.gif_url`
 
 ### A implementar
 
@@ -1168,10 +1242,10 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 | `get_user_achievements(user_id)` | `dict[slug, datetime]` | Conquistas desbloqueadas |
 | `check_and_award_achievements(user_id)` | `list[str]` | Verifica condições, desbloqueia elegíveis, retorna novos slugs |
 
-### Catálogo — 31 conquistas em 6 categorias
+### Catálogo — 34 conquistas em 6 categorias
 | Categoria | Slugs | Métrica verificada |
 |---|---|---|
-| `treino` | `first_workout`, `workouts_10/50/100`, `workout_streak_7/30` | `workout_count`, `workout_streak` |
+| `treino` | `first_workout`, `workouts_10/50/100`, `workout_streak_7/30`, `pr_first`, `pr_10` | `workout_count`, `workout_streak`, `pr_count` |
 | `colecao` | `first_capture`, `dex_10/50/100/200/500`, `dex_complete` | `pokemon_count` em `user_pokemon` |
 | `checkin` | `checkin_streak_7/30/100/365` | `MAX(streak)` em `user_checkins` |
 | `batalha` | `first_win`, `wins_10/50` | `COUNT` em `user_battles WHERE winner_id` |
