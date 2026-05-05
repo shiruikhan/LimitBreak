@@ -26,9 +26,13 @@ for _k, _v in [
         st.session_state[_k] = _v
 
 # ── exercise catalog ──────────────────────────────────────────────────────────
-all_exercises = get_exercises()
-exercise_map = {ex["id"]: ex["name_pt"] or ex["name"] for ex in all_exercises}
-exercise_ids = [ex["id"] for ex in all_exercises]
+all_exercises     = get_exercises()
+exercise_map      = {ex["id"]: ex["name_pt"] or ex["name"] for ex in all_exercises}
+exercise_ids      = [ex["id"] for ex in all_exercises]
+exercise_metric   = {ex["id"]: ex.get("metric_type", "weight") for ex in all_exercises}
+
+_RO_METRIC_LABELS = {"weight": "Reps", "distance": "km (por intervalo)", "time": "min (por set)"}
+_RO_METRIC_ICONS  = {"weight": "🏋️", "distance": "📏", "time": "⏱️"}
 
 # ── header ────────────────────────────────────────────────────────────────────
 col_title, col_new = st.columns([5, 1])
@@ -177,6 +181,10 @@ for sheet in sheets:
             for wde in day_exs:
                 wid = wde["id"]
 
+                _wde_metric = wde.get("metric_type", exercise_metric.get(wde["exercise_id"], "weight"))
+                _wde_mlbl   = _RO_METRIC_LABELS.get(_wde_metric, "Reps")
+                _wde_icon   = _RO_METRIC_ICONS.get(_wde_metric, "")
+
                 if st.session_state.editing_wde == wid:
                     # inline edit form
                     with st.form(f"form_edit_{wid}"):
@@ -190,7 +198,7 @@ for sheet in sheets:
                             )
                         with ec3:
                             new_reps = st.number_input(
-                                "Reps", min_value=1, max_value=100,
+                                _wde_mlbl, min_value=1, max_value=10000,
                                 value=wde["reps"], label_visibility="collapsed",
                             )
                         with ec4:
@@ -211,9 +219,9 @@ for sheet in sheets:
                     # display row
                     dc1, dc2, dc3, dc4 = st.columns([3, 2, 1, 1])
                     with dc1:
-                        st.write(wde["name"])
+                        st.write(f"{_wde_icon} {wde['name']}")
                     with dc2:
-                        st.write(f"{wde['sets']} × {wde['reps']}")
+                        st.write(f"{wde['sets']} × {wde['reps']} {_wde_mlbl.split()[0]}")
                     with dc3:
                         if st.button("✏", key=f"edit_{wid}", help="Editar"):
                             st.session_state.editing_wde = wid
@@ -232,13 +240,16 @@ for sheet in sheets:
                     sel_ex_id = st.selectbox(
                         "Exercício",
                         options=exercise_ids,
-                        format_func=lambda eid: exercise_map.get(eid, str(eid)),
+                        format_func=lambda eid: f"{_RO_METRIC_ICONS.get(exercise_metric.get(eid,'weight'),'')} {exercise_map.get(eid, str(eid))}",
                     )
+                    _add_metric = exercise_metric.get(int(sel_ex_id), "weight")
+                    _add_mlbl   = _RO_METRIC_LABELS.get(_add_metric, "Reps")
+                    _add_max    = 999 if _add_metric != "weight" else 100
                     ac1, ac2 = st.columns(2)
                     with ac1:
                         add_sets = st.number_input("Sets", min_value=1, max_value=20, value=3)
                     with ac2:
-                        add_reps = st.number_input("Reps", min_value=1, max_value=100, value=10)
+                        add_reps = st.number_input(_add_mlbl, min_value=1, max_value=_add_max, value=10 if _add_metric == "weight" else 1)
                     af1, af2 = st.columns(2)
                     with af1:
                         ok_ex = st.form_submit_button("Adicionar", type="primary", use_container_width=True)

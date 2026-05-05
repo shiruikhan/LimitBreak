@@ -119,8 +119,21 @@ for idx, ex in enumerate(exercises):
             if ex["gif_url"]:
                 st.image(ex["gif_url"], use_container_width=True)
 
-            # type badge + body part tags
+            # metric type badge + pokémon type badge + body part tags
+            _mt      = ex.get("metric_type", "weight")
+            _mt_data = {
+                "weight":   ("🏋️", "Carga",     "#30363d", "#c9d1d9"),
+                "distance": ("📏", "Distância",  "#0d4a8a", "#79c0ff"),
+                "time":     ("⏱️", "Tempo",      "#2d4a1e", "#56d364"),
+            }.get(_mt, ("🏋️", "Carga", "#30363d", "#c9d1d9"))
+            _mt_icon, _mt_lbl, _mt_bg, _mt_text = _mt_data
+            metric_badge = (
+                f'<span style="background:{_mt_bg};color:{_mt_text};border-radius:6px;'
+                f'padding:2px 8px;font-size:11px;font-weight:600;margin-right:4px">'
+                f'{_mt_icon} {_mt_lbl}</span>'
+            )
             st.markdown(
+                f'{metric_badge}'
                 f'<span style="background:{bg};color:{text};border-radius:6px;'
                 f'padding:2px 8px;font-size:12px;font-weight:600">⚡ {type_label}</span> '
                 f'{body_tags}',

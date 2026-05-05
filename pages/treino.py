@@ -8,6 +8,7 @@ from utils.db import (
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
     get_volume_history, get_exercise_bests_all, get_muscle_distribution,
+    get_last_exercise_values,
 )
 from utils.app_cache import (
     get_cached_workout_sheets,
@@ -47,10 +48,15 @@ with st.sidebar:
 # ── catalog (cached in session_state to avoid rebuilding dicts every rerun) ──
 if "ex_name_map" not in st.session_state:
     _all_ex = get_exercises()
-    st.session_state.ex_name_map = {ex["id"]: ex["name_pt"] or ex["name"] for ex in _all_ex}
-    st.session_state.ex_id_options = [ex["id"] for ex in _all_ex]
-ex_name_map = st.session_state.ex_name_map
+    st.session_state.ex_name_map    = {ex["id"]: ex["name_pt"] or ex["name"] for ex in _all_ex}
+    st.session_state.ex_id_options  = [ex["id"] for ex in _all_ex]
+    st.session_state.ex_metric_map  = {ex["id"]: ex.get("metric_type", "weight") for ex in _all_ex}
+ex_name_map   = st.session_state.ex_name_map
 ex_id_options = st.session_state.ex_id_options
+ex_metric_map = st.session_state.ex_metric_map
+
+_METRIC_LABELS = {"weight": "Reps", "distance": "Distância (km)", "time": "Duração (min)"}
+_METRIC_ICONS  = {"weight": "🏋️", "distance": "📏", "time": "⏱️"}
 
 # ── styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -213,24 +219,33 @@ with tab_log:
             help="Adiciona os exercícios prescritos para o dia selecionado",
         ):
             prescribed = get_day_exercises_for_builder(sel_day)
+            _last = get_last_exercise_values(
+                user_id, [p["exercise_id"] for p in prescribed]
+            )
             for p in prescribed:
+                mt   = p.get("metric_type", "weight")
+                prev = _last.get(p["exercise_id"], {})
                 st.session_state.workout_rows.append({
-                    "row_id":      str(uuid.uuid4()),
-                    "exercise_id": p["exercise_id"],
-                    "name":        p["name"],
-                    "sets":        p["sets"],
-                    "reps":        p["reps"],
-                    "weight":      0.0,
+                    "row_id":        str(uuid.uuid4()),
+                    "exercise_id":   p["exercise_id"],
+                    "name":          p["name"],
+                    "metric_type":   mt,
+                    "sets":          p["sets"],
+                    "reps":          prev.get("reps") or p["reps"],
+                    "weight":        prev.get("weight") or 0.0,
+                    "distance_km":   prev.get("distance_km") or (float(p["reps"]) if mt == "distance" else 1.0),
+                    "duration_min":  prev.get("duration_min") or (float(p["reps"]) if mt == "time" else 1.0),
+                    "_prev":         prev,  # kept for hint display
                 })
             st.rerun()
 
     st.divider()
 
     # ── exercise table ─────────────────────────────────────────────────────────
-    hc1, hc2, hc3, hc4, hc5 = st.columns([3, 1, 1, 1.2, 0.6])
+    hc1, hc2, hc3, hc4, hc5 = st.columns([3, 0.8, 1.5, 1.2, 0.6])
     with hc1: st.markdown("**Exercício**")
     with hc2: st.markdown("**Sets**")
-    with hc3: st.markdown("**Reps**")
+    with hc3: st.markdown("**Medida**")
     with hc4: st.markdown("**Peso (kg)**")
     with hc5: st.markdown(" ")
 
@@ -238,10 +253,31 @@ with tab_log:
         st.caption("Nenhum exercício adicionado. Use **Importar Padrão** ou **Adicionar Exercício**.")
 
     for row in st.session_state.workout_rows:
-        rid = row["row_id"]
-        rc1, rc2, rc3, rc4, rc5 = st.columns([3, 1, 1, 1.2, 0.6])
+        rid    = row["row_id"]
+        metric = row.get("metric_type", "weight")
+        rc1, rc2, rc3, rc4, rc5 = st.columns([3, 0.8, 1.5, 1.2, 0.6])
         with rc1:
-            st.write(row["name"])
+            icon = _METRIC_ICONS.get(metric, "")
+            prev = row.get("_prev", {})
+            if prev:
+                if metric == "weight" and prev.get("weight"):
+                    hint = f"↩ {prev['weight']:.1f} kg × {prev.get('reps', '?')} reps"
+                elif metric == "distance" and prev.get("distance_km"):
+                    hint = f"↩ {prev['distance_km']:.2f} km"
+                elif metric == "time" and prev.get("duration_min"):
+                    hint = f"↩ {prev['duration_min']:.1f} min"
+                else:
+                    hint = ""
+                hint_html = (
+                    f"<span style='font-size:10px;color:#6e7681;display:block;margin-top:-2px'>{hint}</span>"
+                    if hint else ""
+                )
+                st.markdown(
+                    f"<div style='padding-top:6px'><b>{icon} {row['name']}</b>{hint_html}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.write(f"{icon} {row['name']}")
         with rc2:
             st.number_input(
                 "Sets", min_value=1, max_value=20,
@@ -249,24 +285,45 @@ with tab_log:
                 key=f"w_sets_{rid}", label_visibility="collapsed",
             )
         with rc3:
-            st.number_input(
-                "Reps", min_value=1, max_value=100,
-                value=int(row.get("reps", 10)),
-                key=f"w_reps_{rid}", label_visibility="collapsed",
-            )
+            if metric == "distance":
+                st.number_input(
+                    "km", min_value=0.01, max_value=999.0, step=0.5,
+                    value=float(row.get("distance_km", 1.0)),
+                    key=f"w_dist_{rid}", label_visibility="collapsed",
+                    format="%.2f",
+                )
+            elif metric == "time":
+                st.number_input(
+                    "min", min_value=0.5, max_value=480.0, step=0.5,
+                    value=float(row.get("duration_min", 1.0)),
+                    key=f"w_dur_{rid}", label_visibility="collapsed",
+                    format="%.1f",
+                )
+            else:
+                st.number_input(
+                    "Reps", min_value=1, max_value=100,
+                    value=int(row.get("reps", 10)),
+                    key=f"w_reps_{rid}", label_visibility="collapsed",
+                )
         with rc4:
-            st.number_input(
-                "Peso", min_value=0.0, max_value=999.0, step=2.5,
-                value=float(row.get("weight", 0.0)),
-                key=f"w_weight_{rid}", label_visibility="collapsed",
-                format="%.1f",
-            )
+            if metric == "weight":
+                st.number_input(
+                    "Peso", min_value=0.0, max_value=999.0, step=2.5,
+                    value=float(row.get("weight", 0.0)),
+                    key=f"w_weight_{rid}", label_visibility="collapsed",
+                    format="%.1f",
+                )
+            else:
+                st.markdown(
+                    "<div style='padding-top:8px;color:#555;font-size:0.85rem'>—</div>",
+                    unsafe_allow_html=True,
+                )
         with rc5:
             if st.button("🗑", key=f"w_rm_{rid}", help="Remover exercício"):
                 st.session_state.workout_rows = [
                     r for r in st.session_state.workout_rows if r["row_id"] != rid
                 ]
-                for suf in ("sets", "reps", "weight"):
+                for suf in ("sets", "reps", "weight", "dist", "dur"):
                     st.session_state.pop(f"w_{suf}_{rid}", None)
                 st.rerun()
 
@@ -276,29 +333,45 @@ with tab_log:
             sel_ex_id = st.selectbox(
                 "Exercício",
                 options=ex_id_options,
-                format_func=lambda eid: ex_name_map.get(eid, str(eid)),
+                format_func=lambda eid: f"{_METRIC_ICONS.get(ex_metric_map.get(eid,'weight'),'')} {ex_name_map.get(eid, str(eid))}",
             )
+            _sel_metric = ex_metric_map.get(int(sel_ex_id), "weight")
+            _medida_lbl = _METRIC_LABELS.get(_sel_metric, "Reps")
             ac1, ac2, ac3 = st.columns(3)
             with ac1:
                 init_sets = st.number_input("Sets", min_value=1, max_value=20, value=3)
             with ac2:
-                init_reps = st.number_input("Reps", min_value=1, max_value=100, value=10)
+                if _sel_metric == "distance":
+                    init_dist = st.number_input(_medida_lbl, min_value=0.01, max_value=999.0, step=0.5, value=1.0, format="%.2f")
+                elif _sel_metric == "time":
+                    init_dur = st.number_input(_medida_lbl, min_value=0.5, max_value=480.0, step=0.5, value=1.0, format="%.1f")
+                else:
+                    init_reps = st.number_input(_medida_lbl, min_value=1, max_value=100, value=10)
             with ac3:
-                init_weight = st.number_input("Peso (kg)", min_value=0.0, max_value=999.0, step=2.5, value=0.0, format="%.1f")
+                if _sel_metric == "weight":
+                    init_weight = st.number_input("Peso (kg)", min_value=0.0, max_value=999.0, step=2.5, value=0.0, format="%.1f")
+                else:
+                    st.write("")
             af1, af2 = st.columns(2)
             with af1:
                 ok_add = st.form_submit_button("Adicionar", type="primary", use_container_width=True)
             with af2:
                 cancel_add = st.form_submit_button("Cancelar", use_container_width=True)
         if ok_add:
-            st.session_state.workout_rows.append({
-                "row_id":      str(uuid.uuid4()),
-                "exercise_id": int(sel_ex_id),
-                "name":        ex_name_map.get(int(sel_ex_id), str(sel_ex_id)),
-                "sets":        int(init_sets),
-                "reps":        int(init_reps),
-                "weight":      float(init_weight),
-            })
+            eid    = int(sel_ex_id)
+            mt     = ex_metric_map.get(eid, "weight")
+            new_row = {
+                "row_id":       str(uuid.uuid4()),
+                "exercise_id":  eid,
+                "name":         ex_name_map.get(eid, str(eid)),
+                "metric_type":  mt,
+                "sets":         int(init_sets),
+                "reps":         int(init_reps)         if mt == "weight"   else 1,
+                "weight":       float(init_weight)     if mt == "weight"   else 0.0,
+                "distance_km":  float(init_dist)       if mt == "distance" else 1.0,
+                "duration_min": float(init_dur)        if mt == "time"     else 1.0,
+            }
+            st.session_state.workout_rows.append(new_row)
             st.session_state.adding_workout_ex = False
             st.rerun()
         elif cancel_add:
@@ -322,13 +395,22 @@ with tab_log:
     ):
         payload = []
         for row in st.session_state.workout_rows:
-            rid = row["row_id"]
-            sets = int(st.session_state.get(f"w_sets_{rid}", row.get("sets", 1)))
-            reps = int(st.session_state.get(f"w_reps_{rid}", row.get("reps", 1)))
-            weight = float(st.session_state.get(f"w_weight_{rid}", row.get("weight", 0.0)))
+            rid    = row["row_id"]
+            metric = row.get("metric_type", "weight")
+            sets   = int(st.session_state.get(f"w_sets_{rid}", row.get("sets", 1)))
+            if metric == "distance":
+                dist_km  = float(st.session_state.get(f"w_dist_{rid}", row.get("distance_km", 1.0)))
+                sets_data = [{"distance_m": round(dist_km * 1000, 1)} for _ in range(sets)]
+            elif metric == "time":
+                dur_min   = float(st.session_state.get(f"w_dur_{rid}", row.get("duration_min", 1.0)))
+                sets_data = [{"duration_s": int(dur_min * 60)} for _ in range(sets)]
+            else:
+                reps   = int(st.session_state.get(f"w_reps_{rid}", row.get("reps", 1)))
+                weight = float(st.session_state.get(f"w_weight_{rid}", row.get("weight", 0.0)))
+                sets_data = [{"reps": reps, "weight": weight} for _ in range(sets)]
             payload.append({
                 "exercise_id": row["exercise_id"],
-                "sets_data":   [{"reps": reps, "weight": weight} for _ in range(sets)],
+                "sets_data":   sets_data,
                 "notes":       None,
             })
         res = do_exercise_event(user_id, payload, day_id=st.session_state.workout_day_id)
@@ -344,8 +426,11 @@ with tab_log:
                 for r in st.session_state.workout_rows
             )
             max_weight = max(
-                (float(st.session_state.get(f"w_weight_{r['row_id']}", r.get("weight", 0.0)))
-                 for r in st.session_state.workout_rows),
+                (
+                    float(st.session_state.get(f"w_weight_{r['row_id']}", r.get("weight", 0.0)))
+                    for r in st.session_state.workout_rows
+                    if r.get("metric_type", "weight") == "weight"
+                ),
                 default=0.0,
             )
             newly_done = update_mission_progress(user_id, "workout", {
@@ -360,7 +445,7 @@ with tab_log:
                 st.session_state["missions_newly_done"] = newly_done
             for row in st.session_state.workout_rows:
                 rid = row["row_id"]
-                for suf in ("sets", "reps", "weight"):
+                for suf in ("sets", "reps", "weight", "dist", "dur"):
                     st.session_state.pop(f"w_{suf}_{rid}", None)
             st.session_state.workout_rows = []
             clear_user_cache()
@@ -682,12 +767,17 @@ with tab_analytics:
 
     # ── Volume por exercício ───────────────────────────────────────────────────
     st.subheader("📈 Volume por Exercício")
-    st.caption("Volume = soma de (peso × reps) em cada set da sessão. Apenas sets com peso > 0.")
+
+    _vol_label_map = {
+        "weight":   "Volume = Σ(peso × reps) por sessão",
+        "distance": "Volume = distância total por sessão (km)",
+        "time":     "Volume = duração total por sessão (min)",
+    }
 
     vol_ex_id = st.selectbox(
         "Exercício",
         options=ex_id_options,
-        format_func=lambda eid: ex_name_map.get(eid, str(eid)),
+        format_func=lambda eid: f"{_METRIC_ICONS.get(ex_metric_map.get(eid,'weight'),'')} {ex_name_map.get(eid, str(eid))}",
         key="an_vol_ex",
     )
     vol_days = st.select_slider(
@@ -702,6 +792,10 @@ with tab_analytics:
     if not vol_data:
         st.markdown("<div class='an-empty'>Nenhum dado para este exercício no período selecionado.</div>", unsafe_allow_html=True)
     else:
+        _vol_metric = vol_data[0].get("metric_type", "weight")
+        _vol_unit   = vol_data[0].get("unit", "")
+        st.caption(_vol_label_map.get(_vol_metric, ""))
+
         df_vol = pd.DataFrame(vol_data)
         df_vol["date"] = pd.to_datetime(df_vol["date"])
         df_vol = df_vol.set_index("date")
@@ -710,11 +804,16 @@ with tab_analytics:
         with col_chart:
             st.line_chart(df_vol[["volume"]], color="#FFB347")
         with col_peak:
-            peak_w = float(df_vol["max_weight"].max())
-            peak_v = float(df_vol["volume"].max())
-            total_s = int(df_vol["total_sets"].sum())
-            st.metric("Melhor carga", f"{peak_w:.1f} kg")
-            st.metric("Maior volume/sessão", f"{peak_v:.0f}")
+            peak_val = float(df_vol["max_val"].max())
+            peak_v   = float(df_vol["volume"].max())
+            total_s  = int(df_vol["total_sets"].sum())
+            if _vol_metric == "weight":
+                st.metric("Melhor carga", f"{peak_val:.1f} {_vol_unit}")
+            elif _vol_metric == "distance":
+                st.metric("Maior dist. (set)", f"{peak_val:.2f} {_vol_unit}")
+            else:
+                st.metric("Maior duração (set)", f"{peak_val:.1f} {_vol_unit}")
+            st.metric("Maior volume/sessão", f"{peak_v:.1f} {_vol_unit}")
             st.metric("Total de sets", total_s)
 
     st.divider()
@@ -742,22 +841,33 @@ with tab_analytics:
 
     st.divider()
 
-    # ── Melhores cargas (PRs) ──────────────────────────────────────────────────
-    st.subheader("🏅 Melhores Cargas por Exercício")
+    # ── Melhores registros por exercício ──────────────────────────────────────
+    st.subheader("🏅 Melhores Registros por Exercício")
 
     bests = get_exercise_bests_all(user_id)
     if not bests:
-        st.markdown("<div class='an-empty'>Nenhum treino com peso registrado ainda.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='an-empty'>Nenhum treino registrado ainda.</div>", unsafe_allow_html=True)
     else:
         rows_html = ""
         for b in bests:
-            name = b["name"]
-            best_w = b["best_weight"]
-            best_r = b["best_reps"] or "—"
+            name    = b["name"]
+            mt      = b.get("metric_type", "weight")
+            unit    = b.get("unit", "")
+            primary = b.get("best_primary")
+            second  = b.get("best_secondary")
+            icon    = _METRIC_ICONS.get(mt, "")
+            if primary is None:
+                continue
+            if mt == "weight":
+                val_txt = f"{primary:.1f} {unit} &nbsp;×{second or '—'} reps"
+            elif mt == "distance":
+                val_txt = f"{primary:.2f} {unit}"
+            else:
+                val_txt = f"{primary:.1f} {unit}"
             rows_html += (
                 f"<div class='an-best-row'>"
-                f"<span class='an-best-name'>{name}</span>"
-                f"<span class='an-best-val'>{best_w:.1f} kg &nbsp;×{best_r}</span>"
+                f"<span class='an-best-name'>{icon} {name}</span>"
+                f"<span class='an-best-val'>{val_txt}</span>"
                 f"</div>"
             )
         st.markdown(rows_html, unsafe_allow_html=True)
