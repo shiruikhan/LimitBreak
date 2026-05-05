@@ -18,6 +18,7 @@ _BODY_PART_TYPE: dict[str, str] = {
     "waist":      "steel",
     "neck":       "rock",
     "cardio":     "water",
+    "Cardio":     "water",
 }
 
 _TYPE_PT: dict[str, str] = {
@@ -42,6 +43,7 @@ _BODY_PART_PT: dict[str, str] = {
     "waist":      "Abdômen",
     "neck":       "Pescoço",
     "cardio":     "Cardio",
+    "Cardio":     "Cardio",
 }
 
 
