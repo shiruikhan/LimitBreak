@@ -70,6 +70,9 @@ def get_connection():
 
 def _table_has_column(table_name: str, column_name: str) -> bool:
     """Checks column existence to stay compatible with small schema drifts."""
+    key = (table_name, column_name)
+    if key in _COLUMN_EXISTS_CACHE:
+        return _COLUMN_EXISTS_CACHE[key]
     try:
         with get_connection().cursor() as cur:
             cur.execute(
@@ -82,7 +85,9 @@ def _table_has_column(table_name: str, column_name: str) -> bool:
                 """,
                 (table_name, column_name),
             )
-            return cur.fetchone() is not None
+            result = cur.fetchone() is not None
+        _COLUMN_EXISTS_CACHE[key] = result
+        return result
     except Exception:
         return False
 
@@ -265,6 +270,7 @@ def _nature_modifiers(nature_name: str | None) -> dict:
     return modifiers
 
 
+_COLUMN_EXISTS_CACHE: dict[tuple[str, str], bool] = {}
 _HAS_GENETIC_COLS: bool | None = None
 
 
