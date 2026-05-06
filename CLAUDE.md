@@ -27,7 +27,7 @@ Aplicativo web (com futura conversão para Android) de acompanhamento de treinos
 
 ### Dependências (`requirements.txt`)
 ```
-streamlit>=1.44.0
+streamlit>=1.45.0
 psycopg2-binary>=2.9.0
 python-dotenv>=1.0.0
 requests>=2.31.0
@@ -65,7 +65,7 @@ user     = "postgres.SEU_PROJECT_ID"
 password = "sua_senha"
 
 [app]
-url = "http://localhost:8501"   # URL de callback OAuth; em produção = URL pública do app
+url = "http://localhost:8501"   # Opcional/reservado para futuras integrações; o fluxo atual não consome esta seção
 ```
 
 ### Produção — Streamlit Cloud
@@ -561,7 +561,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 |---|---|
 | `get_monthly_checkins(user_id, year, month)` | `{day: {streak, coins, bonus_item, spawned_species_id}}` |
 | `get_checkin_streak(user_id)` | Streak atual de dias consecutivos |
-| `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Bumps happiness +1 no slot 1. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "error"}` |
+| `do_checkin(user_id)` | Transação atômica: +1 moeda + streak + extensão de XP Share (+15 dias) nos dias 15/último + spawn (nível 5) com 25% de chance em streaks múltiplos de 3. Se houver gap de 2 dias e o usuário tiver `streak-shield`, consome 1 item e preserva o streak; nos dias 7 e 21 concede 1 `streak-shield`. Bumps happiness +1 no slot 1. Após commit, chama `award_xp(slot1_id, 10, "check-in")`. Retorna `{"success", "already_done", "streak", "coins_earned", "bonus_xp_share", "spawn_rolled", "spawned", "xp_result", "shield_used", "bonus_shield", "error"}` |
 | `register_rest(user_id)` | Registra dia de descanso (INSERT em `user_rest_days`); bumps happiness +5 no slot 1; idempotente por UNIQUE. Retorna `{"success", "already_done", "happiness_gained", "error"}` |
 | `get_monthly_rest_days(user_id, year, month)` | `set[int]` — dias do mês em que houve descanso registrado |
 
@@ -670,21 +670,15 @@ Navegador abre o app
         └── NÃO → session_state.user == None → pages/login.py
                           │
                           ├── Email/senha OK → salva cookie "lb_refresh_token"
-                          ├── Signup OK → idem, se session disponível
-                          └── OAuth (Google/Discord) → _start_oauth(provider)
-                                    └── redireciona para provedor via meta-refresh
-                                    └── callback com ?code=... → exchange_code_for_session (PKCE)
-                                    └── salva cookie "lb_refresh_token" + verifica starter
+                          └── Signup OK → idem, se session disponível
 ```
 
 - **Cookie:** `lb_refresh_token` com validade de 30 dias; rotação automática (Supabase renova o refresh_token a cada uso)
-- **Cookie OAuth PKCE:** `lb_oauth_verifier` com validade de 15 min — armazena `code_verifier` antes do redirect; deletado após troca pelo token
 - **Keys do CookieManager:** cada arquivo usa uma key única para evitar `StreamlitDuplicateElementKey`:
   - `app.py` → `key="lb_cookies"` (shell principal + logout do sidebar)
-  - `login.py` → `key="lb_cookies_login"` (login, signup, OAuth)
+  - `login.py` → `key="lb_cookies_login"` (login e signup)
   - `equipe.py` → `key="lb_cookies_logout"` (botão "Sair" na página de equipe)
 - **Logout:** botão "↩ Sair" no sidebar shell em `app.py` (presente em todas as páginas); botão "Sair" também em `equipe.py` — ambos deletam cookie + limpam session_state
-- **Secret obrigatório para OAuth:** `st.secrets["app"]["url"]` — URL de callback; fallback para `http://localhost:8501`
 
 ---
 
@@ -835,8 +829,7 @@ Duas tabs: **🏋️ Treino** e **📊 Análise**.
 ### `pages/login.py`
 - Tabs "Entrar" / "Criar conta"
 - Após login email/senha: `_save_session(session)` persiste `lb_refresh_token` em cookie 30 dias
-- **Login social (OAuth):** botões Google e Discord abaixo de divisor "ou continue com"; chama `_start_oauth(provider)` que inicia fluxo PKCE (salva `lb_oauth_verifier` em cookie + meta-refresh para o provedor)
-- **Callback OAuth:** ao retornar com `?code=...`, troca código por sessão via `exchange_code_for_session`; verifica se usuário precisa de starter; faz `st.rerun()` uma vez se o cookie verifier ainda não foi lido
+- Signup via `client.auth.sign_up(...)`; se `res.session` existir, persiste o cookie e segue direto para o starter
 
 ### `pages/starter.py`
 - Grade de 27 iniciais + 2 secretos (Cubone, Mimikyu) via easter egg (7 cliques em área vazia)
@@ -1127,7 +1120,7 @@ python scripts/seed_shop_items.py     # Atualiza name/description via PokéAPI (
 python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 formas regionais (~10 min)
 ```
 
-`create_user_tables.sql`: executar uma única vez no SQL Editor do Supabase antes de usar o app.
+`create_user_tables.sql`: executar uma única vez no SQL Editor do Supabase antes de usar o app. Ele cobre a base, mas não todas as adições recentes.
 `migrate_battles.sql`: executar para criar as tabelas `user_battles` e `user_battle_turns`.
 `migrate_regional_forms.sql`: migração auxiliar de formas regionais — executar se necessário.
 `migrate_v2.sql`: migrações v2 diversas — executar no Supabase quando necessário.
@@ -1141,6 +1134,8 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `seed_streak_shield.sql`: insere item `streak-shield` em `shop_items` (executar uma vez).
 `migrate_metric_type.sql`: adiciona coluna `metric_type` à tabela `exercises` (executar uma vez; idempotente via `ADD COLUMN IF NOT EXISTS`).
 
+Para um ambiente novo alinhado ao app atual, aplique pelo menos as migrations/seed acima relacionadas a releases posteriores: `migrate_happiness.sql`, `migrate_rival.sql`, `migrate_weekly_challenge.sql`, `migrate_metric_type.sql` e `seed_streak_shield.sql`.
+
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ---
@@ -1148,7 +1143,7 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 ## Estado Atual do Projeto (maio 2026)
 
 ### Implementado ✅
-- Auth completo: login, cadastro, sessão persistente via cookie (30 dias, rotação automática); **login social via OAuth (Google e Discord)** com fluxo PKCE
+- Auth completo: login, cadastro e sessão persistente via cookie (30 dias, rotação automática)
 - Shell de navegação customizado: sidebar agrupada + hub central (`pages/hub.py`) com snapshot e atalhos
 - Onboarding: 27 iniciais (Gen 1–9) + easter egg (Cubone, Mimikyu)
 - Pokédex nacional: sprites, tipos, moveset, cadeia evolutiva, base stats

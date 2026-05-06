@@ -1,7 +1,7 @@
 # LimitBreak — Sugestões de Melhorias
 
-> Auditoria atualizada em 03/05/2026.
-> Itens marcados ✅ já estão implementados e documentados no CLAUDE.md.
+> Auditoria atualizada em 06/05/2026.
+> Itens marcados ✅ já estão implementados e documentados no `CLAUDE.md`. O foco aberto agora está na camada social V2.
 
 ---
 
@@ -104,39 +104,31 @@
 
 ---
 
-## Prioridade 3 — Retenção e Retorno
+## ~~Prioridade 3 — Retenção e Retorno~~ ✅ *Release 9 completo*
 
-### 3.1 Streak Shield (Item de Proteção)
+### ~~3.1 Streak Shield (Item de Proteção)~~ ✅
 
-**O que é:** novo item na loja (`streak-shield`, categoria `other`). Protege o streak de check-in em um único dia perdido por mês. Consumido automaticamente quando o usuário não faz check-in num dia e tenta no dia seguinte.
+**O que é:** item da loja (`streak-shield`, categoria `other`) que protege o streak quando o usuário perde exatamente um dia de check-in e volta no dia seguinte (`gap == 2`). Consumido automaticamente.
 
-**Lógica em `do_checkin()`:** se o gap entre `last_checkin` e hoje for exatamente 1 dia e o usuário tiver `streak-shield` no inventário, consome o item e mantém o streak atual.
+**Status implementado:** compra na loja, concessão extra nos dias 7 e 21, consumo automático em `do_checkin()`, feedback visual no calendário/mochila e retorno com `shield_used` + `bonus_shield`.
 
 **Por que impacto:** streak é o principal driver de retorno. Perder streak por um dia é motivo de abandono. Shield transforma a perda num momento de alívio — e cria demanda pela loja.
 
 ---
 
-### 3.2 Rival Semanal
+### ~~3.2 Rival Semanal~~ ✅
 
-**O que é:** todo início de semana, o sistema designa automaticamente um "Rival" — usuário próximo no leaderboard de XP. O jogador recebe +10 moedas bônus se terminar a semana com mais XP de treino que o rival.
+**O que é:** toda semana, o sistema designa automaticamente um rival com XP semanal próximo. Se o usuário vencer a semana anterior, recebe +10 moedas.
 
-**Implementação mínima:**
-- Função `assign_weekly_rival(user_id)` em `db.py`: busca usuário com XP mais próximo no leaderboard mensal excluindo si mesmo
-- Coluna `weekly_rival_id UUID` em `user_profiles` (nullable), resetada toda segunda
-- Banner em `hub.py`: "Seu rival esta semana: [username] — você está X XP à frente/atrás"
-
-**Sem nova tabela:** aproveita `get_leaderboard_workout_xp()` existente.
+**Status implementado:** `assign_weekly_rival(user_id)` + `get_rival_status(user_id)` em `db.py`, migration dedicada em `scripts/migrate_rival.sql`, banner no `hub.py` com sprite/diferença semanal e toast de vitória na virada da semana.
 
 ---
 
-### 3.3 Desafio Comunitário Semanal
+### ~~3.3 Desafio Comunitário Semanal~~ ✅
 
-**O que é:** todo domingo, um desafio é gerado para todos os usuários (ex.: "Total de 50.000 XP de treino esta semana"). Se a meta coletiva for atingida, todos que treinaram recebem recompensa.
+**O que é:** desafio semanal compartilhado por toda a comunidade, com metas de XP, treinos ou séries. Quem contribui pode coletar a recompensa quando a meta é concluída.
 
-**Implementação:**
-- Nova tabela `weekly_challenges`: `(id, week_start, goal_type, goal_value, current_value, reward_item_id, completed)`
-- Trigger em `do_exercise_event()` incrementa `current_value`
-- Banner no hub com barra de progresso coletiva
+**Status implementado:** `weekly_challenges` + `weekly_challenge_participants`, criação lazy via `_ensure_weekly_challenge()`, progresso atualizado dentro de `do_exercise_event()`, banner no `hub.py` e coleta via `claim_weekly_challenge_reward(user_id)`. A recompensa atual é um ovo.
 
 **Por que funciona sem guildas:** cria senso de comunidade sem exigir coordenação ativa.
 
@@ -198,9 +190,9 @@
 | Insígnias de Ginásio | Médio | Alto | ✅ Release 7 |
 | Analytics de treino | Médio | Alto | ✅ Release 8 |
 | Indicador de equilíbrio muscular | Baixo | Alto | 🟡 Quick win |
-| Streak Shield | Baixo | Alto | 🟡 Quick win |
-| Rival semanal | Baixo | Alto | 🟠 Importante |
-| Desafio comunitário | Médio | Alto | 🟠 Importante |
+| Streak Shield | Baixo | Alto | ✅ Release 9.1 |
+| Rival semanal | Baixo | Alto | ✅ Release 9.2 |
+| Desafio comunitário | Médio | Alto | ✅ Release 9.3 |
 | Perfil público do treinador | Médio | Médio | 🟠 Pós-insígnias |
 | Compartilhamento de rotinas | Baixo | Médio | 🟡 Quick win |
 | Sistema de Trocas | Alto | Alto | 🔵 V2 |

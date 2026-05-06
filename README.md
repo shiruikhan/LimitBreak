@@ -56,7 +56,17 @@ streamlit run app.py
 1. Criar `.streamlit/secrets.toml` com as secoes `[supabase]` e `[database]`
 2. Opcionalmente criar `.env` como fallback para a conexao PostgreSQL
 3. Executar `scripts/create_user_tables.sql` no Supabase
-4. Rodar os seeds principais:
+4. Aplicar as migrations incrementais usadas pelo app atual. Para um ambiente novo, confira `CLAUDE.md` e rode pelo menos:
+
+```bash
+scripts/migrate_happiness.sql
+scripts/migrate_rival.sql
+scripts/migrate_weekly_challenge.sql
+scripts/migrate_metric_type.sql
+scripts/seed_streak_shield.sql
+```
+
+5. Rodar os seeds principais:
 
 ```bash
 python scripts/seed_types.py
@@ -65,7 +75,10 @@ python scripts/seed_evolutions.py
 python scripts/seed_stats.py
 python scripts/seed_shop_items.py
 python scripts/seed_regional_species.py
+python scripts/seed_wmx_exercises.py
 ```
+
+`create_user_tables.sql` cobre a base, mas nao inclui todas as adicoes mais recentes. Sem as migrations acima, recursos como felicidade, rival semanal, desafio comunitario, metricas de exercicio e streak shield ficam incompletos.
 
 ---
 
@@ -73,6 +86,7 @@ python scripts/seed_regional_species.py
 
 - `CLAUDE.md`: arquitetura, schema, funcoes importantes, navegacao atual e convencoes
 - `NEXT_STEPS.md`: roadmap atualizado e prioridades de produto
+- `suggestions.md`: backlog de ideias e oportunidades futuras ja auditadas
 
 ---
 

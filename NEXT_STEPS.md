@@ -1,8 +1,8 @@
 # LimitBreak — Next Steps
 
-> Atualizado: 03 de maio de 2026.
+> Atualizado: 06 de maio de 2026.
 >
-> Estado: **Release 9 completo.** Próximo: V2 — Camada Social (trocas, guilds).
+> Estado: **Release 9 completo.** Próximo foco: V2 — camada social leve (`perfil`, compartilhamento de rotinas, trocas, guilds).
 
 ---
 
@@ -20,10 +20,10 @@
 | Bypass nível 36 para evoluções por troca/amizade | ✅ |
 | XP Share (distribui 30% para o time) | ✅ |
 | Cap de vitaminas (5 por stat por Pokémon) | ✅ |
-| Loja: pedras (10), vitaminas (6), XP Share, Nature Mint, Loot Box | ✅ |
+| Loja: pedras (10), vitaminas (6), XP Share, Nature Mint, Streak Shield, Loot Box | ✅ |
 | Calendário: check-in, streak, spawn ×3, bônus dias 15/último | ✅ |
 | Batalhas PvP (3/dia, turno a turno, XP + moedas) | ✅ |
-| Conquistas: 23 badges em 5 categorias | ✅ |
+| Conquistas: 34 conquistas em 6 categorias | ✅ |
 | Leaderboard: XP mensal, streak mensal, coleção all-time | ✅ |
 | Missões diárias (3/dia) e semanal (1/semana) com recompensas | ✅ |
 | Admin panel: 5 tabs (Visão Geral, Usuários, Gift, Exercícios, Logs) | ✅ |
@@ -45,7 +45,7 @@
 
 ---
 
-## Próximas features (priorizadas)
+## Releases recentes auditados
 
 ### ~~Release 9 — Retenção e Retorno~~ ✅ *Completo*
 
@@ -302,8 +302,8 @@ Valiosos, mas dependem do loop core estar mais profundo antes.
 |---|---|
 | Sistema de trocas de Pokémon | Requer estado de proposta assíncrona + infra de notificação |
 | Sistema de guilds | Gerenciamento de estado de grupo; melhora com base maior de usuários |
-| Desafio comunitário semanal | Requer job de reset semanal |
 | Página de perfil público do treinador | Mais interessante após insígnias e felicidade existirem |
+| Compartilhamento de rotinas | Depende de modelagem pública/cópias em `workout_sheets` |
 | Formas de Paldea | Opcional; baixo impacto até ter mais usuários |
 
 ---
