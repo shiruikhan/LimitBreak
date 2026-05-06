@@ -5047,6 +5047,97 @@ def get_muscle_distribution(user_id: str) -> dict:
     }
 
 
+def get_recent_muscle_balance(user_id: str, days: int = 7) -> dict:
+    """Returns a recent body-part summary with cold groups highlighted.
+
+    Result:
+    {
+        "days": 7,
+        "start_date": date,
+        "end_date": date,
+        "entries": [
+            {"body_part": "chest", "sets": 12, "workouts": 2, "status": "hot"},
+            ...
+        ],
+        "cold_parts": ["shoulders", ...],
+        "trained_parts": 4,
+        "total_parts": 9,
+    }
+    """
+    end_date = _today_brt()
+    days = max(int(days or 7), 1)
+    start_date = end_date - datetime.timedelta(days=days - 1)
+
+    try:
+        with get_connection().cursor() as cur:
+            cur.execute("""
+                WITH all_parts AS (
+                    SELECT DISTINCT unnest(body_parts) AS body_part
+                    FROM exercises
+                ),
+                recent_parts AS (
+                    SELECT
+                        unnest(e.body_parts) AS body_part,
+                        SUM(jsonb_array_length(el.sets_data)) AS total_sets,
+                        COUNT(DISTINCT wl.id) AS workout_count
+                    FROM exercise_logs el
+                    JOIN workout_logs wl ON wl.id = el.workout_log_id
+                    JOIN exercises e ON e.id = el.exercise_id
+                    WHERE wl.user_id = %s
+                      AND (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date
+                          BETWEEN %s AND %s
+                    GROUP BY 1
+                )
+                SELECT
+                    ap.body_part,
+                    COALESCE(rp.total_sets, 0) AS total_sets,
+                    COALESCE(rp.workout_count, 0) AS workout_count
+                FROM all_parts ap
+                LEFT JOIN recent_parts rp ON rp.body_part = ap.body_part
+                ORDER BY COALESCE(rp.total_sets, 0) DESC, ap.body_part;
+            """, (user_id, start_date, end_date))
+            rows = cur.fetchall()
+    except Exception:
+        return {
+            "days": days,
+            "start_date": start_date,
+            "end_date": end_date,
+            "entries": [],
+            "cold_parts": [],
+            "trained_parts": 0,
+            "total_parts": 0,
+        }
+
+    entries = []
+    for body_part, total_sets, workout_count in rows:
+        sets = int(total_sets or 0)
+        workouts = int(workout_count or 0)
+        if sets == 0:
+            status = "cold"
+        elif sets >= 12:
+            status = "hot"
+        else:
+            status = "warm"
+        entries.append({
+            "body_part": body_part,
+            "sets": sets,
+            "workouts": workouts,
+            "status": status,
+        })
+
+    cold_parts = [entry["body_part"] for entry in entries if entry["status"] == "cold"]
+    trained_parts = sum(1 for entry in entries if entry["sets"] > 0)
+    return {
+        "days": days,
+        "start_date": start_date,
+        "end_date": end_date,
+        "entries": entries,
+        "cold_parts": cold_parts,
+        "trained_parts": trained_parts,
+        "total_parts": len(entries),
+    }
+
+
 # ── Rival Semanal ──────────────────────────────────────────────────────────────
 
 def _monday_of(d: datetime.date) -> datetime.date:

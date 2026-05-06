@@ -20,7 +20,7 @@ Aplicativo web em Streamlit para acompanhamento de treinos com gamificação ins
 - Calendario de check-in com streak, moedas, bonus de XP Share e chance de spawn
 - Loja e mochila com pedras, vitaminas, XP Share, Loot Box e Nature Mint
 - Arena PvP assíncrona com limite diario, log de turnos, XP e moedas
-- Modulo de treino com rotinas, biblioteca de exercicios, registro de sessoes, PRs, ovos e habilidades passivas
+- Modulo de treino com rotinas, biblioteca de exercicios, registro de sessoes, PRs, ovos, habilidades passivas e indicador recente de equilibrio muscular
 - Missoes diarias e semanais
 - Conquistas e leaderboard
 - Painel admin para operacoes do sistema

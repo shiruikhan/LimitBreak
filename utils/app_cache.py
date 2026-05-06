@@ -8,6 +8,7 @@ from utils.db import (
     get_daily_xp_from_exercise,
     get_monthly_checkins,
     get_monthly_rest_days,
+    get_recent_muscle_balance,
     get_team_stat_boost_counts,
     get_user_achievements,
     get_user_bench,
@@ -120,6 +121,11 @@ def get_cached_workout_history(user_id: str, limit: int = 10):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def get_cached_recent_muscle_balance(user_id: str, days: int = 7):
+    return get_recent_muscle_balance(user_id, days)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def get_cached_workout_sheets(user_id: str):
     return get_workout_sheets(user_id)
 
@@ -142,6 +148,7 @@ def clear_user_cache() -> None:
     get_cached_workout_streak.clear()
     get_cached_daily_xp_from_exercise.clear()
     get_cached_workout_history.clear()
+    get_cached_recent_muscle_balance.clear()
     get_cached_workout_sheets.clear()
     get_cached_user_achievements.clear()
     get_cached_monthly_rest_days.clear()

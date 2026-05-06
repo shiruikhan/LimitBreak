@@ -23,22 +23,7 @@
 
 ---
 
-### 2. Indicador de Equilíbrio Muscular
-
-**Objetivo:** expor lacunas recentes de treino e incentivar retorno por grupo muscular.
-
-**Escopo:**
-- agregar `body_parts` dos últimos 7 dias a partir de `exercise_logs JOIN exercises`;
-- exibir badges ou cards por grupo muscular em `pages/treino.py` ou `pages/hub.py`;
-- destacar grupos "frios" sem treino recente;
-- opcionalmente sugerir tipos/spawns relacionados ao grupo selecionado.
-
-**Esforço:** baixo  
-**Impacto:** alto
-
----
-
-### 3. Perfil Público do Treinador
+### 2. Perfil Público do Treinador
 
 **Objetivo:** dar identidade social ao usuário e transformar leaderboard em porta de entrada para descoberta.
 
@@ -53,7 +38,7 @@
 
 ---
 
-### 4. Compartilhamento de Rotinas
+### 3. Compartilhamento de Rotinas
 
 **Objetivo:** permitir que usuários publiquem e copiem rotinas, aumentando reutilização e senso de comunidade.
 
@@ -70,7 +55,7 @@
 
 ## V2 Social
 
-### 5. Sistema de Trocas de Pokémon
+### 4. Sistema de Trocas de Pokémon
 
 **Objetivo:** habilitar trocas entre usuários e abrir caminho para evoluções por troca sem depender do bypass de nível.
 
@@ -89,7 +74,7 @@
 
 ---
 
-### 6. Sistema de Guildas
+### 5. Sistema de Guildas
 
 **Objetivo:** introduzir accountability social com progresso coletivo e recompensas de grupo.
 
@@ -108,7 +93,7 @@
 
 ## Conteúdo Opcional
 
-### 7. Formas de Paldea
+### 6. Formas de Paldea
 
 **Objetivo:** expandir cobertura de formas especiais sem mexer no loop principal.
 
@@ -137,13 +122,12 @@
 
 ## Ordem Recomendada
 
-1. Indicador de Equilíbrio Muscular
-2. Animação de Evolução
-3. Perfil Público do Treinador
-4. Compartilhamento de Rotinas
-5. Sistema de Trocas de Pokémon
-6. Sistema de Guildas
-7. Formas de Paldea
+1. Animação de Evolução
+2. Perfil Público do Treinador
+3. Compartilhamento de Rotinas
+4. Sistema de Trocas de Pokémon
+5. Sistema de Guildas
+6. Formas de Paldea
 
 ---
 
@@ -152,7 +136,6 @@
 | Item | Esforço | Impacto | Status |
 |---|---|---|---|
 | Animação de evolução | Baixo | Médio | Aberto |
-| Indicador de equilíbrio muscular | Baixo | Alto | Aberto |
 | Perfil público do treinador | Médio | Médio | Aberto |
 | Compartilhamento de rotinas | Baixo | Médio | Aberto |
 | Sistema de trocas | Alto | Alto | V2 |

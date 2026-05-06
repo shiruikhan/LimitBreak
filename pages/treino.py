@@ -12,6 +12,7 @@ from utils.db import (
 )
 from utils.app_cache import (
     get_cached_monthly_checkins,
+    get_cached_recent_muscle_balance,
     get_cached_workout_sheets,
     get_cached_workout_streak,
     get_cached_daily_xp_from_exercise,
@@ -68,6 +69,96 @@ def _queue_new_achievements(new_achievements: list[dict] | None) -> None:
     st.session_state.new_achievements_pending = pending + [
         a for a in new_achievements if a["slug"] not in seen
     ]
+
+
+_BODY_PART_PT = {
+    "chest": "Peito",
+    "upper arms": "Bracos superiores",
+    "lower arms": "Antebracos",
+    "back": "Costas",
+    "shoulders": "Ombros",
+    "upper legs": "Coxas",
+    "lower legs": "Pernas inferiores",
+    "waist": "Abdomen",
+    "neck": "Pescoco",
+    "cardio": "Cardio",
+    "Cardio": "Cardio",
+}
+
+_BALANCE_STATUS_META = {
+    "cold": {
+        "badge": "Frio",
+        "icon": "❄️",
+        "class_name": "cold",
+        "desc": "Sem treino recente",
+    },
+    "warm": {
+        "badge": "Ativo",
+        "icon": "🟡",
+        "class_name": "warm",
+        "desc": "Recebeu algum volume",
+    },
+    "hot": {
+        "badge": "Em dia",
+        "icon": "🔥",
+        "class_name": "hot",
+        "desc": "Bem trabalhado",
+    },
+}
+
+
+def _format_body_part_label(body_part: str) -> str:
+    return _BODY_PART_PT.get(body_part, str(body_part).replace("_", " ").title())
+
+
+def _render_recent_muscle_balance() -> None:
+    balance = get_cached_recent_muscle_balance(user_id, days=7)
+    entries = balance.get("entries", [])
+    total_parts = balance.get("total_parts", 0)
+    trained_parts = balance.get("trained_parts", 0)
+    cold_parts = balance.get("cold_parts", [])
+
+    st.markdown(
+        "<div class='mb-section-title'>Equilibrio muscular (7 dias)</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not entries:
+        st.caption("Sem dados suficientes para analisar grupos musculares recentes.")
+        return
+
+    summary = (
+        f"{trained_parts}/{total_parts} grupos receberam treino nos ultimos 7 dias. "
+        f"{len(cold_parts)} grupo(s) estao frios."
+    )
+    st.markdown(
+        f"<div class='mb-summary'>{summary}</div>",
+        unsafe_allow_html=True,
+    )
+
+    cards_html = ""
+    for entry in sorted(entries, key=lambda item: (item["status"] == "cold", -item["sets"], item["body_part"])):
+        meta = _BALANCE_STATUS_META.get(entry["status"], _BALANCE_STATUS_META["warm"])
+        sets = entry.get("sets", 0)
+        workouts = entry.get("workouts", 0)
+        workout_word = "sessao" if workouts == 1 else "sessoes"
+        sets_word = "set" if sets == 1 else "sets"
+        cards_html += (
+            f"<div class='mb-card {meta['class_name']}'>"
+            f"<div class='mb-card-top'>"
+            f"<span class='mb-badge {meta['class_name']}'>{meta['icon']} {meta['badge']}</span>"
+            f"<span class='mb-volume'>{sets} {sets_word}</span>"
+            f"</div>"
+            f"<div class='mb-name'>{_format_body_part_label(entry['body_part'])}</div>"
+            f"<div class='mb-desc'>{meta['desc']} · {workouts} {workout_word}</div>"
+            f"</div>"
+        )
+    st.markdown(f"<div class='mb-grid'>{cards_html}</div>", unsafe_allow_html=True)
+
+    if cold_parts:
+        cold_labels = ", ".join(_format_body_part_label(part) for part in cold_parts[:4])
+        extra = "" if len(cold_parts) <= 4 else f" e mais {len(cold_parts) - 4}"
+        st.info(f"Grupos frios para priorizar no proximo treino: {cold_labels}{extra}.")
 
 # ── styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -136,6 +227,37 @@ st.markdown("""
 .an-best-name { color: #e6edf3; font-weight: 600; }
 .an-best-val  { color: #FFB347; font-weight: 700; }
 .an-empty { color: #8b949e; font-size: 0.85rem; text-align: center; padding: 24px 0; }
+
+.mb-section-title {
+    color: #e6edf3; font-size: 1rem; font-weight: 800; margin: 4px 0 6px;
+}
+.mb-summary {
+    color: #8b949e; font-size: 0.82rem; margin-bottom: 12px;
+}
+.mb-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px; margin-bottom: 8px;
+}
+.mb-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 14px;
+    padding: 12px 14px;
+}
+.mb-card.cold { border-color: rgba(248,81,73,0.45); background: rgba(248,81,73,0.08); }
+.mb-card.warm { border-color: rgba(255,179,71,0.35); background: rgba(255,179,71,0.06); }
+.mb-card.hot  { border-color: rgba(46,160,67,0.40); background: rgba(46,160,67,0.08); }
+.mb-card-top {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.mb-badge {
+    display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+    padding: 3px 8px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em;
+}
+.mb-badge.cold { color: #ffb4ad; background: rgba(248,81,73,0.18); }
+.mb-badge.warm { color: #ffd8a8; background: rgba(255,179,71,0.18); }
+.mb-badge.hot  { color: #9be9a8; background: rgba(46,160,67,0.18); }
+.mb-volume { color: #e6edf3; font-size: 0.78rem; font-weight: 700; }
+.mb-name { color: #e6edf3; font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; }
+.mb-desc { color: #8b949e; font-size: 0.76rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -169,6 +291,8 @@ with tab_log:
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+    _render_recent_muscle_balance()
 
     # ── routine selector ───────────────────────────────────────────────────────
     sheets = get_cached_workout_sheets(user_id)
