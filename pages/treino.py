@@ -4,13 +4,14 @@ import uuid
 import streamlit as st
 from utils.db import (
     get_sheet_days, get_day_exercises_for_builder,
-    get_exercises, do_exercise_event,
+    get_exercises, do_checkin, do_exercise_event,
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
     get_volume_history, get_exercise_bests_all, get_muscle_distribution,
     get_last_exercise_values,
 )
 from utils.app_cache import (
+    get_cached_monthly_checkins,
     get_cached_workout_sheets,
     get_cached_workout_streak,
     get_cached_daily_xp_from_exercise,
@@ -57,6 +58,16 @@ ex_metric_map = st.session_state.ex_metric_map
 
 _METRIC_LABELS = {"weight": "Reps", "distance": "Distância (km)", "time": "Duração (min)"}
 _METRIC_ICONS  = {"weight": "🏋️", "distance": "📏", "time": "⏱️"}
+
+
+def _queue_new_achievements(new_achievements: list[dict] | None) -> None:
+    if not new_achievements:
+        return
+    pending = st.session_state.get("new_achievements_pending", [])
+    seen = {a["slug"] for a in pending}
+    st.session_state.new_achievements_pending = pending + [
+        a for a in new_achievements if a["slug"] not in seen
+    ]
 
 # ── styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -416,11 +427,7 @@ with tab_log:
         res = do_exercise_event(user_id, payload, day_id=st.session_state.workout_day_id)
         st.session_state.workout_result = res
         if not res.get("error"):
-            new_ach = check_and_award_achievements(user_id)
-            if new_ach:
-                pending = st.session_state.get("new_achievements_pending", [])
-                seen = {a["slug"] for a in pending}
-                st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
+            _queue_new_achievements(check_and_award_achievements(user_id))
             sets_total = sum(
                 int(st.session_state.get(f"w_sets_{r['row_id']}", r.get("sets", 1)))
                 for r in st.session_state.workout_rows
@@ -437,10 +444,22 @@ with tab_log:
                 "sets_total": sets_total,
                 "max_weight": max_weight,
                 "xp_earned":  res.get("xp_earned", 0),
-            })
+            }) or []
             prs = res.get("prs") or []
             if prs:
                 update_mission_progress(user_id, "pr", {"count": len(prs)})
+            workout_date = st.session_state.workout_date
+            today = _today_brt()
+            auto_checkin = None
+            if workout_date == today:
+                month_checkins = get_cached_monthly_checkins(user_id, today.year, today.month)
+                already_checked_today = today.day in month_checkins
+                if not already_checked_today:
+                    auto_checkin = do_checkin(user_id)
+                    if auto_checkin.get("success"):
+                        _queue_new_achievements(check_and_award_achievements(user_id))
+                        newly_done.extend(update_mission_progress(user_id, "checkin") or [])
+            res["auto_checkin"] = auto_checkin
             if newly_done:
                 st.session_state["missions_newly_done"] = newly_done
             for row in st.session_state.workout_rows:
@@ -466,6 +485,30 @@ with tab_log:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+            auto_checkin = res.get("auto_checkin")
+            if auto_checkin and auto_checkin.get("success"):
+                streak_days = auto_checkin.get("streak", 0)
+                extra_rewards = []
+                if auto_checkin.get("bonus_xp_share"):
+                    extra_rewards.append("1 XP Share")
+                if auto_checkin.get("bonus_shield"):
+                    extra_rewards.append("1 Escudo de Streak")
+                if auto_checkin.get("spawned"):
+                    extra_rewards.append(f"{auto_checkin['spawned']['name']} capturado")
+                extra_text = ""
+                if extra_rewards:
+                    extra_text = " Extras: " + ", ".join(extra_rewards) + "."
+                st.markdown(
+                    f"<div class='result-card success'>"
+                    f"<div class='result-title'>📅 Check-in automático realizado!</div>"
+                    f"<div class='result-body'>"
+                    f"O treino de hoje ativou seu check-in: 🪙 +1 moeda "
+                    f"e streak em <b>{streak_days} dia{'s' if streak_days != 1 else ''}</b>."
+                    f"{extra_text}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
             prs = res.get("prs") or []
             if prs:
