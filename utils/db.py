@@ -100,6 +100,14 @@ def _first_existing_column(table_name: str, *column_names: str) -> str | None:
     return None
 
 
+def _exercise_metric_sql(table_alias: str | None = None) -> str:
+    """Returns a metric_type SQL expression compatible with older schemas."""
+    prefix = f"{table_alias}." if table_alias else ""
+    if _table_has_column("exercises", "metric_type"):
+        return f"COALESCE({prefix}metric_type, 'weight')"
+    return "'weight'"
+
+
 _STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
 _GENETIC_COLUMNS = (
     "iv_hp", "iv_attack", "iv_defense", "iv_sp_attack", "iv_sp_defense", "iv_speed",
@@ -2734,22 +2742,23 @@ def get_muscle_groups() -> list[dict]:
 def get_exercises(body_part: str | None = None) -> list[dict]:
     """Catálogo de exercícios, opcionalmente filtrado por body_part."""
     try:
+        metric_sql = _exercise_metric_sql()
         with get_connection().cursor() as cur:
             if body_part:
                 cur.execute("""
                     SELECT id, name, name_pt, target_muscles, body_parts, equipments, gif_url,
-                           COALESCE(metric_type, 'weight') AS metric_type
+                           {metric_sql} AS metric_type
                     FROM exercises
                     WHERE %s = ANY(body_parts)
                     ORDER BY COALESCE(name_pt, name);
-                """, (body_part,))
+                """.format(metric_sql=metric_sql), (body_part,))
             else:
                 cur.execute("""
                     SELECT id, name, name_pt, target_muscles, body_parts, equipments, gif_url,
-                           COALESCE(metric_type, 'weight') AS metric_type
+                           {metric_sql} AS metric_type
                     FROM exercises
                     ORDER BY COALESCE(name_pt, name);
-                """)
+                """.format(metric_sql=metric_sql))
             return [
                 {
                     "id": r[0], "name": r[1], "name_pt": r[2],
@@ -4009,12 +4018,13 @@ def get_day_exercises_for_builder(day_id: str) -> list[dict]:
         day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
         if day_fk is None:
             return []
+        metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute(f"""
                 SELECT wde.id, e.id AS exercise_id,
                        COALESCE(e.name_pt, e.name) AS display_name,
                        wde.sets, wde.reps,
-                       COALESCE(e.metric_type, 'weight') AS metric_type
+                       {metric_sql} AS metric_type
                 FROM workout_day_exercises wde
                 JOIN exercises e ON e.id = wde.exercise_id
                 WHERE wde.{day_fk} = %s
@@ -4853,17 +4863,18 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
     Returns list of {date, volume, max_val, total_sets, metric_type, unit}.
     """
     try:
+        metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT
-                    COALESCE(e.metric_type, 'weight') AS metric_type,
+                    {metric_sql} AS metric_type,
                     (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d,
-                    CASE COALESCE(e.metric_type, 'weight')
+                    CASE {metric_sql}
                         WHEN 'weight'   THEN ROUND(SUM((s->>'weight')::float * (s->>'reps')::int)::numeric, 1)
                         WHEN 'distance' THEN ROUND(SUM((s->>'distance_m')::float / 1000)::numeric, 2)
                         WHEN 'time'     THEN ROUND(SUM((s->>'duration_s')::int / 60.0)::numeric, 1)
                     END AS volume,
-                    CASE COALESCE(e.metric_type, 'weight')
+                    CASE {metric_sql}
                         WHEN 'weight'   THEN MAX((s->>'weight')::float)
                         WHEN 'distance' THEN MAX((s->>'distance_m')::float / 1000)
                         WHEN 'time'     THEN MAX((s->>'duration_s')::int / 60.0)
@@ -4877,13 +4888,13 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
                   AND el.exercise_id = %s
                   AND wl.completed_at >= NOW() - (%s || ' days')::interval
                   AND (
-                      (COALESCE(e.metric_type,'weight') = 'weight'   AND (s->>'weight')::float > 0)
-                   OR (COALESCE(e.metric_type,'weight') = 'distance' AND (s->>'distance_m') IS NOT NULL)
-                   OR (COALESCE(e.metric_type,'weight') = 'time'     AND (s->>'duration_s')  IS NOT NULL)
+                      ({metric_sql} = 'weight'   AND (s->>'weight')::float > 0)
+                   OR ({metric_sql} = 'distance' AND (s->>'distance_m') IS NOT NULL)
+                   OR ({metric_sql} = 'time'     AND (s->>'duration_s')  IS NOT NULL)
                   )
-                GROUP BY e.metric_type, d
+                GROUP BY {metric_sql}, d
                 ORDER BY d;
-            """, (user_id, exercise_id, str(days)))
+            """.format(metric_sql=metric_sql), (user_id, exercise_id, str(days)))
             _unit_map = {"weight": "kg", "distance": "km", "time": "min"}
             rows = []
             for metric_type, d, volume, max_val, total_sets in cur.fetchall():
@@ -4947,18 +4958,19 @@ def get_exercise_bests_all(user_id: str) -> list[dict]:
     Returns list of {exercise_id, name, metric_type, unit, best_primary, best_secondary}.
     """
     try:
+        metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT
                     e.id,
                     COALESCE(e.name_pt, e.name) AS name,
-                    COALESCE(e.metric_type, 'weight') AS metric_type,
-                    CASE COALESCE(e.metric_type, 'weight')
+                    {metric_sql} AS metric_type,
+                    CASE {metric_sql}
                         WHEN 'weight'   THEN MAX((s->>'weight')::float)
                         WHEN 'distance' THEN MAX((s->>'distance_m')::float / 1000)
                         WHEN 'time'     THEN MAX((s->>'duration_s')::int / 60.0)
                     END AS best_primary,
-                    CASE COALESCE(e.metric_type, 'weight')
+                    CASE {metric_sql}
                         WHEN 'weight' THEN MAX((s->>'reps')::int)::float
                         ELSE NULL
                     END AS best_secondary
@@ -4968,13 +4980,13 @@ def get_exercise_bests_all(user_id: str) -> list[dict]:
                 JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
                 WHERE wl.user_id = %s
                   AND (
-                      (COALESCE(e.metric_type,'weight') = 'weight'   AND (s->>'weight')::float > 0)
-                   OR (COALESCE(e.metric_type,'weight') = 'distance' AND (s->>'distance_m') IS NOT NULL)
-                   OR (COALESCE(e.metric_type,'weight') = 'time'     AND (s->>'duration_s')  IS NOT NULL)
+                      ({metric_sql} = 'weight'   AND (s->>'weight')::float > 0)
+                   OR ({metric_sql} = 'distance' AND (s->>'distance_m') IS NOT NULL)
+                   OR ({metric_sql} = 'time'     AND (s->>'duration_s')  IS NOT NULL)
                   )
-                GROUP BY e.id, e.name, e.name_pt, e.metric_type
+                GROUP BY e.id, e.name, e.name_pt, {metric_sql}
                 ORDER BY name;
-            """, (user_id,))
+            """.format(metric_sql=metric_sql), (user_id,))
             _unit_map = {"weight": "kg", "distance": "km", "time": "min"}
             rows = []
             for eid, name, metric_type, best_primary, best_secondary in cur.fetchall():
