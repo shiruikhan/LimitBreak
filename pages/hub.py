@@ -1,9 +1,12 @@
+import calendar
+
 import streamlit as st
 
 from utils.app_cache import (
     clear_user_cache,
     get_cached_checkin_streak,
     get_cached_daily_battle_count,
+    get_cached_monthly_checkins,
     get_cached_user_achievements,
     get_cached_user_missions,
     get_cached_user_profile,
@@ -12,7 +15,9 @@ from utils.app_cache import (
 from utils.db import (
     _MAX_BATTLES_PER_DAY, _today_brt,
     assign_weekly_rival, get_rival_status, get_image_as_base64,
+    check_and_award_achievements, do_checkin,
     get_current_challenge, claim_weekly_challenge_reward,
+    update_mission_progress,
 )
 from utils.achievements import GYM_BADGES
 from utils.missions import get_mission
@@ -231,12 +236,59 @@ SECTION_CARDS = [
 ]
 
 
+def _run_hub_checkin() -> None:
+    res = do_checkin(user_id)
+    clear_user_cache()
+    st.session_state.hub_checkin_result = res
+    if res.get("success"):
+        new_ach = check_and_award_achievements(user_id)
+        if new_ach:
+            pending = st.session_state.get("new_achievements_pending", [])
+            seen = {a["slug"] for a in pending}
+            st.session_state.new_achievements_pending = pending + [a for a in new_ach if a["slug"] not in seen]
+        for mission in (update_mission_progress(user_id, "checkin") or []):
+            st.toast(
+                f"🎯 Missão concluída: {mission.get('icon', '')} {mission.get('label', '')} — {mission.get('reward_label', '')}",
+                icon="✅",
+            )
+    st.rerun()
+
+
+def _render_hub_checkin_feedback() -> None:
+    res = st.session_state.get("hub_checkin_result")
+    if not res:
+        return
+
+    if res.get("already_done"):
+        st.warning("Você já fez check-in hoje!")
+    elif res.get("success"):
+        streak = res.get("streak", 0)
+        extra_rewards: list[str] = []
+        if res.get("bonus_xp_share"):
+            extra_rewards.append("1 XP Share")
+        if res.get("bonus_shield"):
+            extra_rewards.append("1 Escudo de Streak")
+        if res.get("spawned"):
+            extra_rewards.append(f"{res['spawned']['name']} capturado")
+
+        message = f"Check-in realizado no hub: +1 moeda e streak em {streak} dia{'s' if streak != 1 else ''}."
+        if extra_rewards:
+            message += " Extras: " + ", ".join(extra_rewards) + "."
+        st.success(message)
+
+    st.session_state.hub_checkin_result = None
+
+
 def _render_snapshot() -> None:
     team = get_cached_user_team(user_id)
     streak = get_cached_checkin_streak(user_id)
     battles_used = get_cached_daily_battle_count(user_id)
     remaining = max(0, _MAX_BATTLES_PER_DAY - battles_used)
     missions = get_cached_user_missions(user_id)
+    checkins_this_month = get_cached_monthly_checkins(user_id, today.year, today.month)
+    already_checked = today.day in checkins_this_month
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    is_bonus_day = today.day in (15, last_day)
     daily = missions.get("daily", [])
     daily_done = sum(1 for mission in daily if mission.get("completed"))
     coins = profile["coins"] if profile else 0
@@ -309,10 +361,14 @@ def _render_snapshot() -> None:
 """,
             unsafe_allow_html=True,
         )
+        _render_hub_checkin_feedback()
         col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
-            if st.button("📅 Fazer check-in", use_container_width=True):
-                st.switch_page("pages/calendario.py")
+            checkin_label = "✅ Check-in realizado" if already_checked else "📅 Fazer check-in"
+            if st.button(checkin_label, use_container_width=True, disabled=already_checked):
+                _run_hub_checkin()
+            if not already_checked and is_bonus_day:
+                st.caption("Hoje tem bônus especial no check-in.")
         with col_b:
             if st.button("⚔️ Abrir equipe", use_container_width=True):
                 st.switch_page("pages/equipe.py")
