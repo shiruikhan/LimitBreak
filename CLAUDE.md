@@ -141,6 +141,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── migrate_rival.sql                     # Adiciona weekly_rival_id e rival_assigned_week a user_profiles
     ├── migrate_weekly_challenge.sql          # Cria weekly_challenges e weekly_challenge_participants
     ├── seed_streak_shield.sql                # Insere item streak-shield em shop_items (executar uma vez)
+    ├── migrate_metric_type.sql               # Adiciona metric_type TEXT NOT NULL DEFAULT 'weight' à tabela exercises
     ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
     ├── seed_spawn_tiers.py                   # Refina is_spawnable/rarity_tier via PokéAPI (lendários/míticos)
     ├── seed_wmx_exercises.py                 # Cadastra exercícios do protocolo WMX (idempotente por name_pt)
@@ -241,6 +242,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | body_parts | TEXT[] | Partes do corpo (usadas para mapeamento de tipo Pokémon) |
 | equipments | TEXT[] | Equipamentos necessários |
 | gif_url | TEXT | URL do GIF demonstrativo |
+| metric_type | TEXT | `'weight'` (padrão), `'distance'` ou `'time'` — define como a série é registrada e como o XP é calculado |
+
+> **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Adicionado via `migrate_metric_type.sql`.
 
 #### `workout_sheets`
 | Coluna | Tipo | Descrição |
@@ -497,6 +501,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | `apply_stat_boost(user_pokemon_id, stat, delta, source_item)` | INSERT em stat_boosts + UPDATE stat_* atomicamente; valida `stat` contra whitelist `_VALID_STATS`; retorna `False` silenciosamente se o cap de `_MAX_STAT_BOOSTS_PER_STAT = 5` for atingido |
 | `get_stat_boosts(user_pokemon_id)` | Histórico completo |
 | `get_stat_boost_summary(user_pokemon_id)` | `{stat: total_delta}` |
+| `get_team_stat_boost_counts(user_id)` | `{user_pokemon_id: {stat: count}}` — contagem de vitaminas aplicadas por stat para todos os membros da equipe; usada por `equipe.py` para exibir o indicador de cap |
 | `_recalc_stats_on_evolution(cur, user_pokemon_id)` | **Interno.** Força recálculo completo usando `_sync_user_pokemon_stats()` após evolução |
 | `_stored_user_pokemon_stats(cur, user_pokemon_id)` | **Interno.** Retorna `list[int]` com os seis stat_* armazenados |
 | `_expected_user_pokemon_stats(cur, user_pokemon_id)` | **Interno.** Calcula os seis stats esperados pela fórmula (base + IV + EV + nature + boosts) |
@@ -572,20 +577,22 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 ### Exercícios e treino
 | Função | Descrição |
 |---|---|
-| `get_exercises(body_part=None)` | Lista completa de exercícios do catálogo; `body_part` filtra por parte do corpo (cacheado 3600s) |
+| `get_exercises(body_part=None)` | Lista completa de exercícios do catálogo; `body_part` filtra por parte do corpo (cacheado 3600s). Retorna `{id, name, name_pt, target_muscles, body_parts, equipments, gif_url, metric_type}` |
 | `get_muscle_groups()` | Lista de grupos musculares `[{id, name}]` |
 | `get_distinct_body_parts()` | Lista de partes do corpo únicas extraídas de `exercises.body_parts` (cacheado 3600s) |
 | `get_workout_sheets(user_id)` | Rotinas do usuário `[{id, name, day_count}]` |
-| `create_workout_sheet(user_id, name)` | Cria nova rotina; retorna UUID |
+| `create_workout_sheet(user_id, name)` | Cria nova rotina; retorna `(uuid, error)` |
+| `update_workout_sheet(user_id, sheet_id, name)` | Renomeia rotina; retorna `(bool, error_msg \| None)` |
 | `delete_workout_sheet(sheet_id)` | Deleta rotina e todos os dias/exercícios em cascata via FK |
 | `get_sheet_days(sheet_id)` | Dias de uma rotina `[{id, name, exercise_count}]` |
 | `create_workout_day(sheet_id, name)` | Cria dia dentro de uma rotina; retorna UUID |
 | `delete_workout_day(day_id)` | Deleta dia e todos os exercícios em cascata |
-| `get_day_exercises_for_builder(day_id)` | Exercícios de um dia para exibição no builder/treino `[{wde_id, exercise_id, name_pt, prescribed_sets, prescribed_reps}]` |
+| `get_day_exercises_for_builder(day_id)` | Exercícios de um dia para exibição no builder/treino `[{id, exercise_id, name, sets, reps, metric_type}]` |
 | `add_exercise_to_day(day_id, exercise_id, sets, reps)` | Adiciona exercício prescrito ao dia; retorna UUID |
 | `update_day_exercise(wde_id, sets, reps)` | Edita sets/reps de um exercício prescrito |
 | `remove_exercise_from_day(wde_id)` | Remove exercício de um dia |
 | `get_daily_xp_from_exercise(user_id)` | XP total ganho de treinos hoje (para progress bar de cap) |
+| `get_last_exercise_values(user_id, exercise_ids)` | Último valor logado por exercício, usado para pré-preencher o Import Default. Retorna `{exercise_id: {reps, weight, distance_km, duration_min}}` — campos irrelevantes ao `metric_type` do exercício são `None` |
 | `get_workout_streak(user_id)` | Dias consecutivos com treino registrado |
 | `get_workout_history(user_id, limit=10)` | Últimas sessões `[{date, day_name, exercise_count, xp_earned, spawned_species_id}]` |
 | `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP (com efeito de habilidade passiva), bumps happiness +1 no slot 1, aplica penalidade de inatividade (−5 happiness se ≥7 dias sem treino), detecta PRs, avança/choca ovos, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}` |
@@ -593,8 +600,8 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 ### Analytics de Treino
 | Função | Descrição |
 |---|---|
-| `get_volume_history(user_id, exercise_id, days=90)` | Volume diário (peso × reps) para um exercício num período. Retorna `[{date, volume, max_weight, total_sets}]` ordenado por data; ignora sets com peso = 0 |
-| `get_exercise_bests_all(user_id)` | Melhor carga e max reps por exercício já logado. Retorna `[{exercise_id, name, best_weight, best_reps}]` ordenado por nome |
+| `get_volume_history(user_id, exercise_id, days=90)` | Volume diário para um exercício num período, adaptado ao `metric_type`: weight=Σ(kg×reps), distance=Σkm, time=Σmin. Retorna `[{date, volume, max_val, total_sets, metric_type, unit}]` ordenado por data |
+| `get_exercise_bests_all(user_id)` | Melhor métrica por exercício já logado. Retorna `[{exercise_id, name, metric_type, unit, best_primary, best_secondary}]`. Para weight: `best_primary`=kg, `best_secondary`=reps; para distance/time: `best_primary`=valor, `best_secondary`=`None` |
 | `get_muscle_distribution(user_id)` | Sets por parte do corpo na semana atual vs. anterior (BRT). Retorna `{this_week: {body_part: sets}, last_week: {body_part: sets}, this_label, last_label}` |
 
 ### Ovos
@@ -627,6 +634,7 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | Função | Descrição |
 |---|---|
 | `assign_weekly_rival(user_id)` | Atribui (ou mantém) o rival da semana; na virada de semana avalia se o usuário venceu o rival anterior (+10 moedas); retorna `{rival_username, rival_xp, my_xp, diff, rival_sprite, won_last_week, bonus_coins}` |
+| `get_rival_status(user_id)` | Leitura leve do confronto atual — sem writes. Retorna `{rival_username, rival_xp, my_xp, diff, rival_sprite}` ou `{}` se sem rival |
 | `get_current_challenge(user_id)` | Retorna estado do desafio comunitário desta semana, criando-o se necessário; inclui contribuição e status de coleta do usuário. Retorna `dict` ou `None` |
 | `claim_weekly_challenge_reward(user_id)` | Coleta a recompensa do desafio comunitário quando `completed=True`; retorna `(bool, msg, reward_dict)` |
 | `_ensure_weekly_challenge(cur)` | **Interno.** Garante que existe um desafio para a semana atual; retorna `challenge_id` |
@@ -784,14 +792,16 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - Grade 4 colunas de todos os exercícios do catálogo (`get_exercises()`)
 - Card: GIF thumbnail via `gif_url`, `name_pt`, tags de `body_parts`, badge de tipo Pokémon colorido
 - Filtros no topo: busca por nome, multiselect de grupo muscular (de `get_muscle_groups()`), body part (de `get_distinct_body_parts()`), equipamento
+- Badge de métrica por exercício: 🏋️ Carga / 📏 Distância / ⏱️ Tempo, além do badge de tipo Pokémon existente
 - Expander de detalhes: GIF em tamanho completo, músculos alvo completos, explicação da afinidade de tipo (ex.: "Exercícios de peito invocam Pokémon do tipo Lutador")
 - Página somente leitura — sem escrita no banco
 
 ### `pages/rotinas.py`
 - Árvore expansível: Rotina (`workout_sheets`) → Dia (`workout_days`) → Exercícios prescritos (`workout_day_exercises`)
 - "Nova Rotina": input de nome → `create_workout_sheet()` → expande automaticamente
+- **Edição de nome de rotina:** botão "✏ Editar rotina" abre form inline → `update_workout_sheet()`
 - "Adicionar Dia": input de nome dentro da rotina → `create_workout_day()`
-- "Adicionar Exercício": selectbox com busca na biblioteca + number inputs de sets/reps → `add_exercise_to_day()`
+- "Adicionar Exercício": selectbox com busca na biblioteca + number inputs de sets/reps (ou km/min dependendo do `metric_type`) → `add_exercise_to_day()`
 - Edição inline de sets/reps → `update_day_exercise()`
 - Deletar exercício/dia/rotina com confirmação (cascata via FK no banco) → funções `delete_*` e `remove_exercise_from_day()`
 - Sets/reps aqui são **prescrição padrão** para o Import Default; não são valores de log real
@@ -801,8 +811,8 @@ Duas tabs: **🏋️ Treino** e **📊 Análise**.
 
 **Tab Treino:**
 - Date picker (padrão = hoje) + seleção de Rotina e Dia (via `get_sheet_days()`)
-- Botão "⬇ Importar Padrão": chama `get_day_exercises_for_builder(day_id)` e popula tabela editável
-- Tabela de exercícios editável: cada linha tem nome, sets, reps, peso (kg); botão de remoção por linha; botão de adição de linha nova
+- Botão "⬇ Importar Padrão": chama `get_day_exercises_for_builder(day_id)` + `get_last_exercise_values()` e popula tabela editável com os últimos valores registrados como hint (↩ hint abaixo do nome)
+- Tabela de exercícios editável: cada linha tem nome, sets, e uma coluna de medida que varia por `metric_type` (Reps para weight, Distância km para distance, Duração min para time), mais Peso (kg) apenas para weight; botão de remoção por linha; botão de adição de linha nova
 - Sessão livre: quando sem rotina selecionada, exibe apenas a tabela vazia para preenchimento manual
 - "✅ Registrar Treino": chama `do_exercise_event(user_id, exercises, day_id)`, exibe card de resultado (XP ganho, cap indicator, spawn se rolou, level-up se subiu, milestones de streak)
 - Progress bar de cap diário: XP hoje / 300 — via `get_daily_xp_from_exercise()`; laranja > 200 XP, vermelho quando capped
@@ -884,11 +894,24 @@ Duas tabs: **🏋️ Treino** e **📊 Análise**.
 from utils.db import do_exercise_event
 result = do_exercise_event(
     user_id,
-    exercises=[{"exercise_id": int, "sets_data": [{"reps": int, "weight": float}], "notes": str | None}],
+    exercises=[{
+        "exercise_id": int,
+        # sets_data varia por metric_type:
+        #   weight:   [{"reps": int, "weight": float}]
+        #   distance: [{"distance_m": float}]
+        #   time:     [{"duration_s": int}]
+        "sets_data": [...],
+        "notes": str | None,
+    }],
     day_id=None,   # UUID do workout_day prescrito; None = treino livre
 )
-# result: {xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}
+# result: {xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, eggs_hatched, eggs_granted, ability_effects, error}
 ```
+
+**Fórmula de XP por `metric_type` (`_calc_exercise_xp`):**
+- `weight`: `CEIL(reps / 2) + FLOOR(weight_kg / 20)` por set
+- `distance`: `FLOOR(distance_m / 100)` por intervalo — 1 XP / 100 m (5 km = 50 XP)
+- `time`: `FLOOR(duration_s / 30)` por set — 1 XP / 30 s (10 min = 20 XP)
 
 **`_recalc_stats_on_evolution(cur, user_pokemon_id, new_species_id)`:**
 ```
@@ -1116,6 +1139,7 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `migrate_rival.sql`: adiciona `weekly_rival_id` e `rival_assigned_week` a `user_profiles`.
 `migrate_weekly_challenge.sql`: cria tabelas `weekly_challenges` e `weekly_challenge_participants`.
 `seed_streak_shield.sql`: insere item `streak-shield` em `shop_items` (executar uma vez).
+`migrate_metric_type.sql`: adiciona coluna `metric_type` à tabela `exercises` (executar uma vez; idempotente via `ADD COLUMN IF NOT EXISTS`).
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
@@ -1198,6 +1222,13 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
   - Tab "📊 Análise" em `treino.py` com três seções
   - `get_volume_history()`, `get_exercise_bests_all()`, `get_muscle_distribution()` em `utils/db.py`
   - Dados derivados de `exercise_logs.sets_data` — sem mudança de schema
+- **Tipos de métrica em exercícios (`metric_type`):**
+  - Coluna `metric_type TEXT NOT NULL DEFAULT 'weight'` em `exercises` via `migrate_metric_type.sql`
+  - Suporte a `weight` (reps+carga), `distance` (distância em km) e `time` (duração em min) no log de treino, import default e analytics
+  - `get_last_exercise_values()` pré-preenche Import Default com último valor por exercício
+  - `get_volume_history()` e `get_exercise_bests_all()` adaptam cálculo e labels ao metric_type
+  - `biblioteca.py` exibe badge de métrica por card de exercício
+  - `rotinas.py` agora permite editar o nome de rotinas via `update_workout_sheet()`
 - **Spawn Tiers:**
   - Colunas `is_spawnable` e `rarity_tier` em `pokemon_species`
   - `migrate_spawn_tiers.sql` + `seed_spawn_tiers.py` (refina lendários/míticos via PokéAPI)
