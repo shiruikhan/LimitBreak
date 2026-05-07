@@ -35,6 +35,8 @@ Aplicativo web em Streamlit para acompanhamento de treinos com gamificação ins
 - Fluxos de rotinas e treino ja usam carregamento agregado para evitar cascatas de leitura
 - Catalogos quase estaticos como exercicios, partes do corpo e loja agora usam cache compartilhado com invalidação explicita
 - Sidebar de missoes e pagina de missoes agora usam leitura pura; o bootstrap das missoes ocorre em ponto controlado do app
+- Fluxos criticos de rotinas/treino ja reduziram compatibilidade dinamica de schema, assumindo os contratos atuais do builder e de `metric_type`
+- Leituras principais de `user_pokemon` agora assumem `iv_*`, `ev_*` e `nature` como contrato do app, e `workout_sheets` agora assume `created_by` e `updated_at` sem guard dinamico
 
 ---
 
@@ -68,6 +70,7 @@ scripts/migrate_happiness.sql
 scripts/migrate_rival.sql
 scripts/migrate_weekly_challenge.sql
 scripts/migrate_metric_type.sql
+scripts/migrate_workout_sheet_metadata.sql
 scripts/migrate_performance_stage3_indexes.sql
 scripts/seed_streak_shield.sql
 ```
@@ -82,9 +85,10 @@ python scripts/seed_stats.py
 python scripts/seed_shop_items.py
 python scripts/seed_regional_species.py
 python scripts/seed_wmx_exercises.py
+python scripts/seed_pokemon_instances.py
 ```
 
-`create_user_tables.sql` cobre a base, mas nao inclui todas as adicoes mais recentes. Sem as migrations acima, recursos como felicidade, rival semanal, desafio comunitario, metricas de exercicio, streak shield e os indices de performance da Etapa 3 ficam incompletos.
+`create_user_tables.sql` cobre a base, mas nao inclui todas as adicoes mais recentes. Sem as migrations acima, recursos como felicidade, rival semanal, desafio comunitario, metricas de exercicio, metadados de `workout_sheets`, streak shield e os indices de performance da Etapa 3 ficam incompletos. Em bases ja existentes, `seed_pokemon_instances.py` tambem garante/preenche `iv_*`, `ev_*` e `nature` em `user_pokemon`, agora assumidos pelo app.
 
 ---
 

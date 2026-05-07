@@ -137,52 +137,21 @@ def get_connection():
     return st.session_state._db_conn
 
 
-def _table_has_column(table_name: str, column_name: str) -> bool:
-    """Checks column existence to stay compatible with small schema drifts."""
-    key = (table_name, column_name)
-    if key in _COLUMN_EXISTS_CACHE:
-        return _COLUMN_EXISTS_CACHE[key]
-    try:
-        with get_connection().cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_name = %s
-                  AND column_name = %s
-                LIMIT 1;
-                """,
-                (table_name, column_name),
-            )
-            result = cur.fetchone() is not None
-        _COLUMN_EXISTS_CACHE[key] = result
-        return result
-    except Exception:
-        return False
-
-
-def _first_existing_column(table_name: str, *column_names: str) -> str | None:
-    """Returns the first existing column name from the provided candidates."""
-    for column_name in column_names:
-        if _table_has_column(table_name, column_name):
-            return column_name
-    return None
-
-
 def _exercise_metric_sql(table_alias: str | None = None) -> str:
-    """Returns a metric_type SQL expression compatible with older schemas."""
+    """Returns a metric_type SQL expression for the current schema contract."""
     prefix = f"{table_alias}." if table_alias else ""
-    if _table_has_column("exercises", "metric_type"):
-        return f"COALESCE({prefix}metric_type, 'weight')"
-    return "'weight'"
+    return f"COALESCE({prefix}metric_type, 'weight')"
+
+
+def _workout_days_sheet_fk() -> str:
+    return "workout_sheet_id"
+
+
+def _workout_day_exercises_day_fk() -> str:
+    return "workout_day_id"
 
 
 _STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
-_GENETIC_COLUMNS = (
-    "iv_hp", "iv_attack", "iv_defense", "iv_sp_attack", "iv_sp_defense", "iv_speed",
-    "ev_hp", "ev_attack", "ev_defense", "ev_sp_attack", "ev_sp_defense", "ev_speed",
-    "nature",
-)
 _NEUTRAL_NATURES = {"hardy", "docile", "serious", "bashful", "quirky"}
 _NATURE_EFFECTS = {
     "lonely": ("attack", "defense"),
@@ -347,32 +316,11 @@ def _nature_modifiers(nature_name: str | None) -> dict:
     return modifiers
 
 
-_COLUMN_EXISTS_CACHE: dict[tuple[str, str], bool] = {}
-_HAS_GENETIC_COLS: bool | None = None
-
-
-def _has_genetic_columns(cur) -> bool:
-    global _HAS_GENETIC_COLS
-    if _HAS_GENETIC_COLS is None:
-        cur.execute("""
-            SELECT COUNT(*)
-            FROM information_schema.columns
-            WHERE table_name = 'user_pokemon'
-              AND table_schema = ANY(current_schemas(false))
-              AND column_name = ANY(%s);
-        """, (list(_GENETIC_COLUMNS),))
-        _HAS_GENETIC_COLS = cur.fetchone()[0] == len(_GENETIC_COLUMNS)
-    return _HAS_GENETIC_COLS
-
-
-def _nature_select_sql(cur, table_alias: str = "up") -> str:
-    return f"{table_alias}.nature AS nature" if _has_genetic_columns(cur) else "NULL AS nature"
+def _nature_select_sql(table_alias: str = "up") -> str:
+    return f"{table_alias}.nature AS nature"
 
 
 def _load_pokemon_genetics(cur, user_pokemon_id: int) -> tuple[dict, dict, dict]:
-    if not _has_genetic_columns(cur):
-        return {}, {}, _nature_modifiers(None)
-
     cur.execute("""
         SELECT iv_hp, iv_attack, iv_defense, iv_sp_attack, iv_sp_defense, iv_speed,
                ev_hp, ev_attack, ev_defense, ev_sp_attack, ev_sp_defense, ev_speed,
@@ -510,49 +458,37 @@ def _insert_user_pokemon(
     if not bases:
         return None
 
-    if _has_genetic_columns(cur):
-        ivs = _random_ivs()
-        evs = _random_evs()
-        nature = _random_nature()
-        nature_mods = _nature_modifiers(nature)
-        stats = _build_pokemon_stats(
-            bases, level, ivs=ivs, evs=evs, nature_modifiers=nature_mods
-        )
-        cur.execute("""
-            INSERT INTO user_pokemon (
-                user_id, species_id, level, xp, is_shiny,
-                iv_hp, iv_attack, iv_defense, iv_sp_attack, iv_sp_defense, iv_speed,
-                ev_hp, ev_attack, ev_defense, ev_sp_attack, ev_sp_defense, ev_speed,
-                nature,
-                stat_hp, stat_attack, stat_defense,
-                stat_sp_attack, stat_sp_defense, stat_speed
-            )
-            VALUES (
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s,
-                %s,
-                %s, %s, %s, %s, %s, %s
-            )
-            RETURNING id;
-        """, (
+    ivs = _random_ivs()
+    evs = _random_evs()
+    nature = _random_nature()
+    nature_mods = _nature_modifiers(nature)
+    stats = _build_pokemon_stats(
+        bases, level, ivs=ivs, evs=evs, nature_modifiers=nature_mods
+    )
+    cur.execute("""
+        INSERT INTO user_pokemon (
             user_id, species_id, level, xp, is_shiny,
-            ivs["hp"], ivs["attack"], ivs["defense"], ivs["sp_attack"], ivs["sp_defense"], ivs["speed"],
-            evs["hp"], evs["attack"], evs["defense"], evs["sp_attack"], evs["sp_defense"], evs["speed"],
+            iv_hp, iv_attack, iv_defense, iv_sp_attack, iv_sp_defense, iv_speed,
+            ev_hp, ev_attack, ev_defense, ev_sp_attack, ev_sp_defense, ev_speed,
             nature,
-            *stats,
-        ))
-    else:
-        stats = _build_pokemon_stats(bases, level)
-        cur.execute("""
-            INSERT INTO user_pokemon (
-                user_id, species_id, level, xp, is_shiny,
-                stat_hp, stat_attack, stat_defense,
-                stat_sp_attack, stat_sp_defense, stat_speed
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id;
-        """, (user_id, species_id, level, xp, is_shiny, *stats))
+            stat_hp, stat_attack, stat_defense,
+            stat_sp_attack, stat_sp_defense, stat_speed
+        )
+        VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s,
+            %s,
+            %s, %s, %s, %s, %s, %s
+        )
+        RETURNING id;
+    """, (
+        user_id, species_id, level, xp, is_shiny,
+        ivs["hp"], ivs["attack"], ivs["defense"], ivs["sp_attack"], ivs["sp_defense"], ivs["speed"],
+        evs["hp"], evs["attack"], evs["defense"], evs["sp_attack"], evs["sp_defense"], evs["speed"],
+        nature,
+        *stats,
+    ))
     row = cur.fetchone()
     return row[0] if row else None
 
@@ -799,7 +735,7 @@ def get_user_team(user_id: str) -> list[dict]:
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            nature_select = _nature_select_sql(cur)
+            nature_select = _nature_select_sql()
             cur.execute(f"""
                 SELECT ut.slot, up.id, up.species_id, p.name, p.sprite_url,
                        up.level, up.xp, t1.name AS type1, t2.name AS type2,
@@ -887,7 +823,7 @@ def get_user_bench(user_id: str) -> list[dict]:
     """Retorna todos os user_pokemon do usuário que NÃO estão na equipe ativa."""
     try:
         with get_connection().cursor() as cur:
-            nature_select = _nature_select_sql(cur)
+            nature_select = _nature_select_sql()
             cur.execute(f"""
                 SELECT up.id, up.species_id, p.name, p.sprite_url,
                        up.level, up.xp,
@@ -3820,9 +3756,7 @@ def do_exercise_event(
 def get_workout_sheets(user_id: str) -> list[dict]:
     """Sheets owned by the user with day count."""
     try:
-        day_sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
-        if day_sheet_fk is None:
-            return []
+        day_sheet_fk = _workout_days_sheet_fk()
         with get_connection().cursor() as cur:
             cur.execute(f"""
                 SELECT ws.id, ws.name, COUNT(wd.id) AS day_count
@@ -3861,44 +3795,11 @@ def get_workout_builder_tree(user_id: str) -> list[dict]:
       ]
     """
     try:
-        day_sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
-        if day_sheet_fk is None:
-            return []
-
-        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        day_sheet_fk = _workout_days_sheet_fk()
+        day_fk = _workout_day_exercises_day_fk()
         metric_sql = _exercise_metric_sql("e")
 
         with get_connection().cursor() as cur:
-            if day_fk is None:
-                cur.execute(f"""
-                    SELECT ws.id, ws.name,
-                           wd.id, wd.name
-                    FROM workout_sheets ws
-                    LEFT JOIN workout_days wd ON wd.{day_sheet_fk} = ws.id
-                    WHERE ws.user_id = %s
-                    ORDER BY ws.name, wd.name, wd.id;
-                """, (user_id,))
-
-                rows = cur.fetchall()
-                sheets: list[dict] = []
-                sheet_map: dict[str, dict] = {}
-                for sheet_id, sheet_name, day_id, day_name in rows:
-                    sheet_key = str(sheet_id)
-                    sheet = sheet_map.get(sheet_key)
-                    if sheet is None:
-                        sheet = {"id": sheet_key, "name": sheet_name, "day_count": 0, "days": []}
-                        sheet_map[sheet_key] = sheet
-                        sheets.append(sheet)
-                    if day_id is not None:
-                        sheet["days"].append({
-                            "id": str(day_id),
-                            "name": day_name,
-                            "exercise_count": 0,
-                            "exercises": [],
-                        })
-                        sheet["day_count"] += 1
-                return sheets
-
             cur.execute(f"""
                 SELECT
                     ws.id,
@@ -3976,22 +3877,15 @@ def create_workout_sheet(
     try:
         conn = get_connection()
         actor_id = created_by or user_id
-        has_created_by = _table_has_column("workout_sheets", "created_by")
         with conn.cursor() as cur:
-            if has_created_by:
-                cur.execute(
-                    """
-                    INSERT INTO workout_sheets (user_id, created_by, name)
-                    VALUES (%s, %s, %s)
-                    RETURNING id;
-                    """,
-                    (user_id, actor_id, name.strip()),
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO workout_sheets (user_id, name) VALUES (%s, %s) RETURNING id;",
-                    (user_id, name.strip()),
-                )
+            cur.execute(
+                """
+                INSERT INTO workout_sheets (user_id, created_by, name)
+                VALUES (%s, %s, %s)
+                RETURNING id;
+                """,
+                (user_id, actor_id, name.strip()),
+            )
             new_id = cur.fetchone()[0]
         conn.commit()
         return str(new_id), None
@@ -4006,25 +3900,15 @@ def update_workout_sheet(user_id: str, sheet_id: str, name: str) -> tuple[bool, 
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            if _table_has_column("workout_sheets", "updated_at"):
-                cur.execute(
-                    """
-                    UPDATE workout_sheets
-                    SET name = %s,
-                        updated_at = NOW()
-                    WHERE id = %s AND user_id = %s;
-                    """,
-                    (name.strip(), sheet_id, user_id),
-                )
-            else:
-                cur.execute(
-                    """
-                    UPDATE workout_sheets
-                    SET name = %s
-                    WHERE id = %s AND user_id = %s;
-                    """,
-                    (name.strip(), sheet_id, user_id),
-                )
+            cur.execute(
+                """
+                UPDATE workout_sheets
+                SET name = %s,
+                    updated_at = NOW()
+                WHERE id = %s AND user_id = %s;
+                """,
+                (name.strip(), sheet_id, user_id),
+            )
             if cur.rowcount == 0:
                 conn.rollback()
                 return False, "Rotina não encontrada para este usuário."
@@ -4040,25 +3924,23 @@ def delete_workout_sheet(sheet_id: str) -> tuple[bool, str | None]:
     """DELETE a sheet with all its days and exercises."""
     try:
         conn = get_connection()
-        sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
-        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        sheet_fk = _workout_days_sheet_fk()
+        day_fk = _workout_day_exercises_day_fk()
         with conn.cursor() as cur:
-            if sheet_fk:
-                # Nullify workout_logs.day_id to avoid FK violation
-                cur.execute(f"""
-                    UPDATE workout_logs SET day_id = NULL
-                    WHERE day_id IN (
-                        SELECT id FROM workout_days WHERE {sheet_fk} = %s
-                    );
-                """, (sheet_id,))
-                if day_fk:
-                    cur.execute(f"""
-                        DELETE FROM workout_day_exercises
-                        WHERE {day_fk} IN (
-                            SELECT id FROM workout_days WHERE {sheet_fk} = %s
-                        );
-                    """, (sheet_id,))
-                cur.execute(f"DELETE FROM workout_days WHERE {sheet_fk} = %s;", (sheet_id,))
+            # Nullify workout_logs.day_id to avoid FK violation
+            cur.execute(f"""
+                UPDATE workout_logs SET day_id = NULL
+                WHERE day_id IN (
+                    SELECT id FROM workout_days WHERE {sheet_fk} = %s
+                );
+            """, (sheet_id,))
+            cur.execute(f"""
+                DELETE FROM workout_day_exercises
+                WHERE {day_fk} IN (
+                    SELECT id FROM workout_days WHERE {sheet_fk} = %s
+                );
+            """, (sheet_id,))
+            cur.execute(f"DELETE FROM workout_days WHERE {sheet_fk} = %s;", (sheet_id,))
             cur.execute("DELETE FROM workout_sheets WHERE id = %s;", (sheet_id,))
         conn.commit()
         return True, None
@@ -4071,9 +3953,7 @@ def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None
     """INSERT into workout_days; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
-        sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
-        if sheet_fk is None:
-            return None, "Nenhuma coluna de vínculo de rotina foi encontrada em workout_days."
+        sheet_fk = _workout_days_sheet_fk()
         with conn.cursor() as cur:
             cur.execute(
                 f"INSERT INTO workout_days ({sheet_fk}, name) VALUES (%s, %s) RETURNING id;",
@@ -4091,11 +3971,10 @@ def delete_workout_day(day_id: str) -> tuple[bool, str | None]:
     """DELETE a day with all its exercises."""
     try:
         conn = get_connection()
-        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        day_fk = _workout_day_exercises_day_fk()
         with conn.cursor() as cur:
             cur.execute("UPDATE workout_logs SET day_id = NULL WHERE day_id = %s;", (day_id,))
-            if day_fk:
-                cur.execute(f"DELETE FROM workout_day_exercises WHERE {day_fk} = %s;", (day_id,))
+            cur.execute(f"DELETE FROM workout_day_exercises WHERE {day_fk} = %s;", (day_id,))
             cur.execute("DELETE FROM workout_days WHERE id = %s;", (day_id,))
         conn.commit()
         return True, None
@@ -4108,9 +3987,7 @@ def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> 
     """INSERT into workout_day_exercises; returns (new_uuid, None) or (None, error_msg)."""
     try:
         conn = get_connection()
-        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
-        if day_fk is None:
-            return None, "Nenhuma coluna de vínculo de dia foi encontrada em workout_day_exercises."
+        day_fk = _workout_day_exercises_day_fk()
         with conn.cursor() as cur:
             cur.execute(
                 f"INSERT INTO workout_day_exercises ({day_fk}, exercise_id, sets, reps) VALUES (%s, %s, %s, %s) RETURNING id;",
@@ -4156,10 +4033,8 @@ def remove_exercise_from_day(wde_id: str) -> tuple[bool, str | None]:
 def get_sheet_days(sheet_id: str) -> list[dict]:
     """Days for a specific workout sheet with exercise count."""
     try:
-        sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
-        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
-        if sheet_fk is None or day_fk is None:
-            return []
+        sheet_fk = _workout_days_sheet_fk()
+        day_fk = _workout_day_exercises_day_fk()
         with get_connection().cursor() as cur:
             cur.execute(f"""
                 SELECT wd.id, wd.name, COUNT(wde.id) AS exercise_count
@@ -4177,9 +4052,7 @@ def get_sheet_days(sheet_id: str) -> list[dict]:
 def get_day_exercises_for_builder(day_id: str) -> list[dict]:
     """Prescribed exercises for a day, including wde.id for edit/delete."""
     try:
-        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
-        if day_fk is None:
-            return []
+        day_fk = _workout_day_exercises_day_fk()
         metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute(f"""

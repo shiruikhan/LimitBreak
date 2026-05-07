@@ -81,7 +81,7 @@ Melhorias já concluídas nesta frente:
 | P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Concluído |
 | P1 | Cache de catálogos quase estáticos | Médio | Baixo | Concluído |
 | P1 | Separação entre leitura e escrita em missões/sidebar | Médio | Médio | Concluído |
-| P2 | Remoção de compatibilidade de schema desnecessária | Baixo a médio | Médio | Futuro |
+| P2 | Remoção de compatibilidade de schema desnecessária | Baixo a médio | Médio | Concluído |
 | P2 | Telemetria simples de performance | Médio | Baixo | Futuro |
 
 ---
@@ -150,7 +150,7 @@ Melhorias já concluídas nesta frente:
 
 ### Etapa 3. Revisar queries de treino e adicionar índices
 
-**Status:** em andamento.
+**Status:** concluída.
 
 **Problema original:** várias queries usavam `AT TIME ZONE` ou `::date` diretamente sobre a coluna filtrada, o que tendia a dificultar o uso de índice.
 
@@ -261,17 +261,26 @@ Melhorias já concluídas nesta frente:
 
 ### Etapa 7. Simplificar compatibilidade de schema quando a base estabilizar
 
-**Problema atual:** o projeto mantém proteções úteis para drift de schema, mas elas adicionam custo e complexidade operacional.
+**Status:** em andamento.
+
+**Problema original:** o projeto mantém proteções úteis para drift de schema, mas elas adicionam custo e complexidade operacional.
 
 **Objetivo:** reduzir consultas extras a `information_schema` quando não forem mais necessárias.
 
-**Ações:**
-- mapear quais checagens de coluna ainda são necessárias em produção;
-- substituir compatibilidade dinâmica por contrato explícito de migration quando possível;
-- remover fallback legado de trechos já consolidados.
+**Resultado entregue:** os fluxos críticos de `Rotinas`, `Treino` e da leitura principal de `user_pokemon` agora assumem o contrato atual do schema em pontos quentes, sem fallbacks dinâmicos remanescentes nesses caminhos.
 
-**Critério de conclusão:**
-- o código deixa de consultar metadados de schema em rotas críticas sem necessidade real.
+**Implementado até agora:**
+- remoção da checagem dinâmica de `exercises.metric_type` nos caminhos ativos de treino e analytics;
+- adoção explícita de `workout_days.workout_sheet_id` e `workout_day_exercises.workout_day_id` como contrato atual do builder;
+- remoção dos fallbacks antigos por nomes alternativos (`sheet_id` e `day_id`) nas leituras e mutations do builder;
+- remoção do helper legado `_first_existing_column()` em `utils/db.py`;
+- remoção das checagens dinâmicas das colunas genéticas (`iv_*`, `ev_*`, `nature`) em `user_pokemon`, agora tratadas como contrato do app;
+- formalização do contrato de `workout_sheets.created_by` e `workout_sheets.updated_at` via `scripts/migrate_workout_sheet_metadata.sql`;
+- remoção do último guard dinâmico de `workout_sheets` em `utils/db.py`.
+
+**Critério atendido:**
+- o código deixa de consultar metadados de schema nos caminhos ativos cobertos pela etapa;
+- o contrato atual de `metric_type`, vínculos do builder, genética de `user_pokemon` e metadados de `workout_sheets` passa a estar documentado no repositório.
 
 ---
 
@@ -353,7 +362,7 @@ Componentes compartilhados devem:
 4. Redução de N+1 em rotinas
 5. Cache de catálogos estáticos — concluído
 6. Separação entre leitura e escrita em missões/sidebar — concluído
-7. Simplificação de compatibilidade de schema
+7. Simplificação de compatibilidade de schema — em andamento
 8. Telemetria simples de performance
 
 ---

@@ -142,6 +142,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── migrate_weekly_challenge.sql          # Cria weekly_challenges e weekly_challenge_participants
     ├── seed_streak_shield.sql                # Insere item streak-shield em shop_items (executar uma vez)
     ├── migrate_metric_type.sql               # Adiciona metric_type TEXT NOT NULL DEFAULT 'weight' à tabela exercises
+    ├── migrate_workout_sheet_metadata.sql    # Padroniza created_by/updated_at em workout_sheets
     ├── seed_regional_forms.py                # Seed alternativo de formas regionais (deprecado — usar seed_regional_species.py)
     ├── seed_spawn_tiers.py                   # Refina is_spawnable/rarity_tier via PokéAPI (lendários/míticos)
     ├── seed_wmx_exercises.py                 # Cadastra exercícios do protocolo WMX (idempotente por name_pt)
@@ -252,7 +253,9 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 |---|---|---|
 | id | UUID PK | |
 | user_id | UUID FK | FK → user_profiles.id |
+| created_by | UUID FK | Usuário que criou a rotina; atualmente espelha `user_id` |
 | name | TEXT | Nome do plano |
+| updated_at | TIMESTAMPTZ | Atualizado em renomeações/edições da rotina |
 
 #### `workout_days`
 | Coluna | Tipo | Descrição |
@@ -301,6 +304,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | happiness | SMALLINT | Felicidade 0–255, default 70; afeta XP (≥180 → +5%, <50 → −5%) e evoluções por amizade |
 
 > **Fórmula de stat:** `((2×base + iv + ev//4) × level) // 100 + 5` para não-HP; `+ level + 10` para HP; multiplicado pelo modificador de nature (+10%/−10%) quando aplicável.
+> **Contrato atual do app:** `iv_*`, `ev_*` e `nature` são assumidos como presentes em `user_pokemon`; para bases legadas, rodar `scripts/seed_pokemon_instances.py`.
 > **Pokémon no banco:** `user_pokemon` que não aparecem em `user_team` = banco/depósito. Nunca deletar `user_pokemon` diretamente — apenas remover de `user_team`.
 
 #### `user_team`
@@ -511,7 +515,6 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 
 **Constantes de stats:**
 - `_STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")`
-- `_GENETIC_COLUMNS` — nomes das 13 colunas de IV/EV/nature em `user_pokemon`
 - `_ALL_NATURES` — 25 naturezas padrão Pokémon
 - `_NATURE_EFFECTS` — dict `{slug: (boosted_stat, nerfed_stat)}` para as 20 naturezas não-neutras
 
@@ -1096,6 +1099,7 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - Prefira helpers específicos como `clear_profile_cache()`, `clear_workout_cache()` e `clear_inventory_cache()`; `clear_user_cache()` fica reservado para fluxos amplos do mesmo usuário
 - Para catálogos quase estáticos, prefira `get_cached_exercises()`, `get_cached_distinct_body_parts()` e `get_cached_shop_items()`; ao alterar o catálogo por admin, use `clear_catalog_cache()`
 - Missões atuais devem ser garantidas por `ensure_current_user_missions(user_id)` em ponto controlado do fluxo; `get_user_missions()` e `render_quest_sidebar()` devem permanecer leitura pura
+- Nos fluxos atuais de builder, assuma `workout_days.workout_sheet_id`, `workout_day_exercises.workout_day_id` e `exercises.metric_type` como contrato do schema; evite reintroduzir fallbacks por alias legado sem migration/documentação
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
 ---
@@ -1141,8 +1145,9 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `migrate_weekly_challenge.sql`: cria tabelas `weekly_challenges` e `weekly_challenge_participants`.
 `seed_streak_shield.sql`: insere item `streak-shield` em `shop_items` (executar uma vez).
 `migrate_metric_type.sql`: adiciona coluna `metric_type` à tabela `exercises` (executar uma vez; idempotente via `ADD COLUMN IF NOT EXISTS`).
+`migrate_workout_sheet_metadata.sql`: padroniza `workout_sheets.created_by` e `workout_sheets.updated_at` para o contrato atual do app.
 
-Para um ambiente novo alinhado ao app atual, aplique pelo menos as migrations/seed acima relacionadas a releases posteriores: `migrate_happiness.sql`, `migrate_rival.sql`, `migrate_weekly_challenge.sql`, `migrate_metric_type.sql` e `seed_streak_shield.sql`.
+Para um ambiente novo alinhado ao app atual, aplique pelo menos as migrations/seed acima relacionadas a releases posteriores: `migrate_happiness.sql`, `migrate_rival.sql`, `migrate_weekly_challenge.sql`, `migrate_metric_type.sql`, `migrate_workout_sheet_metadata.sql` e `seed_streak_shield.sql`.
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
