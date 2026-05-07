@@ -2,7 +2,7 @@ import os
 import streamlit as st
 from utils.db import (
     get_all_pokemon, get_pokemon_details, get_pokemon_moves,
-    get_full_evolution_chain, get_image_as_base64, sprite_img_tag,
+    get_full_evolution_chain, sprite_img_tag,
 )
 from utils.type_colors import get_type_color, TYPE_COLORS
 
@@ -63,10 +63,9 @@ def _type_icon_path(type_name: str) -> str:
 def _dmg_icon_path(damage_class: str) -> str:
     return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "Others", "damage-category-icons", "1x", f"{damage_class.capitalize()}.png")
 
-def _img_tag(b64: str | None, width: int = 20) -> str:
-    if not b64:
-        return ""
-    return f"<img src='data:image/png;base64,{b64}' width='{width}' style='vertical-align:middle'>"
+@st.cache_data(ttl=3600, show_spinner=False)
+def _asset_img_tag(asset_path: str, width: int = 20) -> str:
+    return sprite_img_tag(_resolve_asset(asset_path), width=width, extra_style="vertical-align:middle")
 
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
@@ -231,8 +230,7 @@ def _render_sidebar(pokemon_dict: dict) -> int:
 
 def _type_badge(type_name: str, size: str = "md") -> str:
     c = get_type_color(type_name)
-    icon_b64 = get_image_as_base64(_type_icon_path(type_name))
-    icon = _img_tag(icon_b64, 14) if icon_b64 else ""
+    icon = _asset_img_tag(_type_icon_path(type_name), 14)
     pad = "5px 14px" if size == "md" else "3px 10px"
     fs = "0.78rem" if size == "md" else "0.7rem"
     return (
@@ -299,16 +297,23 @@ def _render_pokedex(pid: int):
     with col_moves:
         st.markdown("<div class='section-label'>Movepool (Level Up)</div>", unsafe_allow_html=True)
         if moves:
+            move_types = {m_type for _, _, _, m_type, _, _ in moves if m_type}
+            move_classes = {m_class for _, _, m_class, _, _, _ in moves if m_class}
+            type_icon_map = {
+                m_type: _asset_img_tag(_type_icon_path(m_type), 16)
+                for m_type in move_types
+            }
+            dmg_icon_map = {
+                m_class: _asset_img_tag(_dmg_icon_path(m_class), 18)
+                for m_class in move_classes
+            }
             html = "<div class='moves-wrap'>"
             for m_name, m_lv, m_class, m_type, m_pow, m_acc in moves:
                 tc = get_type_color(m_type)
                 border_color = tc["bg"]
 
-                type_b64 = get_image_as_base64(_type_icon_path(m_type)) if m_type else None
-                dmg_b64 = get_image_as_base64(_dmg_icon_path(m_class)) if m_class else None
-
-                type_icon = _img_tag(type_b64, 16)
-                dmg_icon = _img_tag(dmg_b64, 18)
+                type_icon = type_icon_map.get(m_type, "")
+                dmg_icon = dmg_icon_map.get(m_class, "")
 
                 pow_str = str(m_pow) if m_pow else "—"
                 acc_str = f"{m_acc}%" if m_acc else "—"

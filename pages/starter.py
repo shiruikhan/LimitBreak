@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 from utils.app_cache import clear_user_cache
-from utils.db import create_user_profile, get_image_as_base64, sprite_img_tag
+from utils.db import create_user_profile, sprite_img_tag
 
 BASE_DIR = os.getcwd()
 

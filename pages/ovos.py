@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 
-from utils.db import get_user_eggs, get_image_as_base64, sprite_img_tag
+from utils.db import get_user_eggs, sprite_img_tag
 
 BASE_DIR = os.getcwd()
 

@@ -1,5 +1,4 @@
 import os
-import base64
 import streamlit as st
 import psycopg2
 from dotenv import load_dotenv
@@ -10,6 +9,7 @@ from dotenv import load_dotenv
 st.set_page_config(layout="wide", page_title="LimitBreak Pokédex", page_icon="🏋️‍♂️")
 load_dotenv()
 base_dir = os.getcwd()
+_GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
 # CSS Customizado com Efeitos de Hover
 st.markdown("""
@@ -58,7 +58,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CONEXÃO E FUNÇÕES BASE64
+# 2. CONEXÃO E HELPERS DE IMAGEM
 # ==========================================
 @st.cache_resource
 def init_connection():
@@ -70,12 +70,19 @@ def init_connection():
 conn = init_connection()
 
 @st.cache_data
-def get_image_as_base64(path):
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except Exception:
-        return None
+def get_asset_src(path):
+    if path.startswith(("http://", "https://")):
+        return path
+    if os.path.isfile(path):
+        norm = path.replace("\\", "/")
+        if "assets/" in norm:
+            rel = norm.split("assets/", 1)[1]
+            return f"{_GITHUB_ASSETS_CDN}/assets/{rel}"
+    norm = path.replace("\\", "/")
+    if "assets/" in norm:
+        rel = norm.split("assets/", 1)[1]
+        return f"{_GITHUB_ASSETS_CDN}/assets/{rel}"
+    return None
 
 # ==========================================
 # 3. QUERIES SQL
@@ -206,9 +213,9 @@ if selected_id:
                 if m_class:
                     icon_name = f"{m_class.capitalize()}.png"
                     icon_path = os.path.join(base_dir, "src", "Pokemon", "assets", "Others", "damage-category-icons", "1x", icon_name)
-                    b64_icon = get_image_as_base64(icon_path)
-                    if b64_icon:
-                        icon_tag = f"<img src='data:image/png;base64,{b64_icon}' width='20' style='margin-left: 10px;'>"
+                    icon_src = get_asset_src(icon_path)
+                    if icon_src:
+                        icon_tag = f"<img src='{icon_src}' width='20' style='margin-left: 10px;'>"
                 
                 # CORREÇÃO: Escrito tudo em uma única linha, sem identação, para não quebrar a formatação do Markdown
                 moves_html += f"<div class='move-card'><div style='font-weight: bold; color: #78C850; width: 50px;'>Lv. {m_level}</div><div style='font-weight: bold; font-size: 1.1rem; flex-grow: 1;'>{m_name}</div>{icon_tag}</div>"
@@ -267,9 +274,9 @@ if selected_id:
                 for p_id in stage_nodes:
                     p_name = nodes[p_id]
                     thumb_path = os.path.join(base_dir, "src", "Pokemon", "assets", "thumbnails", f"{str(p_id).zfill(4)}.png")
-                    b64_thumb = get_image_as_base64(thumb_path)
-                    
-                    img_html = f"<img src='data:image/png;base64,{b64_thumb}' width='100'>" if b64_thumb else "📷"
+                    thumb_src = get_asset_src(thumb_path)
+
+                    img_html = f"<img src='{thumb_src}' width='100'>" if thumb_src else "📷"
                     color = "#78C850" if p_id == selected_id else "#888" # Destaca em verde quem está selecionado
                     
                     st.markdown(f"<div style='text-align: center;'>{img_html}<br><b style='color: {color};'>#{p_id} {p_name.upper()}</b></div>", unsafe_allow_html=True)

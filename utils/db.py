@@ -492,42 +492,31 @@ def _insert_user_pokemon(
 _GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
 
+def _asset_fallback_url(path: str) -> str | None:
+    norm = path.replace("\\", "/")
+    if "assets/" not in norm:
+        return None
+    rel = norm.split("assets/", 1)[1]
+    return f"{_GITHUB_ASSETS_CDN}/assets/{rel}"
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_image_as_base64(path: str) -> str | None:
-    """Converte uma imagem em base64.
+    """Converte um asset local em base64.
 
-    Aceita:
-    - Caminho local (dev): tenta abrir o arquivo
-    - URL http/https: faz GET e converte
-    - Caminho local não encontrado: faz fallback automático para o CDN
-      público do HybridShivam/Pokemon no GitHub (Streamlit Cloud)
+    O objetivo deste helper e atender apenas casos legados de arquivos locais.
+    Para URLs HTTP/S use `sprite_img_tag()` ou `st.image(url)` para deixar o
+    browser lidar com cache e carregamento.
     """
-    import requests as _req
-
     try:
-        # ── 1. URL remota explícita ───────────────────────────────────────────
         if path.startswith(("http://", "https://")):
-            r = _req.get(path, timeout=10)
-            return base64.b64encode(r.content).decode() if r.status_code == 200 else None
+            return None
 
-        # ── 2. Arquivo local ──────────────────────────────────────────────────
         try:
             with open(path, "rb") as f:
                 return base64.b64encode(f.read()).decode()
         except FileNotFoundError:
-            pass
-
-        # ── 3. Fallback: GitHub CDN (produção no Streamlit Cloud) ─────────────
-        # Transforma qualquer caminho local que contenha "assets/" em URL remota.
-        # Ex.: C:\...\src\Pokemon\assets\images\0001.png
-        #   →  https://raw.githubusercontent.com/.../assets/images/0001.png
-        norm = path.replace("\\", "/")
-        if "assets/" in norm:
-            rel = norm.split("assets/", 1)[1]
-            r = _req.get(f"{_GITHUB_ASSETS_CDN}/assets/{rel}", timeout=10)
-            return base64.b64encode(r.content).decode() if r.status_code == 200 else None
-
-        return None
+            return None
 
     except Exception:
         return None
@@ -553,6 +542,10 @@ def sprite_img_tag(
 
     if sprite_url.startswith(("http://", "https://")):
         return f'<img src="{sprite_url}" width="{width}"{style_attr}>'
+
+    fallback_url = _asset_fallback_url(sprite_url)
+    if fallback_url:
+        return f'<img src="{fallback_url}" width="{width}"{style_attr}>'
 
     # Caminho local — converte para base64
     b64 = get_image_as_base64(sprite_url)

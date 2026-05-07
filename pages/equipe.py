@@ -12,7 +12,7 @@ from utils.app_cache import (
 from utils.db import (
     _MAX_STAT_BOOSTS_PER_STAT,
     swap_team_slots,
-    remove_from_team, add_to_team, get_image_as_base64, sprite_img_tag, hq_sprite_url,
+    remove_from_team, add_to_team, sprite_img_tag, hq_sprite_url,
     get_available_moves, get_active_moves, equip_move, unequip_move,
     get_user_eggs,
 )
@@ -22,6 +22,7 @@ from utils.quest_tracker import render_quest_sidebar
 
 BASE_DIR   = os.getcwd()
 XP_PER_LV  = 100   # XP needed = level * XP_PER_LV
+_GITHUB_ASSETS_CDN = "https://raw.githubusercontent.com/HybridShivam/Pokemon/master"
 
 _cookie_manager = stx.CookieManager(key="lb_cookies_logout")
 
@@ -37,21 +38,32 @@ def _thumb_path(pokemon_id: int) -> str:
     return os.path.join(BASE_DIR, "src", "Pokemon", "assets", "thumbnails",
                         f"{str(pokemon_id).zfill(4)}.png")
 
+def _resolve_asset(local_path: str) -> str:
+    if os.path.isfile(local_path):
+        return local_path
+    norm = local_path.replace("\\", "/")
+    if "assets/" in norm:
+        rel = norm.split("assets/", 1)[1]
+        return f"{_GITHUB_ASSETS_CDN}/assets/{rel}"
+    return local_path
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _asset_img_tag(path: str, width: int) -> str:
+    return sprite_img_tag(_resolve_asset(path), width=width, extra_style="vertical-align:middle")
+
 def _dmg_icon(damage_class: str | None) -> str:
     if not damage_class:
         return ""
     path = os.path.join(BASE_DIR, "src", "Pokemon", "assets", "Others",
                         "damage-category-icons", "1x", f"{damage_class.capitalize()}.png")
-    b64 = get_image_as_base64(path)
-    return f"<img src='data:image/png;base64,{b64}' width='18' style='vertical-align:middle'>" if b64 else ""
+    return _asset_img_tag(path, 18)
 
 def _type_icon(type_name: str | None) -> str:
     if not type_name:
         return ""
     path = os.path.join(BASE_DIR, "src", "Pokemon", "assets", "Others",
                         "type-icons", "png", f"{type_name.lower()}.png")
-    b64 = get_image_as_base64(path)
-    return f"<img src='data:image/png;base64,{b64}' width='16' style='vertical-align:middle'>" if b64 else ""
+    return _asset_img_tag(path, 16)
 
 def _xp_progress(level: int, xp: int) -> float:
     needed = level * XP_PER_LV

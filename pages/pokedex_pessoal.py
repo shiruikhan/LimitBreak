@@ -2,7 +2,7 @@ import os
 import re
 import streamlit as st
 from utils.app_cache import get_cached_user_pokemon_ids
-from utils.db import get_all_pokemon_with_types, get_image_as_base64, sprite_img_tag
+from utils.db import get_all_pokemon_with_types, sprite_img_tag
 from utils.type_colors import TYPE_COLORS, get_type_color
 
 BASE_DIR = os.getcwd()

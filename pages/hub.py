@@ -15,7 +15,7 @@ from utils.app_cache import (
 )
 from utils.db import (
     _MAX_BATTLES_PER_DAY, _today_brt,
-    assign_weekly_rival, get_rival_status, get_image_as_base64,
+    assign_weekly_rival, get_rival_status, sprite_img_tag,
     check_and_award_achievements, do_checkin,
     get_current_challenge, claim_weekly_challenge_reward,
     update_mission_progress,
@@ -508,12 +508,11 @@ def _render_rival_banner() -> None:
 
     sprite_html = ""
     if rival.get("rival_sprite"):
-        b64 = get_image_as_base64(rival["rival_sprite"])
-        if b64:
-            sprite_html = (
-                f"<img src='data:image/png;base64,{b64}' "
-                f"style='width:40px;height:40px;object-fit:contain;image-rendering:pixelated'>"
-            )
+        sprite_html = sprite_img_tag(
+            rival["rival_sprite"],
+            width=40,
+            extra_style="height:40px;object-fit:contain;image-rendering:pixelated",
+        )
 
     st.markdown(
         f"<div class='hub-rival {css_cls}'>"

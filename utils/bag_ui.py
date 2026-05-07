@@ -1,5 +1,3 @@
-import os
-
 import streamlit as st
 
 from utils.app_cache import (
@@ -13,10 +11,11 @@ from utils.app_cache import (
 )
 from utils.db import (
     evolve_with_stone,
-    get_image_as_base64,
     get_shop_items,
     get_stone_targets,
     open_loot_box,
+    hq_sprite_url,
+    sprite_img_tag,
     use_nature_mint,
     use_stat_item,
     use_xp_share_item,
@@ -29,9 +28,6 @@ _ALL_NATURES = (
     "Modest", "Mild", "Quiet", "Bashful", "Rash",
     "Calm", "Gentle", "Sassy", "Careful", "Quirky",
 )
-
-BASE_DIR = os.getcwd()
-
 
 def ensure_bag_session_state() -> None:
     for key, val in [("shop_msg", None), ("shop_msg_type", "success")]:
@@ -331,20 +327,25 @@ def render_bag_view(user_id: str) -> None:
                     )
                     chosen = options[chosen_label]
 
-                    b64 = None
+                    sprite_html = ""
                     if chosen["sprite_url"]:
-                        sp = os.path.join(BASE_DIR, chosen["sprite_url"].lstrip("/\\"))
-                        hq = sp.replace("/images/", "/imagesHQ/").replace("\\images\\", "\\imagesHQ\\")
-                        b64 = get_image_as_base64(hq) or get_image_as_base64(sp)
+                        sprite_html = (
+                            sprite_img_tag(
+                                hq_sprite_url(chosen["sprite_url"]),
+                                width=80,
+                                extra_style="image-rendering:pixelated",
+                            )
+                            or sprite_img_tag(
+                                chosen["sprite_url"],
+                                width=80,
+                                extra_style="image-rendering:pixelated",
+                            )
+                        )
 
                     col_img, col_info = st.columns([1, 3])
                     with col_img:
-                        if b64:
-                            st.markdown(
-                                f"<img src='data:image/png;base64,{b64}' "
-                                f"style='width:80px;image-rendering:pixelated'>",
-                                unsafe_allow_html=True,
-                            )
+                        if sprite_html:
+                            st.markdown(sprite_html, unsafe_allow_html=True)
                     with col_info:
                         st.markdown(
                             f"<div style='font-size:.85rem;color:#8b949e;margin-top:8px'>"

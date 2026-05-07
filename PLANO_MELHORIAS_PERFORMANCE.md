@@ -1,6 +1,6 @@
 # LimitBreak — Plano de Melhorias de Performance
 
-> Atualizado: 07 de maio de 2026.
+> Atualizado: 07 de maio de 2026. Sync após implementação das Etapas 1 e 2.
 >
 > Documento de referência para implementação e manutenção futura das melhorias de performance do projeto. O foco é reduzir latência percebida, custo de rerender no Streamlit e carga desnecessária no banco Supabase/PostgreSQL.
 
@@ -27,12 +27,16 @@ O projeto já possui uma base boa de otimização para a stack atual:
 - catálogos e consultas centrais já separados parcialmente em `utils/app_cache.py` e `utils/db.py`.
 
 Os principais gargalos atuais estão concentrados em:
-- invalidação excessiva de cache;
-- custo alto de imagem e conversão para base64;
 - queries com filtros pouco amigáveis para índice;
 - consultas em cascata em páginas com árvore de dados;
 - mistura de escrita com leitura em componentes compartilhados;
 - crescimento de custo conforme aumenta o histórico de treino e uso do app.
+
+Melhorias já concluídas nesta frente:
+- invalidação de cache por domínio e por usuário em `utils/app_cache.py`;
+- remoção do uso ativo de base64 para URLs remotas nas páginas principais;
+- padronização de `sprite_img_tag()` para preferir `src` direto em assets HTTP/S;
+- redução de conversões repetidas de ícones locais em telas como `Pokédex` e `Equipe`.
 
 ---
 
@@ -71,8 +75,8 @@ Os principais gargalos atuais estão concentrados em:
 
 | Prioridade | Frente | Impacto | Esforço | Status |
 |---|---|---|---|---|
-| P0 | Invalidação de cache por domínio e por usuário | Alto | Médio | Aberto |
-| P0 | Rework de imagens e remoção de base64 em massa | Alto | Baixo a médio | Aberto |
+| P0 | Invalidação de cache por domínio e por usuário | Alto | Médio | Concluído |
+| P0 | Rework de imagens e remoção de base64 em massa | Alto | Baixo a médio | Concluído |
 | P0 | Índices e revisão de queries de treino | Alto | Médio | Aberto |
 | P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Aberto |
 | P1 | Cache de catálogos quase estáticos | Médio | Baixo | Aberto |
@@ -86,20 +90,24 @@ Os principais gargalos atuais estão concentrados em:
 
 ### Etapa 1. Corrigir invalidação de cache
 
-**Problema atual:** `clear_user_cache()` limpa todos os caches compartilhados, inclusive dados de outros usuários e de outras áreas do sistema.
+**Status:** concluída.
 
-**Objetivo:** invalidar apenas o que realmente mudou.
+**Problema original:** `clear_user_cache()` limpava todos os caches compartilhados, inclusive dados de outros usuários e de outras áreas do sistema.
 
-**Ações:**
-- substituir a limpeza global por helpers específicos, como:
+**Resultado entregue:** a invalidação agora acontece por domínio e por usuário, mantendo uma função agregadora apenas para fluxos realmente amplos do mesmo usuário.
+
+**Implementado:**
+- criação de helpers específicos como:
   - `clear_profile_cache(user_id)`;
   - `clear_team_cache(user_id)`;
   - `clear_inventory_cache(user_id)`;
   - `clear_missions_cache(user_id)`;
   - `clear_workout_cache(user_id)`;
-  - `clear_checkin_cache(user_id)`;
-- manter uma função agregadora apenas para fluxos realmente amplos;
-- revisar páginas e mutations que hoje chamam `clear_user_cache()`.
+  - `clear_checkin_cache(user_id, year, month)`;
+  - `clear_battle_cache(user_id)`;
+  - `clear_achievements_cache(user_id)`;
+- manutenção de `clear_user_cache(user_id, ...)` apenas como agregadora por usuário;
+- revisão dos principais call sites de mutation em `Treino`, `Calendário`, `Hub`, `Loja`, `Equipe`, `Batalha`, `Missões`, `Mochila`, `Login` e `Starter`.
 
 **Arquivos principais:**
 - `utils/app_cache.py`
@@ -111,30 +119,34 @@ Os principais gargalos atuais estão concentrados em:
 - `pages/batalha.py`
 - `pages/missoes.py`
 
-**Critério de conclusão:**
+**Critério atendido:**
 - mutações deixam de invalidar caches que não pertencem ao mesmo usuário ou domínio;
-- abrir o app com mais de um usuário não dispara recarga global desnecessária.
+- a limpeza global não é mais o caminho padrão para ações de usuário.
 
 ### Etapa 2. Reestruturar pipeline de imagens
 
-**Problema atual:** parte das telas ainda converte imagens para base64 repetidamente em loops, o que custa I/O, CPU e memória.
+**Status:** concluída.
 
-**Objetivo:** preferir URL direta e cachear apenas o que realmente precisa de leitura local.
+**Problema original:** parte das telas ainda convertia imagens para base64 repetidamente em loops, o que custava I/O, CPU e memória.
 
-**Ações:**
-- usar `src` direto para imagens HTTP sempre que possível;
-- aplicar `@st.cache_data` em `get_image_as_base64()` para assets locais pequenos e estáveis;
-- evitar chamar `get_image_as_base64()` repetidamente dentro de loops de cards;
-- pré-montar mapas de ícones por tipo/dano quando usados em massa;
-- revisar telas de maior custo visual:
-  - `pages/pokedex.py`
-  - `pages/pokedex_pessoal.py`
-  - `pages/equipe.py`
+**Resultado entregue:** o app agora prefere `src` direto para URLs remotas e mantém `base64` apenas como fallback local no helper central.
+
+**Implementado:**
+- padronização de `sprite_img_tag()` para usar `src` direto em URLs HTTP/S;
+- ajuste de `get_image_as_base64()` para deixar de converter URLs remotas em fluxos ativos;
+- remoção do uso ativo de `base64` em páginas principais como:
+  - `pages/hub.py`
+  - `pages/leaderboard.py`
   - `utils/bag_ui.py`
+- redução de conversões repetidas em loops com helpers cacheados e pré-mapas de ícones em:
+  - `pages/pokedex.py`
+  - `pages/equipe.py`
+- limpeza de imports e atualização de código legado relacionado a `app_pokedex.py`.
 
-**Critério de conclusão:**
+**Critério atendido:**
 - assets remotos deixam de ser rebaixados para base64 sem necessidade;
-- páginas com muitos cards passam a usar predominantemente URLs ou conteúdo cacheado.
+- páginas com muitos cards passam a usar predominantemente URLs ou conteúdo cacheado;
+- `base64` permanece somente como fallback para assets locais.
 
 ### Etapa 3. Revisar queries de treino e adicionar índices
 
@@ -316,8 +328,8 @@ Componentes compartilhados devem:
 
 ## Ordem Recomendada de Execução
 
-1. Invalidação de cache por domínio e por usuário
-2. Rework do pipeline de imagens
+1. Invalidação de cache por domínio e por usuário — concluído
+2. Rework do pipeline de imagens — concluído
 3. Índices e revisão das queries de treino
 4. Redução de N+1 em rotinas
 5. Cache de catálogos estáticos
