@@ -1,6 +1,7 @@
 import streamlit as st
 from utils.app_cache import (
-    clear_user_cache,
+    clear_inventory_cache,
+    clear_profile_cache,
     get_cached_user_inventory,
     get_cached_user_profile,
     get_cached_user_team,
@@ -169,7 +170,8 @@ with tab_shop:
                         use_container_width=True,
                     ):
                         ok, msg = buy_item(user_id, item["id"])
-                        clear_user_cache()
+                        clear_profile_cache(user_id)
+                        clear_inventory_cache(user_id)
                         st.session_state.shop_msg      = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
@@ -233,7 +235,8 @@ with tab_shop:
                 use_container_width=True,
             ):
                 ok, msg = buy_item(user_id, item["id"])
-                clear_user_cache()
+                clear_profile_cache(user_id)
+                clear_inventory_cache(user_id)
                 st.session_state.shop_msg      = msg
                 st.session_state.shop_msg_type = "success" if ok else "error"
                 st.rerun()

@@ -355,7 +355,7 @@ else:
     # Salva no banco apenas uma vez
     if not st.session_state.get("battle_saved"):
         saved = finalize_battle(bs)
-        clear_user_cache()
+        clear_user_cache(user_id)
         st.session_state.battle_saved  = True
         st.session_state.battle_result = saved
         new_ach = check_and_award_achievements(user_id)

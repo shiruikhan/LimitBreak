@@ -11,12 +11,12 @@ from utils.db import (
     get_last_exercise_values,
 )
 from utils.app_cache import (
+    clear_user_cache,
+    get_cached_daily_xp_from_exercise,
     get_cached_recent_muscle_balance,
+    get_cached_workout_history,
     get_cached_workout_sheets,
     get_cached_workout_streak,
-    get_cached_daily_xp_from_exercise,
-    get_cached_workout_history,
-    clear_user_cache,
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc, WORKOUT_ABILITIES as _WORKOUT_ABILITIES
@@ -585,7 +585,7 @@ if active_view == "🏋️ Treino":
                 for suf in ("sets", "reps", "weight", "dist", "dur"):
                     st.session_state.pop(f"w_{suf}_{rid}", None)
             st.session_state.workout_rows = []
-            clear_user_cache()
+            clear_user_cache(user_id, year=today.year, month=today.month)
         st.rerun()
 
     # ── result display ─────────────────────────────────────────────────────────

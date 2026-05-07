@@ -137,7 +137,7 @@ with center:
                         res = client.auth.sign_up({"email": email_s, "password": senha_s})
 
                         if res.user:
-                            clear_user_cache()
+                            clear_user_cache(str(res.user.id))
                             st.session_state.user          = res.user
                             st.session_state.user_id       = str(res.user.id)
                             if res.session:

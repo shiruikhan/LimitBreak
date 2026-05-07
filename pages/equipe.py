@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import extra_streamlit_components as stx
 from utils.app_cache import (
-    clear_user_cache,
+    clear_team_cache,
     get_cached_team_stat_boost_counts,
     get_cached_user_bench,
     get_cached_user_profile,
@@ -640,7 +640,7 @@ for slot in range(1, 7):
                 if slot > 1:
                     if st.button("↑ Main", key=f"promote_{slot}", use_container_width=True):
                         swap_team_slots(user_id, 1, slot)
-                        clear_user_cache()
+                        clear_team_cache(user_id)
                         if st.session_state.sel_team_slot == slot:
                             st.session_state.sel_team_slot = 1
                         st.session_state.replacing_move_id = None
@@ -648,7 +648,7 @@ for slot in range(1, 7):
             with b3:
                 if st.button("🗑", key=f"remove_{slot}", use_container_width=True):
                     remove_from_team(user_id, slot)
-                    clear_user_cache()
+                    clear_team_cache(user_id)
                     if st.session_state.sel_team_slot == slot:
                         st.session_state.sel_team_slot = None
                     st.rerun()
@@ -912,7 +912,7 @@ else:
                 use_container_width=True,
             ):
                 ok, msg = add_to_team(user_id, pk["user_pokemon_id"])
-                clear_user_cache()
+                clear_team_cache(user_id)
                 if ok:
                     st.success(msg)
                 else:

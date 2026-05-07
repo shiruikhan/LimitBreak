@@ -303,7 +303,7 @@ else:
             ):
                 ok, msg, reward = claim_mission_reward(user_id, mid)
                 if ok and reward:
-                    clear_user_cache()
+                    clear_user_cache(user_id)
                     st.toast("🎉 Recompensa coletada!", icon="✅")
                     _show_claim_result(reward)
                     st.rerun()
@@ -344,7 +344,7 @@ else:
             ):
                 ok, msg, reward = claim_mission_reward(user_id, mid)
                 if ok and reward:
-                    clear_user_cache()
+                    clear_user_cache(user_id)
                     st.toast("🎉 Recompensa semanal coletada!", icon="✅")
                     _show_claim_result(reward)
                     st.rerun()

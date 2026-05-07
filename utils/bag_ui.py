@@ -3,6 +3,9 @@ import os
 import streamlit as st
 
 from utils.app_cache import (
+    clear_inventory_cache,
+    clear_profile_cache,
+    clear_team_cache,
     clear_user_cache,
     get_cached_user_inventory,
     get_cached_user_profile,
@@ -200,7 +203,8 @@ def render_bag_view(user_id: str) -> None:
                     use_container_width=True,
                 ):
                     ok, msg = use_stat_item(user_id, iid, target_id)
-                    clear_user_cache()
+                    clear_inventory_cache(user_id)
+                    clear_team_cache(user_id)
                     st.session_state.shop_msg = msg
                     st.session_state.shop_msg_type = "success" if ok else "error"
                     st.rerun()
@@ -297,7 +301,8 @@ def render_bag_view(user_id: str) -> None:
                         type="primary",
                     ):
                         ok, msg = use_nature_mint(user_id, iid, mint_target_id, new_nature)
-                        clear_user_cache()
+                        clear_inventory_cache(user_id)
+                        clear_team_cache(user_id)
                         st.session_state.shop_msg = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()
@@ -356,7 +361,8 @@ def render_bag_view(user_id: str) -> None:
                         type="primary",
                     ):
                         ok, msg, evo_data = evolve_with_stone(user_id, iid, chosen["user_pokemon_id"])
-                        clear_user_cache()
+                        clear_inventory_cache(user_id)
+                        clear_team_cache(user_id)
                         st.session_state.shop_msg = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         if ok and evo_data:
@@ -385,7 +391,7 @@ def render_bag_view(user_id: str) -> None:
                     use_container_width=True,
                 ):
                     ok, msg, loot = open_loot_box(user_id, iid)
-                    clear_user_cache()
+                    clear_user_cache(user_id)
                     xp_res = (loot or {}).get("xp_result", {})
                     evolutions = xp_res.get("evolutions", [])
                     if evolutions:
@@ -424,7 +430,8 @@ def render_bag_view(user_id: str) -> None:
                         use_container_width=True,
                     ):
                         ok, msg = use_xp_share_item(user_id, iid)
-                        clear_user_cache()
+                        clear_inventory_cache(user_id)
+                        clear_profile_cache(user_id)
                         st.session_state.shop_msg = msg
                         st.session_state.shop_msg_type = "success" if ok else "error"
                         st.rerun()

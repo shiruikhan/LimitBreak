@@ -3,6 +3,8 @@ import datetime
 import os
 import streamlit as st
 from utils.app_cache import (
+    clear_checkin_cache,
+    clear_team_cache,
     clear_user_cache,
     get_cached_checkin_streak,
     get_cached_monthly_checkins,
@@ -214,7 +216,7 @@ with col_checkin:
         )
         if st.button("✔ Fazer Check-in", type="primary", use_container_width=False):
             res = do_checkin(user_id)
-            clear_user_cache()
+            clear_user_cache(user_id, year=today.year, month=today.month)
             st.session_state.checkin_result = res
             if res.get("success"):
                 new_ach = check_and_award_achievements(user_id)
@@ -241,7 +243,8 @@ with col_rest:
         )
         if st.button("😴 Registrar Descanso", use_container_width=False):
             rr = register_rest(user_id)
-            clear_user_cache()
+            clear_checkin_cache(user_id, year=today.year, month=today.month)
+            clear_team_cache(user_id)
             st.session_state.rest_result = rr
             st.rerun()
 

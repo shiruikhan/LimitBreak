@@ -3,6 +3,7 @@ import calendar
 import streamlit as st
 
 from utils.app_cache import (
+    clear_inventory_cache,
     clear_user_cache,
     get_cached_checkin_streak,
     get_cached_daily_battle_count,
@@ -238,7 +239,7 @@ SECTION_CARDS = [
 
 def _run_hub_checkin() -> None:
     res = do_checkin(user_id)
-    clear_user_cache()
+    clear_user_cache(user_id, year=today.year, month=today.month)
     st.session_state.hub_checkin_result = res
     if res.get("success"):
         new_ach = check_and_award_achievements(user_id)
@@ -574,7 +575,7 @@ def _render_challenge_banner() -> None:
     if completed and not claimed and contributed > 0:
         if st.button("🥚 Coletar Ovo do Desafio", use_container_width=False):
             ok, msg, reward = claim_weekly_challenge_reward(user_id)
-            clear_user_cache()
+            clear_inventory_cache(user_id)
             if ok:
                 st.toast(msg, icon="🥚")
             else:

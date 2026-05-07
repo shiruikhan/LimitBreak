@@ -214,7 +214,7 @@ if st.button("Começar jornada →", disabled=not can_confirm, use_container_wid
             username.strip(),
             st.session_state.selected_starter,
         )
-        clear_user_cache()
+        clear_user_cache(st.session_state.user_id)
         st.session_state.needs_starter    = False
         st.session_state.starter_checked  = True
         st.session_state.selected_starter = None
