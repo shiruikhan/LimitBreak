@@ -34,6 +34,7 @@ Aplicativo web em Streamlit para acompanhamento de treinos com gamificação ins
 - Pipeline de imagens ja prioriza `src` direto para URLs remotas e deixa `base64` apenas como fallback local
 - Fluxos de rotinas e treino ja usam carregamento agregado para evitar cascatas de leitura
 - Catalogos quase estaticos como exercicios, partes do corpo e loja agora usam cache compartilhado com invalidação explicita
+- Sidebar de missoes e pagina de missoes agora usam leitura pura; o bootstrap das missoes ocorre em ponto controlado do app
 
 ---
 

@@ -80,7 +80,7 @@ Melhorias já concluídas nesta frente:
 | P0 | Índices e revisão de queries de treino | Alto | Médio | Em andamento |
 | P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Concluído |
 | P1 | Cache de catálogos quase estáticos | Médio | Baixo | Concluído |
-| P1 | Separação entre leitura e escrita em missões/sidebar | Médio | Médio | Aberto |
+| P1 | Separação entre leitura e escrita em missões/sidebar | Médio | Médio | Concluído |
 | P2 | Remoção de compatibilidade de schema desnecessária | Baixo a médio | Médio | Futuro |
 | P2 | Telemetria simples de performance | Médio | Baixo | Futuro |
 
@@ -242,21 +242,22 @@ Melhorias já concluídas nesta frente:
 
 ### Etapa 6. Separar leitura de escrita em componentes compartilhados
 
-**Problema atual:** componentes de leitura, como o tracker de missões na sidebar, podem provocar escrita no banco em seu caminho de carregamento.
+**Status:** concluída.
 
-**Objetivo:** tornar render previsível e barato.
+**Problema original:** componentes de leitura, como o tracker de missões na sidebar, podiam provocar escrita no banco em seu caminho de carregamento.
 
-**Ações:**
-- mover geração automática de missões para ponto controlado do fluxo:
-  - login;
-  - primeiro acesso diário;
-  - primeiro acesso semanal;
-  - ou função explícita de bootstrap;
-- fazer `render_quest_sidebar()` depender só de leitura;
-- revisar outras funções de leitura com `commit()` embutido.
+**Resultado entregue:** a garantia das missões atuais saiu do caminho de leitura e passou para um bootstrap controlado do app, mantendo sidebar e página de missões como leitura pura durante o render.
 
-**Critério de conclusão:**
-- abrir uma página não causa escrita oculta no banco apenas para renderizar sidebar.
+**Implementado:**
+- extração de `get_current_mission_periods()` e `ensure_current_user_missions(user_id)` em `utils/db.py`;
+- remoção do `_ensure_missions()` de dentro de `get_user_missions()`, que passou a ser leitura pura;
+- bootstrap de missões no fluxo principal de `app.py`, controlado por período diário/semanal em `session_state`;
+- limpeza específica de cache com `clear_missions_cache(user_id)` após bootstrap;
+- auditoria dos componentes compartilhados restantes sem novos casos de escrita oculta em render.
+
+**Critério atendido:**
+- abrir uma página não causa escrita oculta no banco apenas para renderizar sidebar;
+- `render_quest_sidebar()` e `pages/missoes.py` dependem apenas de leitura cacheada no caminho de renderização.
 
 ### Etapa 7. Simplificar compatibilidade de schema quando a base estabilizar
 
@@ -351,7 +352,7 @@ Componentes compartilhados devem:
 3. Índices e revisão das queries de treino — em andamento
 4. Redução de N+1 em rotinas
 5. Cache de catálogos estáticos — concluído
-6. Separação entre leitura e escrita em missões/sidebar
+6. Separação entre leitura e escrita em missões/sidebar — concluído
 7. Simplificação de compatibilidade de schema
 8. Telemetria simples de performance
 

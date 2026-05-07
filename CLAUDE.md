@@ -1095,6 +1095,7 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - `utils/supabase_client.py` usa `@st.cache_resource` para reutilizar o client do Supabase
 - Prefira helpers específicos como `clear_profile_cache()`, `clear_workout_cache()` e `clear_inventory_cache()`; `clear_user_cache()` fica reservado para fluxos amplos do mesmo usuário
 - Para catálogos quase estáticos, prefira `get_cached_exercises()`, `get_cached_distinct_body_parts()` e `get_cached_shop_items()`; ao alterar o catálogo por admin, use `clear_catalog_cache()`
+- Missões atuais devem ser garantidas por `ensure_current_user_missions(user_id)` em ponto controlado do fluxo; `get_user_missions()` e `render_quest_sidebar()` devem permanecer leitura pura
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
 ---
