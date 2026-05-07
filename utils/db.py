@@ -14,6 +14,75 @@ _BRT = datetime.timezone(datetime.timedelta(hours=-3))
 def _today_brt() -> datetime.date:
     return datetime.datetime.now(tz=_BRT).date()
 
+
+def _brt_day_bounds(day: datetime.date) -> tuple[datetime.datetime, datetime.datetime]:
+    """Returns the inclusive/exclusive TIMESTAMPTZ bounds for one BRT day."""
+    start = datetime.datetime.combine(day, datetime.time.min, tzinfo=_BRT)
+    return start, start + datetime.timedelta(days=1)
+
+
+def _brt_date_range_bounds(
+    start_date: datetime.date,
+    end_date: datetime.date,
+) -> tuple[datetime.datetime, datetime.datetime]:
+    """Returns [start, end) TIMESTAMPTZ bounds for an inclusive BRT date range."""
+    start_ts, _ = _brt_day_bounds(start_date)
+    _, end_ts = _brt_day_bounds(end_date)
+    return start_ts, end_ts
+
+
+def _brt_month_bounds(year: int, month: int) -> tuple[datetime.datetime, datetime.datetime]:
+    """Returns [start, end) TIMESTAMPTZ bounds for a BRT calendar month."""
+    start_date = datetime.date(year, month, 1)
+    if month == 12:
+        next_month = datetime.date(year + 1, 1, 1)
+    else:
+        next_month = datetime.date(year, month + 1, 1)
+    start_ts, _ = _brt_day_bounds(start_date)
+    end_ts = datetime.datetime.combine(next_month, datetime.time.min, tzinfo=_BRT)
+    return start_ts, end_ts
+
+
+def _to_brt_date(ts: datetime.datetime | None) -> datetime.date | None:
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    return ts.astimezone(_BRT).date()
+
+
+def _unique_workout_days_brt(cur, user_id: str) -> list[datetime.date]:
+    """Returns unique workout days in BRT ordered from newest to oldest."""
+    cur.execute("""
+        SELECT completed_at
+        FROM workout_logs
+        WHERE user_id = %s
+        ORDER BY completed_at DESC;
+    """, (user_id,))
+
+    days: list[datetime.date] = []
+    seen: set[datetime.date] = set()
+    for (completed_at,) in cur.fetchall():
+        day = _to_brt_date(completed_at)
+        if day and day not in seen:
+            seen.add(day)
+            days.append(day)
+    return days
+
+
+def _compute_streak_from_days(days: list[datetime.date], start_day: datetime.date | None = None) -> int:
+    if not days:
+        return 0
+    streak = 0
+    check_day = start_day or _today_brt()
+    for day in days:
+        if day == check_day:
+            streak += 1
+            check_day -= datetime.timedelta(days=1)
+        elif day < check_day:
+            break
+    return streak
+
 _DB_PARAMS: dict | None = None
 
 
@@ -2459,13 +2528,13 @@ def get_daily_battle_count(user_id: str) -> int:
     """Quantidade de batalhas iniciadas hoje (como desafiante)."""
     conn = get_connection()
     cur = conn.cursor()
-    today = _today_brt()
+    start_ts, end_ts = _brt_day_bounds(_today_brt())
     cur.execute("""
         SELECT COUNT(*) FROM user_battles
         WHERE challenger_id = %s
-          AND battled_at AT TIME ZONE 'America/Sao_Paulo' >= %s::date
-          AND battled_at AT TIME ZONE 'America/Sao_Paulo' <  %s::date + INTERVAL '1 day';
-    """, (user_id, today, today))
+          AND battled_at >= %s
+          AND battled_at < %s;
+    """, (user_id, start_ts, end_ts))
     count = cur.fetchone()[0]
     cur.close()
     return count
@@ -2835,16 +2904,16 @@ def get_day_exercises(day_id: str) -> list[dict]:
 
 def get_daily_xp_from_exercise(user_id: str) -> int:
     """XP ganho por exercício hoje (usado para verificar o cap diário)."""
-    today = _today_brt()
+    start_ts, end_ts = _brt_day_bounds(_today_brt())
     try:
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT COALESCE(SUM(xp_earned), 0)
                 FROM workout_logs
                 WHERE user_id = %s
-                  AND completed_at AT TIME ZONE 'America/Sao_Paulo' >= %s::date
-                  AND completed_at AT TIME ZONE 'America/Sao_Paulo' <  %s::date + INTERVAL '1 day';
-            """, (user_id, today, today))
+                  AND completed_at >= %s
+                  AND completed_at < %s;
+            """, (user_id, start_ts, end_ts))
             return cur.fetchone()[0]
     except Exception:
         return 0
@@ -2852,28 +2921,9 @@ def get_daily_xp_from_exercise(user_id: str) -> int:
 
 def get_workout_streak(user_id: str) -> int:
     """Dias consecutivos com pelo menos um treino registrado."""
-    today = _today_brt()
     try:
         with get_connection().cursor() as cur:
-            cur.execute("""
-                SELECT DISTINCT
-                    (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d
-                FROM workout_logs
-                WHERE user_id = %s
-                ORDER BY d DESC;
-            """, (user_id,))
-            days = [r[0] for r in cur.fetchall()]
-        if not days:
-            return 0
-        streak = 0
-        check = today
-        for d in days:
-            if d == check:
-                streak += 1
-                check -= datetime.timedelta(days=1)
-            elif d < check:
-                break
-        return streak
+            return _compute_streak_from_days(_unique_workout_days_brt(cur, user_id))
     except Exception:
         return 0
 
@@ -3327,6 +3377,7 @@ def _ensure_weekly_challenge(cur) -> int | None:
 
     last_monday = this_monday - datetime.timedelta(weeks=1)
     last_sunday = this_monday - datetime.timedelta(days=1)
+    last_week_start_ts, last_week_end_ts = _brt_date_range_bounds(last_monday, last_sunday)
 
     # Count active users (at least 1 workout in last 4 weeks)
     cur.execute("""
@@ -3341,16 +3392,16 @@ def _ensure_weekly_challenge(cur) -> int | None:
     if goal_type == "total_xp":
         cur.execute("""
             SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-            WHERE completed_at::date BETWEEN %s AND %s;
-        """, (last_monday, last_sunday))
+            WHERE completed_at >= %s AND completed_at < %s;
+        """, (last_week_start_ts, last_week_end_ts))
         last_week_val = int(cur.fetchone()[0] or 0)
         goal_value = last_week_val if last_week_val > 0 else active_users * 200
 
     elif goal_type == "total_workouts":
         cur.execute("""
             SELECT COUNT(*) FROM workout_logs
-            WHERE completed_at::date BETWEEN %s AND %s;
-        """, (last_monday, last_sunday))
+            WHERE completed_at >= %s AND completed_at < %s;
+        """, (last_week_start_ts, last_week_end_ts))
         last_week_val = int(cur.fetchone()[0] or 0)
         goal_value = last_week_val if last_week_val > 0 else max(active_users * 3, 5)
 
@@ -3358,8 +3409,8 @@ def _ensure_weekly_challenge(cur) -> int | None:
         cur.execute("""
             SELECT COALESCE(SUM(jsonb_array_length(sets_data)), 0) FROM exercise_logs el
             JOIN workout_logs wl ON wl.id = el.workout_log_id
-            WHERE wl.completed_at::date BETWEEN %s AND %s;
-        """, (last_monday, last_sunday))
+            WHERE wl.completed_at >= %s AND wl.completed_at < %s;
+        """, (last_week_start_ts, last_week_end_ts))
         last_week_val = int(cur.fetchone()[0] or 0)
         goal_value = last_week_val if last_week_val > 0 else active_users * 30
 
@@ -3525,19 +3576,7 @@ def do_exercise_event(
                       ex.get("notes")))
 
             # Streak pós-insert (inclui a sessão recém inserida)
-            cur.execute("""
-                SELECT DISTINCT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d
-                FROM workout_logs WHERE user_id = %s ORDER BY d DESC;
-            """, (user_id,))
-            streak_days = [r[0] for r in cur.fetchall()]
-            new_streak = 0
-            check_day = _today_brt()
-            for d in streak_days:
-                if d == check_day:
-                    new_streak += 1
-                    check_day -= datetime.timedelta(days=1)
-                elif d < check_day:
-                    break
+            new_streak = _compute_streak_from_days(_unique_workout_days_brt(cur, user_id))
             result["streak"] = new_streak
 
             # Milestone
@@ -3563,11 +3602,11 @@ def do_exercise_event(
             cur.execute("""
                 SELECT COUNT(*) FROM workout_logs
                 WHERE user_id = %s
-                  AND (completed_at AT TIME ZONE 'America/Sao_Paulo')::date
-                      = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+                  AND completed_at >= %s
+                  AND completed_at < %s
                   AND id != %s
                   AND spawned_species_id IS NOT NULL;
-            """, (user_id, wl_id))
+            """, (user_id, *_brt_day_bounds(_today_brt()), wl_id))
             prior_spawns = int(cur.fetchone()[0])
             spawn_budget = max(0, _MAX_DAILY_SPAWNS - prior_spawns)
             session_spawns = 0
@@ -3647,14 +3686,15 @@ def do_exercise_event(
             with _hconn.cursor() as _hc:
                 # Inactivity: check the workout BEFORE this one
                 _hc.execute("""
-                    SELECT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date
+                    SELECT completed_at
                     FROM workout_logs WHERE user_id = %s
                     ORDER BY completed_at DESC
                     LIMIT 1 OFFSET 1;
                 """, (user_id,))
                 _prev = _hc.fetchone()
                 if _prev:
-                    _days_gap = (_today_brt() - _prev[0]).days
+                    _prev_day = _to_brt_date(_prev[0])
+                    _days_gap = (_today_brt() - _prev_day).days if _prev_day else 0
                     if _days_gap > 7:
                         _hc.execute("""
                             SELECT up.id FROM user_team ut
@@ -4148,20 +4188,7 @@ def _collect_achievement_stats(user_id: str, cur) -> dict:
     stats["evolved_count"] = cur.fetchone()[0]
 
     # Workout streak (reuse the same logic as get_workout_streak)
-    cur.execute("""
-        SELECT DISTINCT (completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d
-        FROM workout_logs WHERE user_id = %s ORDER BY d DESC;
-    """, (user_id,))
-    streak_days = [r[0] for r in cur.fetchall()]
-    streak = 0
-    check_day = _today_brt()
-    for d in streak_days:
-        if d == check_day:
-            streak += 1
-            check_day -= datetime.timedelta(days=1)
-        elif d < check_day:
-            break
-    stats["workout_streak"] = streak
+    stats["workout_streak"] = _compute_streak_from_days(_unique_workout_days_brt(cur, user_id))
 
     return stats
 
@@ -4395,6 +4422,7 @@ def get_leaderboard_checkin_streak(year: int, month: int, limit: int = 20) -> li
 def get_leaderboard_workout_xp(year: int, month: int, limit: int = 20) -> list[dict]:
     """Ranks users by total workout XP earned in the given month."""
     try:
+        start_ts, end_ts = _brt_month_bounds(year, month)
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT pr.id, pr.username, COALESCE(SUM(wl.xp_earned), 0) AS value,
@@ -4405,12 +4433,12 @@ def get_leaderboard_workout_xp(year: int, month: int, limit: int = 20) -> list[d
                 LEFT JOIN user_team ut ON ut.user_id = pr.id AND ut.slot = 1
                 LEFT JOIN user_pokemon up2 ON up2.id = ut.user_pokemon_id
                 LEFT JOIN pokemon_species ps ON ps.id = up2.species_id
-                WHERE EXTRACT(YEAR  FROM wl.completed_at AT TIME ZONE 'America/Sao_Paulo') = %s
-                  AND EXTRACT(MONTH FROM wl.completed_at AT TIME ZONE 'America/Sao_Paulo') = %s
+                WHERE wl.completed_at >= %s
+                  AND wl.completed_at < %s
                 GROUP BY pr.id, pr.username, ps.name, ps.sprite_url, up2.level
                 ORDER BY value DESC
                 LIMIT %s;
-            """, (year, month, limit))
+            """, (start_ts, end_ts, limit))
             cols = ["user_id", "username", "value", "lead_pokemon", "lead_sprite", "lead_level"]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
     except Exception:
@@ -4856,12 +4884,16 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
     Returns list of {date, volume, max_val, total_sets, metric_type, unit}.
     """
     try:
+        end_date = _today_brt()
+        days = max(int(days or 90), 1)
+        start_date = end_date - datetime.timedelta(days=days - 1)
+        start_ts, end_ts = _brt_date_range_bounds(start_date, end_date)
         metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT
                     {metric_sql} AS metric_type,
-                    (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date AS d,
+                    (wl.completed_at + INTERVAL '-3 hours')::date AS d,
                     CASE {metric_sql}
                         WHEN 'weight'   THEN ROUND(SUM((s->>'weight')::float * (s->>'reps')::int)::numeric, 1)
                         WHEN 'distance' THEN ROUND(SUM((s->>'distance_m')::float / 1000)::numeric, 2)
@@ -4879,7 +4911,8 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
                 JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
                 WHERE wl.user_id = %s
                   AND el.exercise_id = %s
-                  AND wl.completed_at >= NOW() - (%s || ' days')::interval
+                  AND wl.completed_at >= %s
+                  AND wl.completed_at < %s
                   AND (
                       ({metric_sql} = 'weight'   AND (s->>'weight')::float > 0)
                    OR ({metric_sql} = 'distance' AND (s->>'distance_m') IS NOT NULL)
@@ -4887,7 +4920,7 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
                   )
                 GROUP BY {metric_sql}, d
                 ORDER BY d;
-            """.format(metric_sql=metric_sql), (user_id, exercise_id, str(days)))
+            """.format(metric_sql=metric_sql), (user_id, exercise_id, start_ts, end_ts))
             _unit_map = {"weight": "kg", "distance": "km", "time": "min"}
             rows = []
             for metric_type, d, volume, max_val, total_sets in cur.fetchall():
@@ -5014,6 +5047,7 @@ def get_muscle_distribution(user_id: str) -> dict:
 
     def _query(start, end):
         try:
+            start_ts, end_ts = _brt_date_range_bounds(start, end)
             with get_connection().cursor() as cur:
                 cur.execute("""
                     SELECT unnest(e.body_parts) AS bp,
@@ -5022,11 +5056,11 @@ def get_muscle_distribution(user_id: str) -> dict:
                     JOIN workout_logs wl ON wl.id = el.workout_log_id
                     JOIN exercises e ON e.id = el.exercise_id
                     WHERE wl.user_id = %s
-                      AND (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date
-                          BETWEEN %s AND %s
+                      AND wl.completed_at >= %s
+                      AND wl.completed_at < %s
                     GROUP BY bp
                     ORDER BY total_sets DESC;
-                """, (user_id, start, end))
+                """, (user_id, start_ts, end_ts))
                 return {r[0]: int(r[1]) for r in cur.fetchall()}
         except Exception:
             return {}
@@ -5062,6 +5096,7 @@ def get_recent_muscle_balance(user_id: str, days: int = 7) -> dict:
     start_date = end_date - datetime.timedelta(days=days - 1)
 
     try:
+        start_ts, end_ts = _brt_date_range_bounds(start_date, end_date)
         with get_connection().cursor() as cur:
             cur.execute("""
                 WITH all_parts AS (
@@ -5077,8 +5112,8 @@ def get_recent_muscle_balance(user_id: str, days: int = 7) -> dict:
                     JOIN workout_logs wl ON wl.id = el.workout_log_id
                     JOIN exercises e ON e.id = el.exercise_id
                     WHERE wl.user_id = %s
-                      AND (wl.completed_at AT TIME ZONE 'America/Sao_Paulo')::date
-                          BETWEEN %s AND %s
+                      AND wl.completed_at >= %s
+                      AND wl.completed_at < %s
                     GROUP BY 1
                 )
                 SELECT
@@ -5088,7 +5123,7 @@ def get_recent_muscle_balance(user_id: str, days: int = 7) -> dict:
                 FROM all_parts ap
                 LEFT JOIN recent_parts rp ON rp.body_part = ap.body_part
                 ORDER BY COALESCE(rp.total_sets, 0) DESC, ap.body_part;
-            """, (user_id, start_date, end_date))
+            """, (user_id, start_ts, end_ts))
             rows = cur.fetchall()
     except Exception:
         return {
@@ -5152,6 +5187,8 @@ def assign_weekly_rival(user_id: str) -> dict:
     this_monday = _monday_of(today)
     last_monday = this_monday - datetime.timedelta(weeks=1)
     last_sunday = this_monday - datetime.timedelta(days=1)
+    this_week_start_ts, _ = _brt_day_bounds(this_monday)
+    last_week_start_ts, last_week_end_ts = _brt_date_range_bounds(last_monday, last_sunday)
 
     conn = get_connection()
     try:
@@ -5176,14 +5213,18 @@ def assign_weekly_rival(user_id: str) -> dict:
                 # Evaluate last week's result before re-assigning
                 cur.execute("""
                     SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                    WHERE user_id = %s AND completed_at::date BETWEEN %s AND %s;
-                """, (user_id, last_monday, last_sunday))
+                    WHERE user_id = %s
+                      AND completed_at >= %s
+                      AND completed_at < %s;
+                """, (user_id, last_week_start_ts, last_week_end_ts))
                 my_last_xp = cur.fetchone()[0] or 0
 
                 cur.execute("""
                     SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                    WHERE user_id = %s AND completed_at::date BETWEEN %s AND %s;
-                """, (current_rival_id, last_monday, last_sunday))
+                    WHERE user_id = %s
+                      AND completed_at >= %s
+                      AND completed_at < %s;
+                """, (current_rival_id, last_week_start_ts, last_week_end_ts))
                 rival_last_xp = cur.fetchone()[0] or 0
 
                 if my_last_xp > rival_last_xp:
@@ -5198,8 +5239,8 @@ def assign_weekly_rival(user_id: str) -> dict:
                 # Compute my XP this week so far
                 cur.execute("""
                     SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                    WHERE user_id = %s AND completed_at::date >= %s;
-                """, (user_id, this_monday))
+                    WHERE user_id = %s AND completed_at >= %s;
+                """, (user_id, this_week_start_ts))
                 my_xp = cur.fetchone()[0] or 0
 
                 # Find the closest rival by XP distance
@@ -5207,12 +5248,12 @@ def assign_weekly_rival(user_id: str) -> dict:
                     SELECT up.id, COALESCE(SUM(wl.xp_earned), 0) AS week_xp
                     FROM user_profiles up
                     LEFT JOIN workout_logs wl ON wl.user_id = up.id
-                      AND wl.completed_at::date >= %s
+                      AND wl.completed_at >= %s
                     WHERE up.id != %s
                     GROUP BY up.id
                     ORDER BY ABS(COALESCE(SUM(wl.xp_earned), 0) - %s)
                     LIMIT 1;
-                """, (this_monday, user_id, my_xp))
+                """, (this_week_start_ts, user_id, my_xp))
                 rival_row = cur.fetchone()
                 if not rival_row:
                     conn.commit()
@@ -5241,14 +5282,14 @@ def assign_weekly_rival(user_id: str) -> dict:
 
             cur.execute("""
                 SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                WHERE user_id = %s AND completed_at::date >= %s;
-            """, (user_id, this_monday))
+                WHERE user_id = %s AND completed_at >= %s;
+            """, (user_id, this_week_start_ts))
             my_xp = cur.fetchone()[0] or 0
 
             cur.execute("""
                 SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                WHERE user_id = %s AND completed_at::date >= %s;
-            """, (current_rival_id, this_monday))
+                WHERE user_id = %s AND completed_at >= %s;
+            """, (current_rival_id, this_week_start_ts))
             rival_xp = cur.fetchone()[0] or 0
 
             # Rival's slot-1 sprite for display
@@ -5282,6 +5323,7 @@ def get_rival_status(user_id: str) -> dict:
     """
     today = _today_brt()
     this_monday = _monday_of(today)
+    this_week_start_ts, _ = _brt_day_bounds(this_monday)
     try:
         with get_connection().cursor() as cur:
             cur.execute(
@@ -5304,14 +5346,14 @@ def get_rival_status(user_id: str) -> dict:
 
             cur.execute("""
                 SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                WHERE user_id = %s AND completed_at::date >= %s;
-            """, (user_id, this_monday))
+                WHERE user_id = %s AND completed_at >= %s;
+            """, (user_id, this_week_start_ts))
             my_xp = int(cur.fetchone()[0] or 0)
 
             cur.execute("""
                 SELECT COALESCE(SUM(xp_earned), 0) FROM workout_logs
-                WHERE user_id = %s AND completed_at::date >= %s;
-            """, (rival_id, this_monday))
+                WHERE user_id = %s AND completed_at >= %s;
+            """, (rival_id, this_week_start_ts))
             rival_xp = int(cur.fetchone()[0] or 0)
 
             cur.execute("""

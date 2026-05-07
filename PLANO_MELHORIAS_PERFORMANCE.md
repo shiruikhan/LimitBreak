@@ -77,7 +77,7 @@ Melhorias já concluídas nesta frente:
 |---|---|---|---|---|
 | P0 | Invalidação de cache por domínio e por usuário | Alto | Médio | Concluído |
 | P0 | Rework de imagens e remoção de base64 em massa | Alto | Baixo a médio | Concluído |
-| P0 | Índices e revisão de queries de treino | Alto | Médio | Aberto |
+| P0 | Índices e revisão de queries de treino | Alto | Médio | Em andamento |
 | P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Aberto |
 | P1 | Cache de catálogos quase estáticos | Médio | Baixo | Aberto |
 | P1 | Separação entre leitura e escrita em missões/sidebar | Médio | Médio | Aberto |
@@ -150,37 +150,43 @@ Melhorias já concluídas nesta frente:
 
 ### Etapa 3. Revisar queries de treino e adicionar índices
 
-**Problema atual:** várias queries usam `AT TIME ZONE` ou `::date` diretamente sobre a coluna filtrada, o que tende a dificultar o uso de índice.
+**Status:** em andamento.
 
-**Objetivo:** tornar as consultas compatíveis com índices e preparar o banco para crescimento de histórico.
+**Problema original:** várias queries usavam `AT TIME ZONE` ou `::date` diretamente sobre a coluna filtrada, o que tendia a dificultar o uso de índice.
 
-**Ações no código:**
-- substituir filtros do tipo:
-  - `completed_at::date >= ...`
-  - `completed_at AT TIME ZONE ...`
-- por intervalos calculados e comparações diretas, por exemplo:
+**Resultado atual:** a camada Python foi refatorada para usar janelas temporais explícitas em BRT e comparações diretas em `WHERE`; a aplicação dos índices no banco ficou preparada por migration e depende apenas da execução no ambiente.
+
+**Implementado no código:**
+- criação de helpers de janela temporal em BRT para dia, intervalo inclusivo e mês;
+- substituição dos filtros antigos por intervalos calculados e comparações diretas, como:
   - `completed_at >= start_ts`
   - `completed_at < end_ts`
-- revisar consultas de:
-  - streak;
+- revisão e refactor de consultas de:
   - XP diário;
-  - histórico;
-  - analytics;
+  - contagem diária de batalhas;
   - rival semanal;
-  - desafio comunitário.
+  - desafio comunitário;
+  - leaderboard mensal;
+  - distribuição muscular e analytics recentes;
+  - streak e leituras auxiliares de histórico de treino.
 
-**Ações no banco:**
-- adicionar índices explícitos para:
+**Preparado para o banco:**
+- migration criada em `scripts/migrate_performance_stage3_indexes.sql` com:
   - `workout_logs(user_id, completed_at)`
+  - `workout_logs(completed_at)`
   - `exercise_logs(workout_log_id, exercise_id)`
-  - `user_team(user_id, slot)`
-  - `weekly_challenge_participants(challenge_id, user_id)` se necessário manter leitura frequente fora da PK
-  - `pokemon_species_moves(species_id, learn_method, level_learned_at)` se a tabela crescer
-  - `pokemon_evolutions(from_species_id)` e `pokemon_evolutions(to_species_id)` se ainda não existirem
+  - `user_battles(challenger_id, battled_at)`
+- a execução dessa migration ficou pendente do lado do banco.
 
-**Critério de conclusão:**
-- queries de treino deixam de aplicar função na coluna indexada no `WHERE`;
-- migrations passam a refletir o caminho principal de leitura do app.
+**Observações:**
+- `user_team(user_id, slot)` já é coberto pela PK existente;
+- `weekly_challenge_participants(challenge_id, user_id)` já é coberto pela PK existente;
+- índices adicionais para `pokemon_species_moves` e `pokemon_evolutions` permanecem como avaliação futura, caso o volume dessas tabelas cresça.
+
+**Critério parcialmente atendido:**
+- as queries de treino e batalha no código deixam de aplicar função na coluna indexada no `WHERE`;
+- a migration já reflete o caminho principal de leitura do app;
+- a etapa será considerada concluída após a execução dos índices no banco e validação prática de desempenho.
 
 ### Etapa 4. Reduzir N+1 e cascatas de leitura
 
@@ -330,7 +336,7 @@ Componentes compartilhados devem:
 
 1. Invalidação de cache por domínio e por usuário — concluído
 2. Rework do pipeline de imagens — concluído
-3. Índices e revisão das queries de treino
+3. Índices e revisão das queries de treino — em andamento
 4. Redução de N+1 em rotinas
 5. Cache de catálogos estáticos
 6. Separação entre leitura e escrita em missões/sidebar
