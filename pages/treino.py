@@ -11,7 +11,6 @@ from utils.db import (
     get_last_exercise_values,
 )
 from utils.app_cache import (
-    get_cached_monthly_checkins,
     get_cached_recent_muscle_balance,
     get_cached_workout_sheets,
     get_cached_workout_streak,
@@ -265,12 +264,17 @@ st.markdown("""
 st.markdown("<p class='tr-title'>TREINO 🏋️</p>", unsafe_allow_html=True)
 st.markdown("<p class='tr-sub'>REGISTRO DE SESSÃO</p>", unsafe_allow_html=True)
 
-tab_log, tab_analytics = st.tabs(["🏋️ Treino", "📊 Análise"])
+active_view = st.radio(
+    "Visao da pagina",
+    options=["🏋️ Treino", "📊 Análise"],
+    horizontal=True,
+    label_visibility="collapsed",
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — TREINO
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_log:
+if active_view == "🏋️ Treino":
     streak = get_cached_workout_streak(user_id)
     xp_today = get_cached_daily_xp_from_exercise(user_id)
     xp_pct = min(xp_today / _DAILY_CAP, 1.0)
@@ -529,10 +533,13 @@ with tab_log:
         disabled=not has_rows,
     ):
         payload = []
+        sets_total = 0
+        max_weight = 0.0
         for row in st.session_state.workout_rows:
             rid    = row["row_id"]
             metric = row.get("metric_type", "weight")
             sets   = int(st.session_state.get(f"w_sets_{rid}", row.get("sets", 1)))
+            sets_total += sets
             if metric == "distance":
                 dist_km  = float(st.session_state.get(f"w_dist_{rid}", row.get("distance_km", 1.0)))
                 sets_data = [{"distance_m": round(dist_km * 1000, 1)} for _ in range(sets)]
@@ -542,6 +549,7 @@ with tab_log:
             else:
                 reps   = int(st.session_state.get(f"w_reps_{rid}", row.get("reps", 1)))
                 weight = float(st.session_state.get(f"w_weight_{rid}", row.get("weight", 0.0)))
+                max_weight = max(max_weight, weight)
                 sets_data = [{"reps": reps, "weight": weight} for _ in range(sets)]
             payload.append({
                 "exercise_id": row["exercise_id"],
@@ -551,19 +559,6 @@ with tab_log:
         res = do_exercise_event(user_id, payload, day_id=st.session_state.workout_day_id)
         st.session_state.workout_result = res
         if not res.get("error"):
-            _queue_new_achievements(check_and_award_achievements(user_id))
-            sets_total = sum(
-                int(st.session_state.get(f"w_sets_{r['row_id']}", r.get("sets", 1)))
-                for r in st.session_state.workout_rows
-            )
-            max_weight = max(
-                (
-                    float(st.session_state.get(f"w_weight_{r['row_id']}", r.get("weight", 0.0)))
-                    for r in st.session_state.workout_rows
-                    if r.get("metric_type", "weight") == "weight"
-                ),
-                default=0.0,
-            )
             newly_done = update_mission_progress(user_id, "workout", {
                 "sets_total": sets_total,
                 "max_weight": max_weight,
@@ -571,19 +566,18 @@ with tab_log:
             }) or []
             prs = res.get("prs") or []
             if prs:
-                update_mission_progress(user_id, "pr", {"count": len(prs)})
+                newly_done.extend(
+                    update_mission_progress(user_id, "pr", {"count": len(prs)}) or []
+                )
             workout_date = st.session_state.workout_date
             today = _today_brt()
             auto_checkin = None
             if workout_date == today:
-                month_checkins = get_cached_monthly_checkins(user_id, today.year, today.month)
-                already_checked_today = today.day in month_checkins
-                if not already_checked_today:
-                    auto_checkin = do_checkin(user_id)
-                    if auto_checkin.get("success"):
-                        _queue_new_achievements(check_and_award_achievements(user_id))
-                        newly_done.extend(update_mission_progress(user_id, "checkin") or [])
+                auto_checkin = do_checkin(user_id)
+                if auto_checkin.get("success"):
+                    newly_done.extend(update_mission_progress(user_id, "checkin") or [])
             res["auto_checkin"] = auto_checkin
+            _queue_new_achievements(check_and_award_achievements(user_id))
             if newly_done:
                 st.session_state["missions_newly_done"] = newly_done
             for row in st.session_state.workout_rows:
@@ -929,7 +923,7 @@ with tab_log:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — ANÁLISE
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_analytics:
+else:
     import pandas as pd
 
     # ── Volume por exercício ───────────────────────────────────────────────────
