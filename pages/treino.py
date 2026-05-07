@@ -3,7 +3,6 @@ import os
 import uuid
 import streamlit as st
 from utils.db import (
-    get_sheet_days, get_day_exercises_for_builder,
     get_exercises, do_checkin, do_exercise_event,
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
@@ -15,7 +14,7 @@ from utils.app_cache import (
     get_cached_daily_xp_from_exercise,
     get_cached_recent_muscle_balance,
     get_cached_workout_history,
-    get_cached_workout_sheets,
+    get_cached_workout_builder_tree,
     get_cached_workout_streak,
 )
 from utils.type_colors import get_type_color
@@ -299,9 +298,14 @@ if active_view == "🏋️ Treino":
     _render_recent_muscle_balance()
 
     # ── routine selector ───────────────────────────────────────────────────────
-    sheets = get_cached_workout_sheets(user_id)
+    sheets_tree = get_cached_workout_builder_tree(user_id)
+    sheets = [
+        {"id": sheet["id"], "name": sheet["name"], "day_count": sheet.get("day_count", 0)}
+        for sheet in sheets_tree
+    ]
     sheet_options = [None] + [s["id"] for s in sheets]
     sheet_name_map = {s["id"]: s["name"] for s in sheets}
+    sheet_days_map = {sheet["id"]: sheet.get("days", []) for sheet in sheets_tree}
 
     def _fmt_sheet(sid):
         if sid is None:
@@ -332,7 +336,7 @@ if active_view == "🏋️ Treino":
 
     with col_day:
         if sel_sheet:
-            days = get_sheet_days(sel_sheet)
+            days = sheet_days_map.get(sel_sheet, [])
             day_options = [None] + [d["id"] for d in days]
             day_name_map = {d["id"]: d["name"] for d in days}
             day_idx = day_options.index(st.session_state.workout_day_id) if st.session_state.workout_day_id in day_options else 0
@@ -357,7 +361,10 @@ if active_view == "🏋️ Treino":
             use_container_width=True,
             help="Adiciona os exercícios prescritos para o dia selecionado",
         ):
-            prescribed = get_day_exercises_for_builder(sel_day)
+            prescribed = next(
+                (day.get("exercises", []) for day in sheet_days_map.get(sel_sheet, []) if day["id"] == sel_day),
+                [],
+            )
             _last = get_last_exercise_values(
                 user_id, [p["exercise_id"] for p in prescribed]
             )

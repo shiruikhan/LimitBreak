@@ -18,6 +18,7 @@ from utils.db import (
     get_user_profile,
     get_user_team,
     get_workout_history,
+    get_workout_builder_tree,
     get_workout_sheets,
     get_workout_streak,
     get_xp_share_status,
@@ -134,6 +135,11 @@ def get_cached_workout_sheets(user_id: str):
     return get_workout_sheets(user_id)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_workout_builder_tree(user_id: str):
+    return get_workout_builder_tree(user_id)
+
+
 def _clear_cached_call(cached_func, *args) -> None:
     if args:
         cached_func.clear(*args)
@@ -187,6 +193,7 @@ def clear_workout_cache(user_id: str) -> None:
     _clear_cached_call(get_cached_workout_streak, user_id)
     _clear_cached_call(get_cached_daily_xp_from_exercise, user_id)
     _clear_cached_call(get_cached_workout_sheets, user_id)
+    _clear_cached_call(get_cached_workout_builder_tree, user_id)
     for limit in _WORKOUT_HISTORY_LIMITS:
         _clear_cached_call(get_cached_workout_history, user_id, limit)
     for days in _RECENT_MUSCLE_BALANCE_WINDOWS:
@@ -217,6 +224,7 @@ def clear_user_cache(
         get_cached_workout_streak.clear()
         get_cached_daily_xp_from_exercise.clear()
         get_cached_workout_history.clear()
+        get_cached_workout_builder_tree.clear()
         get_cached_recent_muscle_balance.clear()
         get_cached_workout_sheets.clear()
         get_cached_user_achievements.clear()

@@ -1,8 +1,8 @@
 import streamlit as st
 from utils.db import (
-    get_workout_sheets, create_workout_sheet, update_workout_sheet, delete_workout_sheet,
-    get_sheet_days, create_workout_day, delete_workout_day,
-    get_day_exercises_for_builder, add_exercise_to_day,
+    get_workout_builder_tree, create_workout_sheet, update_workout_sheet, delete_workout_sheet,
+    create_workout_day, delete_workout_day,
+    add_exercise_to_day,
     update_day_exercise, remove_exercise_from_day,
     get_exercises,
 )
@@ -70,7 +70,7 @@ if st.session_state.show_new_sheet_form:
         st.rerun()
 
 # ── sheets list ───────────────────────────────────────────────────────────────
-sheets = get_workout_sheets(user_id)
+sheets = get_workout_builder_tree(user_id)
 
 if not sheets:
     st.info("Nenhuma rotina criada ainda. Clique em **＋ Nova Rotina** para começar.", icon="📋")
@@ -137,7 +137,7 @@ for sheet in sheets:
         st.divider()
 
         # ── days ──────────────────────────────────────────────────────────────
-        days = get_sheet_days(sid)
+        days = sheet.get("days", [])
 
         for day in days:
             did = day["id"]
@@ -173,7 +173,7 @@ for sheet in sheets:
                     st.rerun()
 
             # ── exercises in this day ─────────────────────────────────────────
-            day_exs = get_day_exercises_for_builder(did)
+            day_exs = day.get("exercises", [])
 
             if not day_exs:
                 st.caption("Sem exercícios prescritos.")

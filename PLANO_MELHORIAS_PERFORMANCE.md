@@ -78,7 +78,7 @@ Melhorias já concluídas nesta frente:
 | P0 | Invalidação de cache por domínio e por usuário | Alto | Médio | Concluído |
 | P0 | Rework de imagens e remoção de base64 em massa | Alto | Baixo a médio | Concluído |
 | P0 | Índices e revisão de queries de treino | Alto | Médio | Em andamento |
-| P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Aberto |
+| P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Concluído |
 | P1 | Cache de catálogos quase estáticos | Médio | Baixo | Aberto |
 | P1 | Separação entre leitura e escrita em missões/sidebar | Médio | Médio | Aberto |
 | P2 | Remoção de compatibilidade de schema desnecessária | Baixo a médio | Médio | Futuro |
@@ -190,24 +190,29 @@ Melhorias já concluídas nesta frente:
 
 ### Etapa 4. Reduzir N+1 e cascatas de leitura
 
-**Problema atual:** algumas telas montam a árvore de dados com múltiplas queries sequenciais por item ou por nível hierárquico.
+**Status:** concluída.
 
-**Objetivo:** carregar dados em lote e montar a estrutura em memória.
+**Problema original:** algumas telas montavam a árvore de dados com múltiplas queries sequenciais por item ou por nível hierárquico.
 
-**Alvos principais:**
-- `pages/rotinas.py`
-- fluxos que buscam rotinas, dias e exercícios separadamente;
-- eventuais telas de admin e listagens agregadas.
+**Resultado entregue:** os fluxos ativos de rotinas deixaram de buscar rotina, dias e exercícios em cascata, passando a carregar a árvore completa em lote e montar a UI em memória.
 
-**Ações:**
-- criar consultas agregadas que retornem:
+**Implementado:**
+- criação de `get_workout_builder_tree(user_id)` em `utils/db.py` para retornar:
   - rotina + dias + contagem de exercícios;
   - dia + exercícios prescritos em lote;
-- usar estrutura intermediária em Python para montar a UI;
-- evitar round-trip por expander ou por bloco visual.
+- refactor de `pages/rotinas.py` para consumir a árvore agregada em vez de chamar loaders por rotina e por dia;
+- refactor de `pages/treino.py` para reutilizar a mesma árvore no seletor de rotina/dia e na importação de treino padrão;
+- adição de cache para a árvore agregada em `utils/app_cache.py`, integrada à invalidação de treino.
 
-**Critério de conclusão:**
-- a página de rotinas deixa de crescer linearmente em número de queries conforme o número de dias/exercícios.
+**Arquivos principais:**
+- `utils/db.py`
+- `utils/app_cache.py`
+- `pages/rotinas.py`
+- `pages/treino.py`
+
+**Critério atendido:**
+- `Rotinas` deixa de crescer linearmente em número de queries conforme o número de dias/exercícios;
+- `Treino` deixa de buscar dias e exercícios prescritos em cascata durante a seleção e importação de rotina.
 
 ### Etapa 5. Cachear catálogos quase estáticos
 

@@ -3838,6 +3838,135 @@ def get_workout_sheets(user_id: str) -> list[dict]:
         return []
 
 
+def get_workout_builder_tree(user_id: str) -> list[dict]:
+    """Returns the full workout builder tree in one read path.
+
+    Structure:
+      [
+        {
+          "id": str,
+          "name": str,
+          "day_count": int,
+          "days": [
+            {
+              "id": str,
+              "name": str,
+              "exercise_count": int,
+              "exercises": [
+                {"id", "exercise_id", "name", "sets", "reps", "metric_type"}
+              ],
+            }
+          ],
+        }
+      ]
+    """
+    try:
+        day_sheet_fk = _first_existing_column("workout_days", "sheet_id", "workout_sheet_id")
+        if day_sheet_fk is None:
+            return []
+
+        day_fk = _first_existing_column("workout_day_exercises", "day_id", "workout_day_id")
+        metric_sql = _exercise_metric_sql("e")
+
+        with get_connection().cursor() as cur:
+            if day_fk is None:
+                cur.execute(f"""
+                    SELECT ws.id, ws.name,
+                           wd.id, wd.name
+                    FROM workout_sheets ws
+                    LEFT JOIN workout_days wd ON wd.{day_sheet_fk} = ws.id
+                    WHERE ws.user_id = %s
+                    ORDER BY ws.name, wd.name, wd.id;
+                """, (user_id,))
+
+                rows = cur.fetchall()
+                sheets: list[dict] = []
+                sheet_map: dict[str, dict] = {}
+                for sheet_id, sheet_name, day_id, day_name in rows:
+                    sheet_key = str(sheet_id)
+                    sheet = sheet_map.get(sheet_key)
+                    if sheet is None:
+                        sheet = {"id": sheet_key, "name": sheet_name, "day_count": 0, "days": []}
+                        sheet_map[sheet_key] = sheet
+                        sheets.append(sheet)
+                    if day_id is not None:
+                        sheet["days"].append({
+                            "id": str(day_id),
+                            "name": day_name,
+                            "exercise_count": 0,
+                            "exercises": [],
+                        })
+                        sheet["day_count"] += 1
+                return sheets
+
+            cur.execute(f"""
+                SELECT
+                    ws.id,
+                    ws.name,
+                    wd.id,
+                    wd.name,
+                    wde.id,
+                    e.id AS exercise_id,
+                    COALESCE(e.name_pt, e.name) AS display_name,
+                    wde.sets,
+                    wde.reps,
+                    {metric_sql} AS metric_type
+                FROM workout_sheets ws
+                LEFT JOIN workout_days wd ON wd.{day_sheet_fk} = ws.id
+                LEFT JOIN workout_day_exercises wde ON wde.{day_fk} = wd.id
+                LEFT JOIN exercises e ON e.id = wde.exercise_id
+                WHERE ws.user_id = %s
+                ORDER BY ws.name, wd.name, wd.id, wde.id;
+            """, (user_id,))
+            rows = cur.fetchall()
+
+        sheets: list[dict] = []
+        sheet_map: dict[str, dict] = {}
+        day_map: dict[str, dict] = {}
+
+        for row in rows:
+            sheet_id, sheet_name, day_id, day_name, wde_id, exercise_id, display_name, sets, reps, metric_type = row
+            sheet_key = str(sheet_id)
+            sheet = sheet_map.get(sheet_key)
+            if sheet is None:
+                sheet = {"id": sheet_key, "name": sheet_name, "day_count": 0, "days": []}
+                sheet_map[sheet_key] = sheet
+                sheets.append(sheet)
+
+            if day_id is None:
+                continue
+
+            day_key = str(day_id)
+            day = day_map.get(day_key)
+            if day is None:
+                day = {
+                    "id": day_key,
+                    "name": day_name,
+                    "exercise_count": 0,
+                    "exercises": [],
+                }
+                day_map[day_key] = day
+                sheet["days"].append(day)
+                sheet["day_count"] += 1
+
+            if wde_id is None:
+                continue
+
+            day["exercises"].append({
+                "id": str(wde_id),
+                "exercise_id": exercise_id,
+                "name": display_name,
+                "sets": sets,
+                "reps": reps,
+                "metric_type": metric_type,
+            })
+            day["exercise_count"] += 1
+
+        return sheets
+    except Exception:
+        return []
+
+
 def create_workout_sheet(
     user_id: str,
     name: str,
