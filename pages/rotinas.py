@@ -1,10 +1,10 @@
 import streamlit as st
+from utils.app_cache import get_cached_exercises
 from utils.db import (
     get_workout_builder_tree, create_workout_sheet, update_workout_sheet, delete_workout_sheet,
     create_workout_day, delete_workout_day,
     add_exercise_to_day,
     update_day_exercise, remove_exercise_from_day,
-    get_exercises,
 )
 
 if not st.session_state.get("user"):
@@ -26,7 +26,7 @@ for _k, _v in [
         st.session_state[_k] = _v
 
 # ── exercise catalog ──────────────────────────────────────────────────────────
-all_exercises     = get_exercises()
+all_exercises     = get_cached_exercises()
 exercise_map      = {ex["id"]: ex["name_pt"] or ex["name"] for ex in all_exercises}
 exercise_ids      = [ex["id"] for ex in all_exercises]
 exercise_metric   = {ex["id"]: ex.get("metric_type", "weight") for ex in all_exercises}

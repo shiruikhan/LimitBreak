@@ -3,7 +3,7 @@ import os
 import uuid
 import streamlit as st
 from utils.db import (
-    get_exercises, do_checkin, do_exercise_event,
+    do_checkin, do_exercise_event,
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
     get_volume_history, get_exercise_bests_all, get_muscle_distribution,
@@ -11,6 +11,7 @@ from utils.db import (
 )
 from utils.app_cache import (
     clear_user_cache,
+    get_cached_exercises,
     get_cached_daily_xp_from_exercise,
     get_cached_recent_muscle_balance,
     get_cached_workout_history,
@@ -47,7 +48,7 @@ with st.sidebar:
 
 # ── catalog (cached in session_state to avoid rebuilding dicts every rerun) ──
 if "ex_name_map" not in st.session_state:
-    _all_ex = get_exercises()
+    _all_ex = get_cached_exercises()
     st.session_state.ex_name_map    = {ex["id"]: ex["name_pt"] or ex["name"] for ex in _all_ex}
     st.session_state.ex_id_options  = [ex["id"] for ex in _all_ex]
     st.session_state.ex_metric_map  = {ex["id"]: ex.get("metric_type", "weight") for ex in _all_ex}

@@ -30,6 +30,10 @@ Aplicativo web em Streamlit para acompanhamento de treinos com gamificação ins
 - Cache compartilhado em `utils/app_cache.py` com `@st.cache_data` para leituras repetidas por usuario
 - Cliente Supabase cacheado com `@st.cache_resource`
 - Uso de `st.fragment` em areas isoladas como hub e calendario para reduzir reruns completos
+- Invalidação de cache por dominio e por usuario ja implementada nas mutacoes principais
+- Pipeline de imagens ja prioriza `src` direto para URLs remotas e deixa `base64` apenas como fallback local
+- Fluxos de rotinas e treino ja usam carregamento agregado para evitar cascatas de leitura
+- Catalogos quase estaticos como exercicios, partes do corpo e loja agora usam cache compartilhado com invalidação explicita
 
 ---
 
@@ -63,6 +67,7 @@ scripts/migrate_happiness.sql
 scripts/migrate_rival.sql
 scripts/migrate_weekly_challenge.sql
 scripts/migrate_metric_type.sql
+scripts/migrate_performance_stage3_indexes.sql
 scripts/seed_streak_shield.sql
 ```
 
@@ -78,7 +83,7 @@ python scripts/seed_regional_species.py
 python scripts/seed_wmx_exercises.py
 ```
 
-`create_user_tables.sql` cobre a base, mas nao inclui todas as adicoes mais recentes. Sem as migrations acima, recursos como felicidade, rival semanal, desafio comunitario, metricas de exercicio e streak shield ficam incompletos.
+`create_user_tables.sql` cobre a base, mas nao inclui todas as adicoes mais recentes. Sem as migrations acima, recursos como felicidade, rival semanal, desafio comunitario, metricas de exercicio, streak shield e os indices de performance da Etapa 3 ficam incompletos.
 
 ---
 
@@ -86,7 +91,7 @@ python scripts/seed_wmx_exercises.py
 
 - `CLAUDE.md`: arquitetura, schema, funcoes importantes, navegacao atual e convencoes
 - `NEXT_STEPS.md`: roadmap atualizado e prioridades de produto
-- `suggestions.md`: backlog de ideias e oportunidades futuras ja auditadas
+- `PLANO_MELHORIAS_PERFORMANCE.md`: estado atual do plano de performance e proximas frentes tecnicas
 
 ---
 

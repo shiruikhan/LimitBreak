@@ -1,5 +1,6 @@
 import streamlit as st
 from utils.app_cache import (
+    get_cached_shop_items,
     clear_inventory_cache,
     clear_profile_cache,
     get_cached_user_inventory,
@@ -7,9 +8,7 @@ from utils.app_cache import (
     get_cached_user_team,
     get_cached_xp_share_status,
 )
-from utils.db import (
-    get_shop_items, buy_item,
-)
+from utils.db import buy_item
 from utils.bag_ui import ensure_bag_session_state, render_bag_view
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -97,7 +96,7 @@ def _clear_msg():
 user_id      = st.session_state.user_id
 profile      = get_cached_user_profile(user_id)
 coins        = profile["coins"] if profile else 0
-items        = get_shop_items()
+items        = get_cached_shop_items()
 inventory    = get_cached_user_inventory(user_id)
 team         = get_cached_user_team(user_id)
 xp_share_st  = get_cached_xp_share_status(user_id)

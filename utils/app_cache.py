@@ -6,9 +6,12 @@ from utils.db import (
     get_checkin_streak,
     get_daily_battle_count,
     get_daily_xp_from_exercise,
+    get_distinct_body_parts,
     get_monthly_checkins,
     get_monthly_rest_days,
     get_recent_muscle_balance,
+    get_exercises,
+    get_shop_items,
     get_team_stat_boost_counts,
     get_user_achievements,
     get_user_bench,
@@ -88,6 +91,21 @@ def get_cached_user_missions(user_id: str):
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_is_admin(user_id: str):
     return is_admin(user_id)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_shop_items():
+    return get_shop_items()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_exercises(body_part: str | None = None):
+    return get_exercises(body_part)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_distinct_body_parts():
+    return get_distinct_body_parts()
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -189,6 +207,12 @@ def clear_achievements_cache(user_id: str) -> None:
     _clear_cached_call(get_cached_user_achievements, user_id)
 
 
+def clear_catalog_cache() -> None:
+    get_cached_shop_items.clear()
+    get_cached_exercises.clear()
+    get_cached_distinct_body_parts.clear()
+
+
 def clear_workout_cache(user_id: str) -> None:
     _clear_cached_call(get_cached_workout_streak, user_id)
     _clear_cached_call(get_cached_daily_xp_from_exercise, user_id)
@@ -219,6 +243,9 @@ def clear_user_cache(
         get_cached_xp_share_status.clear()
         get_cached_user_missions.clear()
         get_cached_is_admin.clear()
+        get_cached_shop_items.clear()
+        get_cached_exercises.clear()
+        get_cached_distinct_body_parts.clear()
         get_cached_user_bench.clear()
         get_cached_team_stat_boost_counts.clear()
         get_cached_workout_streak.clear()

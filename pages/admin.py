@@ -1,9 +1,10 @@
 import uuid
 import streamlit as st
+from utils.app_cache import clear_catalog_cache, get_cached_exercises
 from utils.db import (
     is_admin, get_all_users, admin_update_user, admin_delete_user,
     set_admin_role, get_system_logs, get_global_stats, log_admin_action,
-    admin_gift_loot_box, admin_create_exercise, get_exercises,
+    admin_gift_loot_box, admin_create_exercise,
 )
 from utils.supabase_client import get_supabase_admin
 
@@ -294,6 +295,7 @@ with tab_exercises:
             ex_name, ex_name_pt, muscles, ex_body_parts, equips, gif_url,
         )
         if ok:
+            clear_catalog_cache()
             log_admin_action(
                 user_id, "create_exercise",
                 target_type="exercise", target_id=str(new_id),
@@ -305,7 +307,7 @@ with tab_exercises:
 
     st.divider()
     st.markdown("### 📋 Exercícios cadastrados")
-    exercises = get_exercises()
+    exercises = get_cached_exercises()
     st.caption(f"{len(exercises)} exercício(s) no catálogo")
 
     ex_search = st.text_input("🔍 Buscar", placeholder="Nome do exercício...", key="admin_ex_search")

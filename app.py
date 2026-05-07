@@ -3,10 +3,12 @@ from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 
 from utils.app_cache import (
+    clear_missions_cache,
     get_cached_is_admin,
     get_cached_user_pokemon_ids,
     get_cached_user_profile,
 )
+from utils.db import ensure_current_user_missions, get_current_mission_periods
 from utils.supabase_client import get_supabase
 
 st.set_page_config(
@@ -184,7 +186,8 @@ cookie_manager = stx.CookieManager(key="lb_cookies")
 
 # ── Session state defaults ─────────────────────────────────────────────────────
 for key, default in [("user", None), ("user_id", None), ("access_token", None),
-                     ("refresh_token", None), ("needs_starter", False)]:
+                     ("refresh_token", None), ("needs_starter", False),
+                     ("missions_bootstrap_token", None)]:
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -221,6 +224,21 @@ if st.session_state.user is not None and not st.session_state.needs_starter:
         if not get_cached_user_pokemon_ids(st.session_state.user_id):
             st.session_state.needs_starter = True
         st.session_state.starter_checked = True
+
+# ── Mission bootstrap ──────────────────────────────────────────────────────────
+# Garante a existência das missões em um ponto controlado do fluxo, mantendo
+# sidebar e página de missões como leitura pura durante o render.
+if st.session_state.user is not None:
+    today, week_start = get_current_mission_periods()
+    mission_bootstrap_token = (
+        st.session_state.user_id,
+        today.isoformat(),
+        week_start.isoformat(),
+    )
+    if st.session_state.get("missions_bootstrap_token") != mission_bootstrap_token:
+        ensure_current_user_missions(st.session_state.user_id)
+        clear_missions_cache(st.session_state.user_id)
+        st.session_state.missions_bootstrap_token = mission_bootstrap_token
 
 
 def _page_meta(path: str, title: str, icon: str) -> dict:

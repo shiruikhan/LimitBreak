@@ -148,10 +148,11 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── upload_sprites_to_supabase.py         # Faz upload de sprites locais para Supabase Storage
     ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais (espécies normais)
     ├── update_regional_sprites.py            # Substitui URLs de sprites para formas regionais via CDN HybridShivam
+    ├── migrate_performance_stage3_indexes.sql # Índices da Etapa 3 de performance para workout_logs/exercise_logs/user_battles
     └── create_user_tables.sql                # DDL completo das tabelas de usuário — executar no Supabase
 ```
 
-> `src/Pokemon/` é um **submódulo git** apontando para `HybridShivam/Pokemon`. Em produção (Streamlit Cloud) o submódulo não é clonado — `get_image_as_base64()` faz fallback automático para o CDN público do repositório.
+> `src/Pokemon/` é um **submódulo git** apontando para `HybridShivam/Pokemon`. Em produção (Streamlit Cloud) o submódulo não é clonado — o app usa `sprite_img_tag()` com `src` direto para URLs remotas e fallback para o CDN público quando o asset local não existe.
 
 ---
 
@@ -457,7 +458,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 |---|---|
 | `_db_params()` | Lê credenciais: `st.secrets["database"]` primeiro, fallback para `.env` |
 | `get_connection()` | Retorna conexão psycopg2 por sessão (`st.session_state._db_conn`); reconecta se fechada ou em estado de erro |
-| `get_image_as_base64(path)` | Converte imagem local para base64; aceita URLs HTTP; **fallback automático para CDN HybridShivam/Pokemon** quando arquivo não encontrado localmente |
+| `get_image_as_base64(path)` | Converte apenas assets locais para base64; URLs remotas nao passam mais por este helper |
+| `sprite_img_tag(sprite_url, width=..., extra_style=...)` | Renderiza sprite com `src` direto para URLs HTTP/S; para caminhos locais tenta CDN HybridShivam antes do fallback em base64 |
 | `_today_brt()` | Retorna `datetime.date` de hoje no fuso BRT (UTC-3) |
 
 ### Catálogo Pokémon
@@ -577,10 +579,11 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 ### Exercícios e treino
 | Função | Descrição |
 |---|---|
-| `get_exercises(body_part=None)` | Lista completa de exercícios do catálogo; `body_part` filtra por parte do corpo (cacheado 3600s). Retorna `{id, name, name_pt, target_muscles, body_parts, equipments, gif_url, metric_type}` |
+| `get_exercises(body_part=None)` | Lista completa de exercícios do catálogo; `body_part` filtra por parte do corpo. Para páginas, prefira o wrapper compartilhado em `app_cache.py` |
 | `get_muscle_groups()` | Lista de grupos musculares `[{id, name}]` |
 | `get_distinct_body_parts()` | Lista de partes do corpo únicas extraídas de `exercises.body_parts` (cacheado 3600s) |
 | `get_workout_sheets(user_id)` | Rotinas do usuário `[{id, name, day_count}]` |
+| `get_workout_builder_tree(user_id)` | Árvore agregada do builder: rotina + dias + contagem de exercícios + exercícios prescritos em lote |
 | `create_workout_sheet(user_id, name)` | Cria nova rotina; retorna `(uuid, error)` |
 | `update_workout_sheet(user_id, sheet_id, name)` | Renomeia rotina; retorna `(bool, error_msg \| None)` |
 | `delete_workout_sheet(sheet_id)` | Deleta rotina e todos os dias/exercícios em cascata via FK |
@@ -684,14 +687,17 @@ Navegador abre o app
 
 ## Imagens — Resolução em Desenvolvimento vs Produção
 
-`get_image_as_base64(path)` tem três modos:
+`get_image_as_base64(path)` agora é restrito a assets locais:
 
-1. **URL HTTP/HTTPS explícita** → faz GET e retorna base64
-2. **Arquivo local encontrado** → lê do disco (dev normal)
-3. **Arquivo local não encontrado** → extrai o segmento após `assets/` e busca em:
-   `https://raw.githubusercontent.com/HybridShivam/Pokemon/master/assets/{rel}`
+1. **Arquivo local encontrado** → lê do disco e retorna base64
+2. **URL HTTP/HTTPS explícita** → retorna `None`
+3. **Arquivo local não encontrado** → retorna `None`
 
-O mesmo fallback funciona para sprites, HQ, thumbnails e ícones de tipo/dano.
+Para renderização normal de sprites e ícones, o padrão atual é `sprite_img_tag()`:
+
+1. **URL HTTP/HTTPS explícita** → usa `src` direto
+2. **Arquivo local encontrado** → usa base64 como fallback local
+3. **Arquivo local não encontrado com segmento `assets/`** → monta URL no CDN HybridShivam e usa `src` direto
 
 Em `pokedex.py`, `_resolve_asset(local_path)` é usada para `st.image()` que recebe diretamente caminho/URL:
 ```python
@@ -804,8 +810,8 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 Duas tabs: **🏋️ Treino** e **📊 Análise**.
 
 **Tab Treino:**
-- Date picker (padrão = hoje) + seleção de Rotina e Dia (via `get_sheet_days()`)
-- Botão "⬇ Importar Padrão": chama `get_day_exercises_for_builder(day_id)` + `get_last_exercise_values()` e popula tabela editável com os últimos valores registrados como hint (↩ hint abaixo do nome)
+- Date picker (padrão = hoje) + seleção de Rotina e Dia usando a árvore agregada cacheada de `get_workout_builder_tree()`
+- Botão "⬇ Importar Padrão": reutiliza os exercícios já carregados da árvore agregada + `get_last_exercise_values()` e popula tabela editável com os últimos valores registrados como hint (↩ hint abaixo do nome)
 - Tabela de exercícios editável: cada linha tem nome, sets, e uma coluna de medida que varia por `metric_type` (Reps para weight, Distância km para distance, Duração min para time), mais Peso (kg) apenas para weight; botão de remoção por linha; botão de adição de linha nova
 - Sessão livre: quando sem rotina selecionada, exibe apenas a tabela vazia para preenchimento manual
 - "✅ Registrar Treino": chama `do_exercise_event(user_id, exercises, day_id)`, exibe card de resultado (XP ganho, cap indicator, spawn se rolou, level-up se subiu, milestones de streak)
@@ -1079,15 +1085,16 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 ## Convenções de Código
 
 - Nomes de arquivo de sprite: `XXXX.png` zero-padded 4 dígitos (`0001.png`, `0025.png`) — apenas para espécies normais (id ≤ 1025)
-- `sprite_url` no banco: `src/Pokemon/assets/images/XXXX.png` para espécies normais; URL direta do CDN PokéAPI para formas regionais (id > 10000)
-- Renderização de sprite regional: `_thumb()` retorna `None` para IDs > 10000 (sem arquivo local); fallback: `get_image_as_base64(member["sprite_url"])` que faz HTTP GET no CDN HybridShivam
+- `sprite_url` no banco: `src/Pokemon/assets/images/XXXX.png` para espécies normais; URL direta do CDN HybridShivam para formas regionais (id > 10000)
+- Renderização de sprite regional: o padrão atual é `sprite_img_tag(member["sprite_url"])`, usando `src` direto para CDN/URLs remotas
 - Imagens HQ: trocar `/images/` por `/imagesHQ/` no caminho; usar `_resolve_asset()` para garantir fallback CDN
 - Queries SQL com parâmetros: sempre `%s` (psycopg2) — **nunca f-strings com valores do usuário**
 - Cores de tipo: `utils/type_colors.py` → `get_type_color(slug)` retorna `{bg, light, dark, text}`
 - **Sem backslash em f-strings** (`c[\"key\"]` é SyntaxError no parser do Streamlit Cloud) — extrair para variável antes: `bg = c["bg"]`
-- Leituras repetidas por usuário agora podem passar por `utils/app_cache.py`, que centraliza `@st.cache_data` para perfil, equipe, inventário, missões, check-ins, batalhas e flags de admin
+- Leituras repetidas por usuário agora podem passar por `utils/app_cache.py`, que centraliza `@st.cache_data` para perfil, equipe, inventário, missões, check-ins, batalhas, árvore agregada de treino, catálogos quase estáticos e flags de admin
 - `utils/supabase_client.py` usa `@st.cache_resource` para reutilizar o client do Supabase
-- `clear_user_cache()` deve ser chamado após mutações relevantes (check-in, compra/uso de item, claims, batalha finalizada, onboarding, etc.)
+- Prefira helpers específicos como `clear_profile_cache()`, `clear_workout_cache()` e `clear_inventory_cache()`; `clear_user_cache()` fica reservado para fluxos amplos do mesmo usuário
+- Para catálogos quase estáticos, prefira `get_cached_exercises()`, `get_cached_distinct_body_parts()` e `get_cached_shop_items()`; ao alterar o catálogo por admin, use `clear_catalog_cache()`
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
 ---

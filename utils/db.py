@@ -4729,11 +4729,16 @@ def _week_start(d: datetime.date) -> datetime.date:
     return d - datetime.timedelta(days=d.weekday())
 
 
+def get_current_mission_periods() -> tuple[datetime.date, datetime.date]:
+    """Return current BRT daily and weekly mission period keys."""
+    today = _today_brt()
+    return today, _week_start(today)
+
+
 def _ensure_missions(cur, user_id: str) -> None:
     """Generate daily (3) and weekly (1) missions for the current period if absent."""
     from utils.missions import pick_daily_slugs, pick_weekly_slug, get_mission
-    today = _today_brt()
-    week_start = _week_start(today)
+    today, week_start = get_current_mission_periods()
 
     # Daily: check how many missions already exist for today
     cur.execute(
@@ -4772,23 +4777,29 @@ def _ensure_missions(cur, user_id: str) -> None:
                 """, (user_id, slug, week_start, m["target"]))
 
 
+def ensure_current_user_missions(user_id: str) -> None:
+    """Ensure mission rows exist for the current daily and weekly periods."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            _ensure_missions(cur, user_id)
+        conn.commit()
+    except Exception:
+        return
+
+
 def get_user_missions(user_id: str) -> dict:
     """Return {'daily': [...], 'weekly': [...]} for the current period.
 
-    Generates missions for today/this week on first call of each period.
     Each mission dict includes all catalog fields plus db state:
     {slug, label, icon, target, event, reward_type, reward_amount, reward_label,
      id, progress, completed, reward_claimed, period_start}
     """
     from utils.missions import get_mission
-    today = _today_brt()
-    week_start = _week_start(today)
+    today, week_start = get_current_mission_periods()
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            _ensure_missions(cur, user_id)
-            conn.commit()
-
             cur.execute("""
                 SELECT id, mission_slug, mission_type, period_start,
                        target, progress, completed, reward_claimed

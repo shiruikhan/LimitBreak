@@ -2,7 +2,9 @@
 
 > Atualizado: 06 de maio de 2026.
 >
-> Documento canônico de backlog. Mantém apenas itens ainda não implementados, consolidados a partir de `suggestions.md` e do antigo `NEXT_STEPS.md`.
+> Documento canônico de backlog. Mantém apenas itens ainda não implementados e frentes futuras de produto.
+>
+> Melhorias técnicas de performance em andamento ficam documentadas separadamente em `PLANO_MELHORIAS_PERFORMANCE.md`.
 
 ---
 

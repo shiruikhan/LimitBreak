@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.db import get_exercises, get_muscle_groups, get_distinct_body_parts
+from utils.app_cache import get_cached_distinct_body_parts, get_cached_exercises
 from utils.type_colors import get_type_color
 
 if not st.session_state.get("user"):
@@ -64,7 +64,7 @@ col_search, col_bp, col_eq = st.columns([2, 2, 2])
 with col_search:
     search = st.text_input("🔍 Buscar", placeholder="nome do exercício…", label_visibility="collapsed")
 with col_bp:
-    all_body_parts = get_distinct_body_parts()
+    all_body_parts = get_cached_distinct_body_parts()
     sel_bp = st.multiselect(
         "Parte do corpo",
         options=all_body_parts,
@@ -73,7 +73,7 @@ with col_bp:
         label_visibility="collapsed",
     )
 with col_eq:
-    all_exercises = get_exercises()
+    all_exercises = get_cached_exercises()
     all_equip: list[str] = sorted({eq for ex in all_exercises for eq in (ex["equipments"] or [])})
     sel_eq = st.multiselect(
         "Equipamento",

@@ -79,7 +79,7 @@ Melhorias já concluídas nesta frente:
 | P0 | Rework de imagens e remoção de base64 em massa | Alto | Baixo a médio | Concluído |
 | P0 | Índices e revisão de queries de treino | Alto | Médio | Em andamento |
 | P1 | Redução de N+1 em rotinas e páginas estruturadas | Médio a alto | Médio | Concluído |
-| P1 | Cache de catálogos quase estáticos | Médio | Baixo | Aberto |
+| P1 | Cache de catálogos quase estáticos | Médio | Baixo | Concluído |
 | P1 | Separação entre leitura e escrita em missões/sidebar | Médio | Médio | Aberto |
 | P2 | Remoção de compatibilidade de schema desnecessária | Baixo a médio | Médio | Futuro |
 | P2 | Telemetria simples de performance | Médio | Baixo | Futuro |
@@ -216,22 +216,29 @@ Melhorias já concluídas nesta frente:
 
 ### Etapa 5. Cachear catálogos quase estáticos
 
-**Problema atual:** alguns catálogos mudam pouco, mas ainda são buscados no banco sem cache compartilhado suficientemente longo.
+**Status:** concluída.
 
-**Objetivo:** reduzir consultas repetidas em telas de leitura.
+**Problema original:** alguns catálogos mudavam pouco, mas ainda eram buscados no banco sem cache compartilhado suficientemente longo.
 
-**Ações:**
-- aplicar cache em:
-  - `get_exercises()`;
-  - listas auxiliares ligadas à biblioteca;
-  - outros catálogos com baixa mutabilidade;
-- revisar TTL por domínio:
-  - catálogos: TTL alto;
-  - estado do usuário: TTL curto;
-  - métricas derivadas: TTL médio.
+**Resultado entregue:** os catálogos quase estáticos agora passam por cache compartilhado em `utils/app_cache.py`, com invalidação explícita quando o catálogo é alterado.
 
-**Critério de conclusão:**
-- abrir `Biblioteca`, `Rotinas`, `Treino` e `Loja` não reconsulta catálogos estáticos em todo rerun.
+**Implementado:**
+- criação de wrappers compartilhados para catálogos em `utils/app_cache.py`:
+  - `get_cached_exercises()`;
+  - `get_cached_distinct_body_parts()`;
+  - `get_cached_shop_items()`;
+- adoção dos catálogos cacheados em:
+  - `pages/biblioteca.py`;
+  - `pages/rotinas.py`;
+  - `pages/treino.py`;
+  - `pages/loja.py`;
+  - `utils/bag_ui.py`;
+  - `pages/admin.py`;
+- criação de `clear_catalog_cache()` para invalidação explícita quando o catálogo de exercícios for alterado por admin.
+
+**Critério atendido:**
+- abrir `Biblioteca`, `Rotinas`, `Treino` e `Loja` não reconsulta catálogos estáticos em todo rerun;
+- atualizações administrativas do catálogo invalidam o cache compartilhado de forma controlada.
 
 ### Etapa 6. Separar leitura de escrita em componentes compartilhados
 
@@ -343,7 +350,7 @@ Componentes compartilhados devem:
 2. Rework do pipeline de imagens — concluído
 3. Índices e revisão das queries de treino — em andamento
 4. Redução de N+1 em rotinas
-5. Cache de catálogos estáticos
+5. Cache de catálogos estáticos — concluído
 6. Separação entre leitura e escrita em missões/sidebar
 7. Simplificação de compatibilidade de schema
 8. Telemetria simples de performance

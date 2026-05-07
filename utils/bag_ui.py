@@ -1,6 +1,7 @@
 import streamlit as st
 
 from utils.app_cache import (
+    get_cached_shop_items,
     clear_inventory_cache,
     clear_profile_cache,
     clear_team_cache,
@@ -11,7 +12,6 @@ from utils.app_cache import (
 )
 from utils.db import (
     evolve_with_stone,
-    get_shop_items,
     get_stone_targets,
     open_loot_box,
     hq_sprite_url,
@@ -118,7 +118,7 @@ def render_bag_view(user_id: str) -> None:
     ensure_bag_session_state()
 
     inventory = get_cached_user_inventory(user_id)
-    items = get_shop_items()
+    items = get_cached_shop_items()
     team = get_cached_user_team(user_id)
 
     if st.session_state.shop_msg:
