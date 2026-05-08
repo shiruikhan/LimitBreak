@@ -136,7 +136,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── migrate_happiness.sql                 # Adiciona happiness a user_pokemon, min_happiness a pokemon_evolutions, cria user_rest_days
     ├── migrate_spawn_tiers.sql               # Adiciona is_spawnable e rarity_tier a pokemon_species
     ├── migrate_priority1_eggs.sql            # Cria user_eggs (executar no Supabase — Release 3A)
-    ├── migrate_priority1_abilities.sql       # Adiciona ability à pokemon_species (executar no Supabase — Release 3A)
+    ├── migrate_priority1_abilities.sql       # Adiciona ability_slug à pokemon_species (executar no Supabase — Release 3A)
     ├── migrate_nature_mint.sql               # Suporte a nature_mint em shop_items/user_inventory
     ├── migrate_rival.sql                     # Adiciona weekly_rival_id e rival_assigned_week a user_profiles
     ├── migrate_weekly_challenge.sql          # Cria weekly_challenges e weekly_challenge_participants
@@ -175,12 +175,15 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | name | TEXT | Nome capitalizado |
 | slug | TEXT | Slug da API |
 | type1_id / type2_id | INT FK | FK → pokemon_types (type2 nullable) |
-| base_experience | INT | XP base |
+| evolution_chain_id | INT | ID da cadeia evolutiva (PokéAPI); default 0 |
+| base_experience | INT | XP base (nullable) |
 | sprite_url | TEXT | Caminho local `src/Pokemon/assets/images/XXXX.png` para espécies normais (id ≤ 1025); URL HybridShivam CDN `assets/images/{NNNN}-{Region}.png` para formas regionais (id > 10000) |
 | sprite_shiny_url | TEXT | URL PokéAPI (shiny) |
 | base_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Base stats — populados por `seed_stats.py` (normais) ou `seed_regional_species.py` (regionais) |
 | is_spawnable | BOOL | `TRUE` por padrão; `FALSE` para lendários/míticos (refinado por `seed_spawn_tiers.py`) |
 | rarity_tier | TEXT | `"common"` (base_xp < 100), `"uncommon"` (100–179), `"rare"` (≥ 180); usado em ovos e spawns |
+| ability_slug | TEXT | Slug da habilidade principal (nullable) — populado por `seed_species_abilities.py` (Release 3A) |
+| created_at | TIMESTAMPTZ | |
 
 > **Formas regionais (id > 10000):** 42 formas (16 Alola, 15 Galar, 10 Hisui + 1 extra) registradas como espécies plenas. Sprites: HybridShivam CDN — `assets/images/{NNNN}-{Region}.png` (ex: `0026-Alola.png`). Adquiridas pelas mesmas mecânicas de qualquer Pokémon: spawn em check-in, captura via Pokédex. Não há item de loja nem evolução por item para formas regionais.
 
@@ -207,8 +210,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 #### `pokemon_evolutions`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| id | INT PK | `(from_id * 1000) + to_id` |
-| from_species_id | INT FK | Pré-evolução |
+| id | SERIAL PK | Gerado automaticamente (não mais `from_id * 1000 + to_id`) |
+| from_species_id | INT FK | Pré-evolução (nullable) |
 | to_species_id | INT FK | Pós-evolução |
 | min_level | INT | Nível mínimo (nullable) |
 | trigger_name | TEXT | "level-up", "use-item", "shed", etc. |
@@ -223,7 +226,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | name | TEXT | Nome exibido |
 | description | TEXT | Descrição do efeito |
 | icon | TEXT | Emoji |
-| category | TEXT | "stone", "stat_boost", "other" |
+| category | TEXT | "stone", "stat_boost", "other", "regional_form" (reservado, sem itens ativos) |
 | price | INT | Preço em moedas |
 | effect_stat | TEXT | Para stat_boost: 'hp', 'attack', etc. (nullable) |
 | effect_value | INT | Valor do boost para stat_boost (nullable) |
@@ -232,21 +235,29 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | INT PK | |
-| name | TEXT | Nome do grupo muscular |
+| name | TEXT | Nome do grupo muscular (UNIQUE) |
+| image_url | TEXT | URL de imagem ilustrativa (nullable, não usada pelo app atualmente) |
+| created_at | TIMESTAMPTZ | |
 
 #### `exercises`
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | INT PK | |
+| exercise_id | TEXT UNIQUE | Slug/identificador externo (ex: da API de exercícios) |
 | name | TEXT | Nome em inglês |
-| name_pt | TEXT | Nome em português |
+| name_pt | TEXT | Nome em português (nullable) |
 | target_muscles | TEXT[] | Músculos alvo |
+| secondary_muscles | TEXT[] | Músculos secundários |
 | body_parts | TEXT[] | Partes do corpo (usadas para mapeamento de tipo Pokémon) |
 | equipments | TEXT[] | Equipamentos necessários |
-| gif_url | TEXT | URL do GIF demonstrativo |
+| gif_url | TEXT | URL do GIF demonstrativo (nullable) |
+| anatomy_url | TEXT | URL de imagem anatômica (nullable, não usada pelo app atualmente) |
+| instructions | TEXT[] | Passos de execução (nullable, não usada pelo app atualmente) |
 | metric_type | TEXT | `'weight'` (padrão), `'distance'` ou `'time'` — define como a série é registrada e como o XP é calculado |
+| created_at | TIMESTAMPTZ | |
 
 > **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Adicionado via `migrate_metric_type.sql`.
+> **⚠️ `metric_type` NÃO EXISTE NO BANCO ATUAL** — `migrate_metric_type.sql` ainda não foi aplicado ao Supabase. Toda lógica de `distance`/`time` em `treino.py`, `rotinas.py` e `biblioteca.py` depende desta coluna. Aplicar a migration antes de usar essas funcionalidades.
 
 #### `workout_sheets`
 | Coluna | Tipo | Descrição |
@@ -255,23 +266,34 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | user_id | UUID FK | FK → user_profiles.id |
 | created_by | UUID FK | Usuário que criou a rotina; atualmente espelha `user_id` |
 | name | TEXT | Nome do plano |
+| description | TEXT | Descrição opcional (nullable, não usada pelo app atualmente) |
+| goal | TEXT | Meta da rotina (nullable, não usada pelo app atualmente) |
+| is_active | BOOL | Default `true` (não filtrado pelo app atualmente) |
+| start_date / end_date | DATE | Datas opcionais da rotina (nullable, não usadas pelo app) |
+| created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | Atualizado em renomeações/edições da rotina |
 
 #### `workout_days`
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | UUID PK | |
-| workout_sheet_id | UUID FK | |
+| sheet_id | UUID FK | FK → workout_sheets.id (**coluna é `sheet_id`, não `workout_sheet_id`**) |
 | name | TEXT | Nome do dia (ex: "Peito e Tríceps") |
+| day_order | INT | Ordem de exibição do dia (default 0) |
+| created_at | TIMESTAMPTZ | |
 
 #### `workout_day_exercises`
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | UUID PK | |
-| workout_day_id | UUID FK | |
+| day_id | UUID FK | FK → workout_days.id (**coluna é `day_id`, não `workout_day_id`**) |
 | exercise_id | INT FK | |
-| sets | INT | |
-| reps | INT | |
+| sets | INT (nullable) | |
+| reps | TEXT (nullable) | Prescrito como texto (ex: "8-12") — não é INT |
+| rest_seconds | INT (nullable) | Descanso entre séries em segundos |
+| notes | TEXT (nullable) | Observações do exercício prescrito |
+| exercise_order | INT | Ordem de exibição (default 0) |
+| created_at | TIMESTAMPTZ | |
 
 ---
 
@@ -281,10 +303,11 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | UUID PK | Referência a `auth.users` |
-| username | TEXT | Nome do treinador |
+| username | TEXT | Nome do treinador (default 'Treinador') |
 | coins | INT | Moedas acumuladas |
-| starter_pokemon_id | INT FK | Pokémon inicial escolhido |
+| starter_pokemon_id | INT FK | Pokémon inicial escolhido (nullable) |
 | xp_share_expires_at | TIMESTAMPTZ | Data/hora de expiração do XP Share ativo (nullable) |
+| is_admin | BOOL | Default `false`; verificado por `is_admin()` em `db.py` |
 | weekly_rival_id | UUID FK | FK → user_profiles.id — rival atribuído para a semana atual (nullable, ON DELETE SET NULL) |
 | rival_assigned_week | DATE | Segunda-feira da semana em que o rival foi atribuído (nullable) |
 
@@ -292,11 +315,13 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | id | SERIAL PK | |
-| user_id | UUID FK | |
+| user_id | UUID FK | FK → auth.users |
 | species_id | INT FK | Espécie atual (muda na evolução) |
 | level | INT | Começa em 1 |
 | xp | INT | XP acumulado dentro do nível atual |
 | is_shiny | BOOL | |
+| nickname | TEXT | Apelido opcional (nullable, não exibido pela UI atualmente) |
+| caught_at | TIMESTAMPTZ | Timestamp de captura (default now()) |
 | stat_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | Stats efetivos — calculados pela fórmula padrão Pokémon (base + IV + EV + nature + vitaminas) |
 | iv_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | IVs individuais 0–31, gerados aleatoriamente na captura |
 | ev_hp/attack/defense/sp_attack/sp_defense/speed | SMALLINT | EVs individuais 0–252 (total ≤ 510), gerados aleatoriamente na captura |
@@ -340,11 +365,12 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 #### `user_inventory`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| user_id | UUID FK | |
+| id | SERIAL PK | |
+| user_id | UUID FK | FK → auth.users |
 | item_id | INT FK | FK → shop_items |
-| quantity | INT | |
+| quantity | INT | (check: >= 0) |
 
-> PK: `(user_id, item_id)`.
+> UNIQUE constraint em `(user_id, item_id)`. Embora o PK real seja `id`, o comportamento de upsert é guiado pelo constraint único.
 
 #### `user_checkins`
 | Coluna | Tipo | Descrição |
@@ -388,22 +414,25 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 #### `workout_logs`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| id | SERIAL PK | |
+| id | UUID PK | (gerado por `gen_random_uuid()`) |
 | user_id | UUID FK | FK → user_profiles.id (ON DELETE CASCADE) |
 | day_id | UUID FK | FK → workout_days (nullable — NULL = treino livre) |
-| xp_earned | INT | XP concedido ao Pokémon do slot 1 nesta sessão |
+| xp_earned | INT | XP concedido ao Pokémon do slot 1 nesta sessão (default 0) |
 | spawned_species_id | INT FK | Pokémon spawnado nesta sessão (nullable) |
 | duration_minutes | INT | Duração da sessão em minutos (nullable) |
+| notes | TEXT | Anotação livre da sessão (nullable) |
 | completed_at | TIMESTAMPTZ | Timestamp de conclusão (coluna é `completed_at`, não `logged_at`) |
+| created_at | TIMESTAMPTZ | |
 
 #### `exercise_logs`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| id | SERIAL PK | |
-| workout_log_id | INT FK | CASCADE DELETE |
+| id | UUID PK | (gerado por `gen_random_uuid()`) |
+| workout_log_id | UUID FK | FK → workout_logs.id (CASCADE DELETE) |
 | exercise_id | INT FK | |
-| sets_data | JSONB | `[{"reps": int, "weight": float}]` |
+| sets_data | JSONB | `[{"reps": int, "weight": float}]` para weight; `[{"distance_m": float}]` para distance; `[{"duration_s": int}]` para time (default `[]`) |
 | notes | TEXT | Anotação livre (nullable) |
+| created_at | TIMESTAMPTZ | |
 
 #### `user_missions`
 | Coluna | Tipo | Descrição |
@@ -452,6 +481,21 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | reward_claimed | BOOL | `TRUE` após `claim_weekly_challenge_reward()` |
 
 > PK: `(challenge_id, user_id)`.
+
+#### `system_logs`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| id | SERIAL PK | |
+| user_id | UUID FK | → user_profiles.id (nullable) |
+| action | TEXT | Tipo de ação (ex: "gift_loot_box", "delete_user") |
+| target_type | TEXT | Tipo do alvo (nullable, ex: "user") |
+| target_id | TEXT | ID do alvo como texto (nullable) |
+| details | JSONB | Dados adicionais da ação (nullable) |
+| created_at | TIMESTAMPTZ | |
+
+> Usada por `log_admin_action()` e lida por `get_system_logs()`. Requer `is_admin()` para acesso.
+
+> **Tabela legada — `user_pokemons` (0 rows):** existe no banco com schema diferente (UUID PK, `current_xp`, `is_in_party`) mas não é usada pelo app. A tabela ativa é `user_pokemon` (SERIAL PK).
 
 ---
 
@@ -1099,7 +1143,7 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - Prefira helpers específicos como `clear_profile_cache()`, `clear_workout_cache()` e `clear_inventory_cache()`; `clear_user_cache()` fica reservado para fluxos amplos do mesmo usuário
 - Para catálogos quase estáticos, prefira `get_cached_exercises()`, `get_cached_distinct_body_parts()` e `get_cached_shop_items()`; ao alterar o catálogo por admin, use `clear_catalog_cache()`
 - Missões atuais devem ser garantidas por `ensure_current_user_missions(user_id)` em ponto controlado do fluxo; `get_user_missions()` e `render_quest_sidebar()` devem permanecer leitura pura
-- Nos fluxos atuais de builder, assuma `workout_days.workout_sheet_id`, `workout_day_exercises.workout_day_id` e `exercises.metric_type` como contrato do schema; evite reintroduzir fallbacks por alias legado sem migration/documentação
+- Nos fluxos atuais de builder, as colunas reais são `workout_days.sheet_id` (não `workout_sheet_id`) e `workout_day_exercises.day_id` (não `workout_day_id`); `exercises.metric_type` ainda **não existe no banco** — aplicar `migrate_metric_type.sql` antes de usar lógica de distância/tempo
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
 ---
@@ -1139,7 +1183,7 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `migrate_drop_regional_catalog.sql`: executar para remover tabelas obsoletas `pokemon_regional_forms` e `user_pokemon_forms`.
 `migrate_consolidate_profiles.sql`: executar para migrar FK de `workout_logs` para `user_profiles` e remover a tabela `profiles` legada.
 `migrate_priority1_eggs.sql`: cria `user_eggs` (Release 3A).
-`migrate_priority1_abilities.sql`: adiciona coluna `ability` a `pokemon_species` (Release 3A).
+`migrate_priority1_abilities.sql`: adiciona coluna `ability_slug` a `pokemon_species` (Release 3A).
 `migrate_nature_mint.sql`: suporte a nature_mint em `shop_items`.
 `migrate_rival.sql`: adiciona `weekly_rival_id` e `rival_assigned_week` a `user_profiles`.
 `migrate_weekly_challenge.sql`: cria tabelas `weekly_challenges` e `weekly_challenge_participants`.
