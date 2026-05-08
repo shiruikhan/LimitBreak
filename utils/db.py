@@ -144,11 +144,11 @@ def _exercise_metric_sql(table_alias: str | None = None) -> str:
 
 
 def _workout_days_sheet_fk() -> str:
-    return "workout_sheet_id"
+    return "sheet_id"
 
 
 def _workout_day_exercises_day_fk() -> str:
-    return "workout_day_id"
+    return "day_id"
 
 
 _STAT_ORDER = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")

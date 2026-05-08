@@ -257,7 +257,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | created_at | TIMESTAMPTZ | |
 
 > **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Adicionado via `migrate_metric_type.sql`.
-> **⚠️ `metric_type` NÃO EXISTE NO BANCO ATUAL** — `migrate_metric_type.sql` ainda não foi aplicado ao Supabase. Toda lógica de `distance`/`time` em `treino.py`, `rotinas.py` e `biblioteca.py` depende desta coluna. Aplicar a migration antes de usar essas funcionalidades.
+> **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Migration aplicada em 2026-05-08.
 
 #### `workout_sheets`
 | Coluna | Tipo | Descrição |
@@ -1143,7 +1143,7 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - Prefira helpers específicos como `clear_profile_cache()`, `clear_workout_cache()` e `clear_inventory_cache()`; `clear_user_cache()` fica reservado para fluxos amplos do mesmo usuário
 - Para catálogos quase estáticos, prefira `get_cached_exercises()`, `get_cached_distinct_body_parts()` e `get_cached_shop_items()`; ao alterar o catálogo por admin, use `clear_catalog_cache()`
 - Missões atuais devem ser garantidas por `ensure_current_user_missions(user_id)` em ponto controlado do fluxo; `get_user_missions()` e `render_quest_sidebar()` devem permanecer leitura pura
-- Nos fluxos atuais de builder, as colunas reais são `workout_days.sheet_id` (não `workout_sheet_id`) e `workout_day_exercises.day_id` (não `workout_day_id`); `exercises.metric_type` ainda **não existe no banco** — aplicar `migrate_metric_type.sql` antes de usar lógica de distância/tempo
+- Nos fluxos atuais de builder, as colunas reais são `workout_days.sheet_id` (não `workout_sheet_id`) e `workout_day_exercises.day_id` (não `workout_day_id`); `exercises.metric_type` existe no banco (migration aplicada 2026-05-08)
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
 ---
