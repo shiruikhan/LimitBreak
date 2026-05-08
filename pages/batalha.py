@@ -9,7 +9,6 @@ from utils.app_cache import (
 )
 from utils.db import (
     start_battle, finalize_battle,
-    get_battle_detail,
     get_image_as_base64, sprite_img_tag, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
     _type_effectiveness, check_and_award_achievements, update_mission_progress,
 )
@@ -328,18 +327,6 @@ elif not bs["finished"]:
         st.session_state.battle_state = _resolve_turn(bs, chosen_move)
         st.rerun()
 
-    # Log de turnos
-    if bs["turns"]:
-        log_html = ""
-        for t in reversed(bs["turns"][-10:]):
-            is_ch = t["attacker_id"] == ch["id"]
-            attacker = ch["name"] if is_ch else op["name"]
-            css = "turn-row-ch" if is_ch else "turn-row-op"
-            dmg_txt = f" → <strong>-{t['damage']} HP</strong>" if t["damage"] else ""
-            lbl = f" <em>{t['label']}</em>" if t.get("label") else ""
-            log_html += f'<div class="{css}">T{t["turn"]} {attacker} usou <strong>{t["move_name"]}</strong>{dmg_txt}{lbl} · 🔵{t["ch_hp"]} 🔴{t["op_hp"]}</div>'
-        st.markdown(f'<div class="turn-log">{log_html}</div>', unsafe_allow_html=True)
-
     if st.button("🏳 Render-se"):
         bs["finished"] = True
         bs["result"]   = "opponent_win"
@@ -356,8 +343,9 @@ else:
     if not st.session_state.get("battle_saved"):
         saved = finalize_battle(bs)
         clear_user_cache(user_id)
-        st.session_state.battle_saved  = True
-        st.session_state.battle_result = saved
+        st.session_state.battle_saved        = True
+        st.session_state.battle_result       = saved
+        st.session_state.battle_daily_count  = get_cached_daily_battle_count(user_id)
         new_ach = check_and_award_achievements(user_id)
         if new_ach:
             pending = st.session_state.get("new_achievements_pending", [])
@@ -405,17 +393,6 @@ else:
         st.markdown(_fighter_card(op, "Oponente", winner_id == bs["opponent_id"]),
                     unsafe_allow_html=True)
 
-    with st.expander(f"📜 Log completo ({len(bs['turns'])} ações)"):
-        for t in bs["turns"]:
-            is_ch = t["attacker_id"] == ch["id"]
-            attacker = ch["name"] if is_ch else op["name"]
-            css = "turn-row-ch" if is_ch else "turn-row-op"
-            dmg_txt = f" → **-{t['damage']} HP**" if t["damage"] else ""
-            st.markdown(
-                f"<div class='{css}'>T{t['turn']} **{attacker}** usou **{t['move_name']}**{dmg_txt} · 🔵{t['ch_hp']} 🔴{t['op_hp']}</div>",
-                unsafe_allow_html=True,
-            )
-
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1:
         if st.button("🔄 Nova batalha", use_container_width=True):
@@ -424,7 +401,8 @@ else:
             st.session_state.pop("battle_result", None)
             st.rerun()
     with btn_col2:
-        rematch_disabled = (remaining - 1) <= 0
+        fresh_count      = st.session_state.get("battle_daily_count", daily_count)
+        rematch_disabled = (_MAX_BATTLES_PER_DAY - fresh_count) <= 0
         if st.button(
             f"⚔️ Revanche vs {op['name']}",
             use_container_width=True,
@@ -469,13 +447,12 @@ else:
         coins_info = f" · +{b['coins']} 🪙" if str(b.get("winner_id", "")) == user_id else ""
         date_str   = b["battled_at"].strftime("%d/%m %H:%M") if b["battled_at"] else ""
 
-        with st.expander(f"{icon} {outcome} vs {their_name} ({my_poke} vs {their_poke}) · {date_str}"):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(f"**Oponente:** {their_name} ({their_poke})")
-            with c2:
-                st.markdown(f"**Turnos:** {b['turn_count']} · **XP:** +{my_xp}{coins_info}")
-            for t in get_battle_detail(b["id"]):
-                st.markdown(
-                    f"T{t['turn']} · **{t['move_name']}** · -{t['damage']} HP · 🔵{t['ch_hp']} 🔴{t['op_hp']}"
-                )
+        st.markdown(
+            f'<div class="history-card {css}">'
+            f"<strong>{icon} {outcome}</strong> vs {their_name} &nbsp;·&nbsp; "
+            f"{my_poke} vs {their_poke} &nbsp;·&nbsp; "
+            f"{b['turn_count']} turnos &nbsp;·&nbsp; +{my_xp} XP{coins_info} &nbsp;·&nbsp; "
+            f"<span style='color:#8b949e;font-size:0.8rem'>{date_str}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
