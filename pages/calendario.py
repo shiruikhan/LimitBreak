@@ -378,14 +378,8 @@ if res:
 
             # Evoluções
             for evo in evolutions:
-                evo_sprite = evo.get("sprite_url", "")
-                evo_img = (
-                    sprite_img_tag(
-                        hq_sprite_url(evo_sprite), width=90,
-                        extra_style="image-rendering:pixelated;filter:drop-shadow(0 0 12px #BC8CFF)",
-                    )
-                    if evo_sprite else ""
-                ) or "<div style='font-size:3rem'>🌟</div>"
+                evo_sprite      = evo.get("sprite_url", "")
+                evo_from_sprite = evo.get("from_sprite_url", "")
 
                 if evo.get("shed"):
                     shed_img = (
@@ -414,20 +408,67 @@ if res:
                         "sprite_url": evo.get("sprite_url", ""),
                     }
                 else:
+                    _cal_from_img = (
+                        sprite_img_tag(
+                            hq_sprite_url(evo_from_sprite), width=80,
+                            extra_style="image-rendering:pixelated",
+                        )
+                        if evo_from_sprite else "<div style='font-size:2.5rem;opacity:.6'>❓</div>"
+                    )
+                    _cal_to_img = (
+                        sprite_img_tag(
+                            hq_sprite_url(evo_sprite), width=80,
+                            extra_style="image-rendering:pixelated",
+                        )
+                        if evo_sprite else "<div style='font-size:2.5rem'>🌟</div>"
+                    )
+                    _cal_from_name = evo["from_name"]
+                    _cal_to_name   = evo["to_name"]
                     st.markdown(
-                        f"<div class='result-card evolution' "
-                        f"style='display:flex;align-items:center;gap:20px'>"
-                        f"<div>{evo_img}</div>"
-                        f"<div>"
-                        f"<div class='result-title'>🌟 Seu Pokémon evoluiu!</div>"
-                        f"<div style='margin-top:6px'>"
-                        f"<span class='evo-name-from'>{evo['from_name']}</span>"
-                        f"<span class='evo-arrow'>→</span>"
-                        f"<span class='evo-name-to'>{evo['to_name']}</span>"
-                        f"</div>"
-                        f"<div class='result-body' style='margin-top:6px'>"
-                        f"Stats recalculados para a nova forma!</div>"
-                        f"</div></div>",
+                        "<style>"
+                        "@keyframes lb-evo-in{"
+                        "0%{opacity:0;transform:translateY(-10px) scale(.97)}"
+                        "100%{opacity:1;transform:translateY(0) scale(1)}}"
+                        "@keyframes lb-evo-glow{"
+                        "0%{box-shadow:0 0 0 #BC8CFF00;border-color:#3d1f5e}"
+                        "45%{box-shadow:0 0 35px #BC8CFF55,0 0 70px #BC8CFF22;border-color:#BC8CFF}"
+                        "100%{box-shadow:0 0 14px #BC8CFF33;border-color:#BC8CFF}}"
+                        "@keyframes lb-evo-from{"
+                        "0%,25%{opacity:1;filter:brightness(1)}"
+                        "60%{opacity:1;filter:brightness(8) drop-shadow(0 0 10px #fff)}"
+                        "100%{opacity:0;filter:brightness(20);transform:scale(.8)}}"
+                        "@keyframes lb-evo-arrow{"
+                        "0%,35%{opacity:.25;transform:scale(1)}"
+                        "65%{opacity:1;transform:scale(1.5)}"
+                        "100%{opacity:.8;transform:scale(1.1)}}"
+                        "@keyframes lb-evo-to{"
+                        "0%,50%{opacity:0;filter:brightness(20) saturate(0);transform:scale(.7)}"
+                        "70%{opacity:1;filter:brightness(5) drop-shadow(0 0 22px #BC8CFF);transform:scale(1.2)}"
+                        "87%{filter:brightness(2) drop-shadow(0 0 12px #BC8CFF);transform:scale(1.0)}"
+                        "100%{opacity:1;filter:drop-shadow(0 0 8px #BC8CFF77);transform:scale(1.0)}}"
+                        "@keyframes lb-evo-text{"
+                        "0%,58%{opacity:0;transform:translateX(-10px)}"
+                        "100%{opacity:1;transform:translateX(0)}}"
+                        "</style>"
+                        "<div style='"
+                        "background:linear-gradient(135deg,#1a0b2e 0%,#2a1050 50%,#1a0b2e 100%);"
+                        "border-radius:16px;padding:20px 24px;margin-top:12px;"
+                        "display:flex;align-items:center;gap:20px;"
+                        "border:1.5px solid transparent;"
+                        "animation:lb-evo-in .4s ease-out both,lb-evo-glow 2s ease-out both'>"
+                        f"<div style='flex-shrink:0;animation:lb-evo-from 1.1s ease-in-out .2s both'>{_cal_from_img}</div>"
+                        "<div style='color:#BC8CFF;font-size:2rem;font-weight:900;flex-shrink:0;"
+                        "animation:lb-evo-arrow .7s ease .75s both'>→</div>"
+                        f"<div style='flex-shrink:0;animation:lb-evo-to 1.1s ease-out .8s both'>{_cal_to_img}</div>"
+                        "<div style='animation:lb-evo-text .5s ease-out 1.4s both'>"
+                        "<div style='font-weight:800;color:#e6edf3;font-size:1.1rem'>🌟 Pokémon evoluiu!</div>"
+                        "<div style='margin-top:6px'>"
+                        f"<span style='color:#8b949e;font-weight:700'>{_cal_from_name}</span>"
+                        "<span style='color:#BC8CFF;margin:0 10px;font-size:1.3rem'>→</span>"
+                        f"<span style='color:#BC8CFF;font-size:1.1rem;font-weight:800'>{_cal_to_name}</span>"
+                        "</div>"
+                        "<div style='color:#8b949e;font-size:0.8rem;margin-top:4px'>Stats recalculados para a nova forma!</div>"
+                        "</div></div>",
                         unsafe_allow_html=True,
                     )
 

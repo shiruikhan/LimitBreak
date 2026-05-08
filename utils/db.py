@@ -2098,7 +2098,7 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 if len(result["evolutions"]) < 3:
                     cur.execute("""
                         SELECT e.to_species_id, p2.name, p2.sprite_url,
-                               p1.name AS from_name
+                               p1.name AS from_name, p1.sprite_url AS from_sprite
                         FROM pokemon_evolutions e
                         JOIN pokemon_species p2 ON e.to_species_id = p2.id
                         JOIN pokemon_species p1 ON e.from_species_id = p1.id
@@ -2114,12 +2114,13 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                     """, (species_id, level, happiness + happiness_delta, level, _BYPASS_LEVEL))
                     evo = cur.fetchone()
                     if evo:
-                        to_id, to_name, to_sprite, from_name = evo
+                        to_id, to_name, to_sprite, from_name, from_sprite = evo
                         result["evolutions"].append({
-                            "from_name":  from_name,
-                            "to_name":    to_name,
-                            "to_id":      to_id,
-                            "sprite_url": to_sprite,
+                            "from_name":       from_name,
+                            "from_sprite_url": from_sprite or "",
+                            "to_name":         to_name,
+                            "to_id":           to_id,
+                            "sprite_url":      to_sprite,
                         })
 
                         # Shed mechanic: se a pré-evolução tem uma entrada 'shed',

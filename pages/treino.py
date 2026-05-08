@@ -867,9 +867,10 @@ if active_view == "🏋️ Treino":
                             unsafe_allow_html=True,
                         )
                         st.session_state.team_evo_notice = {
-                            "from_name":  evo["from_name"],
-                            "to_name":    evo["to_name"],
-                            "sprite_url": evo.get("sprite_url", ""),
+                            "from_name":       evo["from_name"],
+                            "from_sprite_url": evo.get("from_sprite_url", ""),
+                            "to_name":         evo["to_name"],
+                            "sprite_url":      evo.get("sprite_url", ""),
                         }
 
                 xp_shared = xp_res.get("xp_share_distributed", [])
