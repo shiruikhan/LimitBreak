@@ -3955,8 +3955,8 @@ def delete_workout_sheet(sheet_id: str) -> tuple[bool, str | None]:
 
 def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None]:
     """INSERT into workout_days; returns (new_uuid, None) or (None, error_msg)."""
+    conn = get_connection()
     try:
-        conn = get_connection()
         sheet_fk = _workout_days_sheet_fk()
         with conn.cursor() as cur:
             cur.execute(
@@ -3967,7 +3967,7 @@ def create_workout_day(sheet_id: str, name: str) -> tuple[str | None, str | None
         conn.commit()
         return str(new_id), None
     except Exception as e:
-        get_connection().rollback()
+        conn.rollback()
         return None, str(e)
 
 
@@ -3989,8 +3989,8 @@ def delete_workout_day(day_id: str) -> tuple[bool, str | None]:
 
 def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> tuple[str | None, str | None]:
     """INSERT into workout_day_exercises; returns (new_uuid, None) or (None, error_msg)."""
+    conn = get_connection()
     try:
-        conn = get_connection()
         day_fk = _workout_day_exercises_day_fk()
         with conn.cursor() as cur:
             cur.execute(
@@ -4001,7 +4001,7 @@ def add_exercise_to_day(day_id: str, exercise_id: int, sets: int, reps: int) -> 
         conn.commit()
         return str(new_id), None
     except Exception as e:
-        get_connection().rollback()
+        conn.rollback()
         return None, str(e)
 
 
@@ -4098,33 +4098,54 @@ def get_user_achievements(user_id: str) -> dict[str, datetime.datetime]:
 
 
 def _collect_achievement_stats(user_id: str, cur) -> dict:
-    """Collects all stats needed to evaluate achievement conditions."""
-    stats: dict = {}
+    """Collects all stats needed to evaluate achievement conditions.
 
-    cur.execute("SELECT COUNT(*) FROM user_pokemon WHERE user_id = %s;", (user_id,))
-    stats["pokemon_count"] = cur.fetchone()[0]
-
-    cur.execute(
-        "SELECT COALESCE(MAX(streak), 0) FROM user_checkins WHERE user_id = %s;",
-        (user_id,),
-    )
-    stats["checkin_streak_max"] = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
-    stats["workout_count"] = cur.fetchone()[0]
-
-    # PR count — one per exercise per session where a PR was achieved.
-    # Derived by counting distinct (workout_log_id, exercise_id) pairs whose
-    # best set weight exceeds all prior sessions' best for that exercise.
+    Executes a single SQL query with parallel CTEs instead of 9 round-trips,
+    then computes workout_streak in Python (requires row-by-row gap analysis).
+    """
     cur.execute("""
-        WITH ranked AS (
-            SELECT el.workout_log_id,
-                   el.exercise_id,
-                   MAX((s->>'weight')::float) AS session_best,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY el.exercise_id
-                       ORDER BY wl.completed_at
-                   ) AS rn
+        WITH
+        pokemon_stats AS (
+            SELECT
+                COUNT(*)                                                 AS pokemon_count,
+                COALESCE(BOOL_OR(up.is_shiny), false)                   AS has_shiny,
+                COALESCE(BOOL_OR(ps.id > 10000), false)                 AS has_regional
+            FROM user_pokemon up
+            JOIN pokemon_species ps ON ps.id = up.species_id
+            WHERE up.user_id = %s
+        ),
+        checkin_stats AS (
+            SELECT COALESCE(MAX(streak), 0) AS checkin_streak_max
+            FROM user_checkins
+            WHERE user_id = %s
+        ),
+        workout_stats AS (
+            SELECT COUNT(*) AS workout_count
+            FROM workout_logs
+            WHERE user_id = %s
+        ),
+        battle_stats AS (
+            SELECT COUNT(*) AS battle_wins
+            FROM user_battles
+            WHERE winner_id = %s
+        ),
+        evolution_stats AS (
+            SELECT
+                COUNT(DISTINCT up.id) > 0                                           AS has_evolved_pokemon,
+                COUNT(DISTINCT CASE WHEN pe.trigger_name = 'use-item' THEN up.id END) > 0 AS has_stone_evolved,
+                COUNT(DISTINCT up.id)                                               AS evolved_count
+            FROM user_pokemon up
+            JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
+            WHERE up.user_id = %s
+        ),
+        pr_ranked AS (
+            SELECT
+                el.exercise_id,
+                MAX((s->>'weight')::float) AS session_best,
+                ROW_NUMBER() OVER (
+                    PARTITION BY el.exercise_id
+                    ORDER BY wl.completed_at
+                ) AS rn
             FROM exercise_logs el
             JOIN workout_logs wl ON wl.id = el.workout_log_id
             JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
@@ -4132,68 +4153,49 @@ def _collect_achievement_stats(user_id: str, cur) -> dict:
               AND (s->>'weight') IS NOT NULL
             GROUP BY el.workout_log_id, el.exercise_id, wl.completed_at
         ),
-        with_prev AS (
-            SELECT exercise_id,
-                   session_best,
-                   LAG(session_best) OVER (
-                       PARTITION BY exercise_id ORDER BY rn
-                   ) AS prev_best
-            FROM ranked
+        pr_stats AS (
+            SELECT COUNT(*) AS pr_count
+            FROM (
+                SELECT session_best,
+                       LAG(session_best) OVER (PARTITION BY exercise_id ORDER BY rn) AS prev_best
+                FROM pr_ranked
+            ) t
+            WHERE prev_best IS NOT NULL AND session_best > prev_best
         )
-        SELECT COUNT(*) FROM with_prev
-        WHERE prev_best IS NOT NULL AND session_best > prev_best;
-    """, (user_id,))
-    stats["pr_count"] = cur.fetchone()[0]
+        SELECT
+            ps.pokemon_count,
+            ps.has_shiny,
+            ps.has_regional,
+            cs.checkin_streak_max,
+            ws.workout_count,
+            bs.battle_wins,
+            es.has_evolved_pokemon,
+            es.has_stone_evolved,
+            es.evolved_count,
+            prs.pr_count
+        FROM pokemon_stats   ps
+        CROSS JOIN checkin_stats   cs
+        CROSS JOIN workout_stats   ws
+        CROSS JOIN battle_stats    bs
+        CROSS JOIN evolution_stats es
+        CROSS JOIN pr_stats        prs;
+    """, (user_id,) * 6)
 
-    cur.execute(
-        "SELECT COUNT(*) FROM user_battles WHERE winner_id = %s;",
-        (user_id,),
-    )
-    stats["battle_wins"] = cur.fetchone()[0]
+    row = cur.fetchone()
+    stats: dict = {
+        "pokemon_count":      row[0],
+        "has_shiny":          row[1],
+        "has_regional":       row[2],
+        "checkin_streak_max": row[3],
+        "workout_count":      row[4],
+        "battle_wins":        row[5],
+        "has_evolved_pokemon": row[6],
+        "has_stone_evolved":  row[7],
+        "evolved_count":      row[8],
+        "pr_count":           row[9],
+    }
 
-    cur.execute(
-        "SELECT EXISTS(SELECT 1 FROM user_pokemon WHERE user_id = %s AND is_shiny = true);",
-        (user_id,),
-    )
-    stats["has_shiny"] = cur.fetchone()[0]
-
-    cur.execute("""
-        SELECT EXISTS(
-            SELECT 1 FROM user_pokemon up
-            JOIN pokemon_species ps ON ps.id = up.species_id
-            WHERE up.user_id = %s AND ps.id > 10000
-        );
-    """, (user_id,))
-    stats["has_regional"] = cur.fetchone()[0]
-
-    cur.execute("""
-        SELECT EXISTS(
-            SELECT 1 FROM user_pokemon up
-            JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
-            WHERE up.user_id = %s
-        );
-    """, (user_id,))
-    stats["has_evolved_pokemon"] = cur.fetchone()[0]
-
-    cur.execute("""
-        SELECT EXISTS(
-            SELECT 1 FROM user_pokemon up
-            JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
-            WHERE up.user_id = %s AND pe.trigger_name = 'use-item'
-        );
-    """, (user_id,))
-    stats["has_stone_evolved"] = cur.fetchone()[0]
-
-    # Count of evolved Pokémon in the user's collection (for Vulcão badge)
-    cur.execute("""
-        SELECT COUNT(DISTINCT up.id)
-        FROM user_pokemon up
-        JOIN pokemon_evolutions pe ON pe.to_species_id = up.species_id
-        WHERE up.user_id = %s;
-    """, (user_id,))
-    stats["evolved_count"] = cur.fetchone()[0]
-
-    # Workout streak (reuse the same logic as get_workout_streak)
+    # Workout streak requer análise de gap linha-a-linha — mantida em Python
     stats["workout_streak"] = _compute_streak_from_days(_unique_workout_days_brt(cur, user_id))
 
     return stats

@@ -1318,9 +1318,9 @@ Itens identificados na auditoria de maio/2026. Organizados por impacto crescente
 - [x] Janela de 400 dias adicionada a `_unique_workout_days_brt()` (evita full scan em usuários antigos)
 
 **Pendentes — médio impacto:**
-- [ ] Consolidar `_collect_achievement_stats()` em uma única query com múltiplos CTEs (atualmente 8+ queries sequenciais por chamada)
-- [ ] Corrigir padrão de rollback em `create_workout_day`, `add_exercise_to_day`, `update_day_exercise`, `remove_exercise_from_day` — rollback precisa operar na conexão capturada, não em uma nova
-- [ ] Aplicar `migrate_performance_stage3_indexes.sql` no Supabase (índices de performance para `workout_logs`, `exercise_logs`, `user_battles`)
+- [x] Consolidar `_collect_achievement_stats()` em uma única query com múltiplos CTEs (9 round-trips → 1 query paralela)
+- [x] Corrigir padrão de rollback em `create_workout_day` e `add_exercise_to_day` — rollback agora opera na conexão capturada
+- [x] Aplicar `migrate_performance_stage3_indexes.sql` no Supabase via MCP (4 índices criados em `workout_logs`, `exercise_logs`, `user_battles`)
 - [ ] Padronizar todos os cursors restantes em `db.py` para context manager (alguns ainda usam `cur = conn.cursor()` + `cur.close()`)
 - [ ] Substituir `.format(metric_sql=...)` em SQL por CASE WHEN inline — eliminar interpolação de string em queries
 
