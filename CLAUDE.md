@@ -653,6 +653,7 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `get_volume_history(user_id, exercise_id, days=90)` | Volume diário para um exercício num período, adaptado ao `metric_type`: weight=Σ(kg×reps), distance=Σkm, time=Σmin. Retorna `[{date, volume, max_val, total_sets, metric_type, unit}]` ordenado por data |
 | `get_exercise_bests_all(user_id)` | Melhor métrica por exercício já logado. Retorna `[{exercise_id, name, metric_type, unit, best_primary, best_secondary}]`. Para weight: `best_primary`=kg, `best_secondary`=reps; para distance/time: `best_primary`=valor, `best_secondary`=`None` |
 | `get_muscle_distribution(user_id)` | Sets por parte do corpo na semana atual vs. anterior (BRT). Retorna `{this_week: {body_part: sets}, last_week: {body_part: sets}, this_label, last_label}` |
+| `get_recent_muscle_balance(user_id, days=7)` | Resumo de grupos musculares recentes com detecção de grupos "frios". Retorna `{days, start_date, end_date, entries: [{body_part, sets, workouts, status}], cold_parts, trained_parts, total_parts}`. Status possíveis: `"hot"`, `"warm"`, `"cold"` (0 sets no período). Cacheado via `get_cached_recent_muscle_balance()` (TTL=300s). |
 
 ### Ovos
 | Função | Descrição |
@@ -1143,6 +1144,8 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - Prefira helpers específicos como `clear_profile_cache()`, `clear_workout_cache()` e `clear_inventory_cache()`; `clear_user_cache()` fica reservado para fluxos amplos do mesmo usuário
 - Para catálogos quase estáticos, prefira `get_cached_exercises()`, `get_cached_distinct_body_parts()` e `get_cached_shop_items()`; ao alterar o catálogo por admin, use `clear_catalog_cache()`
 - Missões atuais devem ser garantidas por `ensure_current_user_missions(user_id)` em ponto controlado do fluxo; `get_user_missions()` e `render_quest_sidebar()` devem permanecer leitura pura
+- **`utils/quest_tracker.py`** expõe `render_quest_sidebar(user_id)` — widget compacto de missões para ser chamado dentro de `with st.sidebar:`; lê missões via `get_cached_user_missions()` sem writes; exibe progresso das 3 diárias + 1 semanal com barras e badges
+- **`utils/app_cache.py`** define `_WORKOUT_HISTORY_LIMITS = (10, 30)` — ambas as variantes de `get_cached_workout_history(user_id, limit)` são limpas em `clear_workout_cache()`; o `limit=30` é usado em contextos de análise mais longa fora do histórico padrão exibido na página de treino
 - Nos fluxos atuais de builder, as colunas reais são `workout_days.sheet_id` (não `workout_sheet_id`) e `workout_day_exercises.day_id` (não `workout_day_id`); `exercises.metric_type` existe no banco (migration aplicada 2026-05-08)
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
 
@@ -1190,8 +1193,9 @@ python scripts/seed_regional_species.py  # pokemon_species + moves para as 42 fo
 `seed_streak_shield.sql`: insere item `streak-shield` em `shop_items` (executar uma vez).
 `migrate_metric_type.sql`: adiciona coluna `metric_type` à tabela `exercises` (executar uma vez; idempotente via `ADD COLUMN IF NOT EXISTS`).
 `migrate_workout_sheet_metadata.sql`: padroniza `workout_sheets.created_by` e `workout_sheets.updated_at` para o contrato atual do app.
+`migrate_performance_stage3_indexes.sql`: cria índices de performance nas tabelas `workout_logs`, `exercise_logs` e `user_battles` — **recomendado executar em produção**, pois impacta diretamente as queries de streak, analytics e histórico de batalhas. Idempotente (`CREATE INDEX IF NOT EXISTS`).
 
-Para um ambiente novo alinhado ao app atual, aplique pelo menos as migrations/seed acima relacionadas a releases posteriores: `migrate_happiness.sql`, `migrate_rival.sql`, `migrate_weekly_challenge.sql`, `migrate_metric_type.sql`, `migrate_workout_sheet_metadata.sql` e `seed_streak_shield.sql`.
+Para um ambiente novo alinhado ao app atual, aplique pelo menos as migrations/seed acima relacionadas a releases posteriores: `migrate_happiness.sql`, `migrate_rival.sql`, `migrate_weekly_challenge.sql`, `migrate_metric_type.sql`, `migrate_workout_sheet_metadata.sql`, `seed_streak_shield.sql` e `migrate_performance_stage3_indexes.sql`.
 
 Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
@@ -1299,6 +1303,31 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 **Opcional**
 - [ ] Formas de Paldea — popular com `seed_regional_species.py`
+
+---
+
+### Dívida Técnica (backlog de qualidade)
+
+Itens identificados na auditoria de maio/2026. Organizados por impacto crescente.
+
+**Já corrigidos (maio/2026):**
+- [x] XSS: `html.escape()` aplicado ao `profile['username']` no sidebar de `app.py`
+- [x] `_BYPASS_LEVEL = 36` movido de dentro de `award_xp()` para nível de módulo em `db.py`
+- [x] TTL de 3600s adicionado a `get_all_pokemon()`, `get_all_pokemon_with_types()` e `get_shop_items()`
+- [x] Padrão de cursor padronizado em `get_battle_opponents()` e `get_daily_battle_count()` (context manager)
+- [x] Janela de 400 dias adicionada a `_unique_workout_days_brt()` (evita full scan em usuários antigos)
+
+**Pendentes — médio impacto:**
+- [ ] Consolidar `_collect_achievement_stats()` em uma única query com múltiplos CTEs (atualmente 8+ queries sequenciais por chamada)
+- [ ] Corrigir padrão de rollback em `create_workout_day`, `add_exercise_to_day`, `update_day_exercise`, `remove_exercise_from_day` — rollback precisa operar na conexão capturada, não em uma nova
+- [ ] Aplicar `migrate_performance_stage3_indexes.sql` no Supabase (índices de performance para `workout_logs`, `exercise_logs`, `user_battles`)
+- [ ] Padronizar todos os cursors restantes em `db.py` para context manager (alguns ainda usam `cur = conn.cursor()` + `cur.close()`)
+- [ ] Substituir `.format(metric_sql=...)` em SQL por CASE WHEN inline — eliminar interpolação de string em queries
+
+**Pendentes — alto impacto (planejamento necessário):**
+- [ ] Quebrar `utils/db.py` (5500+ linhas) em módulos temáticos: `db_catalog.py`, `db_user.py`, `db_gameplay.py`
+- [ ] Adicionar logging real (structlog ou loguru) em vez de `except Exception: return []` — erros silenciados dificultam diagnóstico em produção
+- [ ] Revisar `do_exercise_event()` (~340 linhas) — múltiplos commits pós-transação principal criam janelas de inconsistência; avaliar consolidação ou uso de savepoints
 
 ---
 

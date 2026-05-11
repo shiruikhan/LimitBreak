@@ -1,3 +1,4 @@
+import html as _html
 import streamlit as st
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
@@ -309,13 +310,15 @@ def _render_sidebar_shell(groups: list[tuple[str, list[dict]]], user_id: str) ->
 
         profile = get_cached_user_profile(user_id)
         if profile:
+            _safe_name  = _html.escape(str(profile["username"]))
+            _safe_coins = f"{profile['coins']:,}"
             st.markdown(
                 f"""
 <div class="shell-profile">
   <div style="font-size:1.35rem">🧢</div>
   <div>
-    <div class="shell-profile-name">{profile['username']}</div>
-    <div class="shell-profile-meta">🪙 {profile['coins']:,}</div>
+    <div class="shell-profile-name">{_safe_name}</div>
+    <div class="shell-profile-meta">🪙 {_safe_coins}</div>
   </div>
 </div>
 """,

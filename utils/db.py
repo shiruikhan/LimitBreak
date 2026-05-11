@@ -52,11 +52,16 @@ def _to_brt_date(ts: datetime.datetime | None) -> datetime.date | None:
 
 
 def _unique_workout_days_brt(cur, user_id: str) -> list[datetime.date]:
-    """Returns unique workout days in BRT ordered from newest to oldest."""
+    """Returns unique workout days in BRT ordered from newest to oldest.
+
+    A janela de 400 dias é suficiente para qualquer streak realista e evita
+    full-sequential-scans em usuários com centenas de sessões registradas.
+    """
     cur.execute("""
         SELECT completed_at
         FROM workout_logs
         WHERE user_id = %s
+          AND completed_at > NOW() - INTERVAL '400 days'
         ORDER BY completed_at DESC;
     """, (user_id,))
 
@@ -586,14 +591,14 @@ def hq_sprite_url(sprite_url: str) -> str:
 
 # ── Pokédex queries ────────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_all_pokemon() -> list[tuple]:
     with get_connection().cursor() as cur:
         cur.execute("SELECT id, name FROM pokemon_species ORDER BY id;")
         return cur.fetchall()
 
 
-@st.cache_data
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_all_pokemon_with_types() -> list[dict]:
     """Retorna todos os 1.025 Pokémon com tipos e sprite — cacheado globalmente."""
     with get_connection().cursor() as cur:
@@ -1192,7 +1197,7 @@ def get_team_stat_boost_counts(user_id: str) -> dict:
 
 # ── Loja ──────────────────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_shop_items() -> list[dict]:
     """Retorna o catálogo completo da loja — cacheado globalmente."""
     with get_connection().cursor() as cur:
@@ -2083,7 +2088,6 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
 
             # ── Loop de level-up ──────────────────────────────────────────────
             # Fórmula: level * 100 XP para o próximo nível. Cap: nível 100.
-            _BYPASS_LEVEL = 36
             happiness_delta = 0
             while xp >= level * 100 and level < 100:
                 xp    -= level * 100
@@ -2346,6 +2350,10 @@ def evolve_with_stone(user_id: str, item_id: int, user_pokemon_id: int) -> tuple
 
 _MAX_BATTLES_PER_DAY = 3
 _MAX_TURNS = 50
+
+# Nível em que evoluções com triggers não-padrão (troca, beleza, etc.)
+# são disparadas automaticamente, evitando que o Pokémon fique preso.
+_BYPASS_LEVEL = 36
 _WIN_COINS = 1
 _WIN_XP = 30
 _LOSS_XP = 10
@@ -2440,20 +2448,18 @@ def _best_move(moves: list) -> dict:
 
 def get_battle_opponents(user_id: str) -> list:
     """Retorna outros usuários que têm Pokémon no slot 1, com dados do Pokémon."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT up.username, ut.user_id, up2.level, ps.name, ps.sprite_url
-        FROM user_team ut
-        JOIN user_profiles up  ON ut.user_id = up.id
-        JOIN user_pokemon up2  ON ut.user_pokemon_id = up2.id
-        JOIN pokemon_species ps ON up2.species_id = ps.id
-        WHERE ut.slot = 1
-          AND ut.user_id != %s
-        ORDER BY up.username;
-    """, (user_id,))
-    rows = cur.fetchall()
-    cur.close()
+    with get_connection().cursor() as cur:
+        cur.execute("""
+            SELECT up.username, ut.user_id, up2.level, ps.name, ps.sprite_url
+            FROM user_team ut
+            JOIN user_profiles up  ON ut.user_id = up.id
+            JOIN user_pokemon up2  ON ut.user_pokemon_id = up2.id
+            JOIN pokemon_species ps ON up2.species_id = ps.id
+            WHERE ut.slot = 1
+              AND ut.user_id != %s
+            ORDER BY up.username;
+        """, (user_id,))
+        rows = cur.fetchall()
     return [
         {"username": r[0], "user_id": str(r[1]), "level": r[2],
          "pokemon_name": r[3], "sprite_url": r[4]}
@@ -2463,18 +2469,15 @@ def get_battle_opponents(user_id: str) -> list:
 
 def get_daily_battle_count(user_id: str) -> int:
     """Quantidade de batalhas iniciadas hoje (como desafiante)."""
-    conn = get_connection()
-    cur = conn.cursor()
     start_ts, end_ts = _brt_day_bounds(_today_brt())
-    cur.execute("""
-        SELECT COUNT(*) FROM user_battles
-        WHERE challenger_id = %s
-          AND battled_at >= %s
-          AND battled_at < %s;
-    """, (user_id, start_ts, end_ts))
-    count = cur.fetchone()[0]
-    cur.close()
-    return count
+    with get_connection().cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(*) FROM user_battles
+            WHERE challenger_id = %s
+              AND battled_at >= %s
+              AND battled_at < %s;
+        """, (user_id, start_ts, end_ts))
+        return cur.fetchone()[0]
 
 
 def start_battle(challenger_id: str, opponent_id: str) -> dict:
