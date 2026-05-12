@@ -1,4 +1,5 @@
 import os
+import json
 import base64
 import random
 import datetime
@@ -6,6 +7,8 @@ import calendar as cal_module
 import psycopg2
 import streamlit as st
 from dotenv import load_dotenv
+from utils.logger import logger
+from utils.abilities import apply_blaze as _apply_blaze
 
 load_dotenv()
 
@@ -141,11 +144,6 @@ def get_connection():
             st.session_state._db_conn = _new_conn()
     return st.session_state._db_conn
 
-
-def _exercise_metric_sql(table_alias: str | None = None) -> str:
-    """Returns a metric_type SQL expression for the current schema contract."""
-    prefix = f"{table_alias}." if table_alias else ""
-    return f"COALESCE({prefix}metric_type, 'weight')"
 
 
 def _workout_days_sheet_fk() -> str:
@@ -1864,6 +1862,7 @@ def do_checkin(user_id: str) -> dict:
         return result
 
     except Exception as e:
+        logger.exception("do_checkin falhou | user_id={}", user_id)
         conn.rollback()
         result["error"] = str(e)
         return result
@@ -2210,6 +2209,7 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
         return result
 
     except Exception as e:
+        logger.exception("award_xp falhou | user_pokemon_id={} source={}", user_pokemon_id, source)
         conn.rollback()
         result["error"] = str(e)
         return result
@@ -2490,8 +2490,7 @@ def start_battle(challenger_id: str, opponent_id: str) -> dict:
         return {"error": f"Limite de {_MAX_BATTLES_PER_DAY} batalhas por dia atingido."}
 
     conn = get_connection()
-    cur = conn.cursor()
-    try:
+    with conn.cursor() as cur:
         if _audit_and_sync_user_team_stats(cur, challenger_id):
             conn.commit()
         if opponent_id != challenger_id and _audit_and_sync_user_team_stats(cur, opponent_id):
@@ -2560,8 +2559,6 @@ def start_battle(challenger_id: str, opponent_id: str) -> dict:
             "result":   None,
             "winner_id": None,
         }
-    finally:
-        cur.close()
 
 
 def finalize_battle(state: dict) -> dict:
@@ -2582,42 +2579,44 @@ def finalize_battle(state: dict) -> dict:
     coins  = _WIN_COINS if winner_id else 0
 
     conn = get_connection()
-    cur = conn.cursor()
     try:
-        cur.execute("""
-            INSERT INTO user_battles
-                (challenger_id, opponent_id, challenger_pokemon_id, opponent_pokemon_id,
-                 winner_id, result, challenger_xp_earned, opponent_xp_earned,
-                 coins_earned, turn_count)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id;
-        """, (challenger_id, opponent_id, ch["id"], op["id"],
-              winner_id, result, ch_xp, op_xp, coins, len(turns)))
-        battle_id = cur.fetchone()[0]
-
-        for t in turns:
+        with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO user_battle_turns
-                    (battle_id, turn_number, attacker_pokemon_id,
-                     move_name, move_power, damage,
-                     challenger_hp_remaining, opponent_hp_remaining)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
-            """, (battle_id, t["turn"], t["attacker_id"],
-                  t["move_name"], t["move_power"], t["damage"],
-                  t["ch_hp"], t["op_hp"]))
+                INSERT INTO user_battles
+                    (challenger_id, opponent_id, challenger_pokemon_id, opponent_pokemon_id,
+                     winner_id, result, challenger_xp_earned, opponent_xp_earned,
+                     coins_earned, turn_count)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id;
+            """, (challenger_id, opponent_id, ch["id"], op["id"],
+                  winner_id, result, ch_xp, op_xp, coins, len(turns)))
+            battle_id = cur.fetchone()[0]
 
-        if winner_id:
-            cur.execute(
-                "UPDATE user_profiles SET coins = coins + %s WHERE id = %s;",
-                (coins, winner_id)
-            )
+            for t in turns:
+                cur.execute("""
+                    INSERT INTO user_battle_turns
+                        (battle_id, turn_number, attacker_pokemon_id,
+                         move_name, move_power, damage,
+                         challenger_hp_remaining, opponent_hp_remaining)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                """, (battle_id, t["turn"], t["attacker_id"],
+                      t["move_name"], t["move_power"], t["damage"],
+                      t["ch_hp"], t["op_hp"]))
+
+            if winner_id:
+                cur.execute(
+                    "UPDATE user_profiles SET coins = coins + %s WHERE id = %s;",
+                    (coins, winner_id)
+                )
 
         conn.commit()
     except Exception as e:
+        logger.exception(
+            "finalize_battle falhou | challenger={} opponent={} result={}",
+            challenger_id, opponent_id, result,
+        )
         conn.rollback()
         return {"error": str(e)}
-    finally:
-        cur.close()
 
     ch_xp_result = award_xp(ch["id"], ch_xp, "battle")
     op_xp_result = award_xp(op["id"], op_xp, "battle")
@@ -2636,29 +2635,27 @@ def finalize_battle(state: dict) -> dict:
 
 def get_battle_history(user_id: str, limit: int = 20) -> list:
     """Retorna as últimas batalhas em que o usuário participou."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT
-            b.id, b.result, b.winner_id,
-            b.challenger_id, pc.username AS challenger_name,
-            b.opponent_id,  po.username AS opponent_name,
-            ps_ch.name AS ch_pokemon, ps_op.name AS op_pokemon,
-            b.challenger_xp_earned, b.opponent_xp_earned,
-            b.coins_earned, b.turn_count, b.battled_at
-        FROM user_battles b
-        JOIN user_profiles pc  ON b.challenger_id = pc.id
-        JOIN user_profiles po  ON b.opponent_id   = po.id
-        JOIN user_pokemon up_ch ON b.challenger_pokemon_id = up_ch.id
-        JOIN user_pokemon up_op ON b.opponent_pokemon_id   = up_op.id
-        JOIN pokemon_species ps_ch ON up_ch.species_id = ps_ch.id
-        JOIN pokemon_species ps_op ON up_op.species_id = ps_op.id
-        WHERE b.challenger_id = %s OR b.opponent_id = %s
-        ORDER BY b.battled_at DESC
-        LIMIT %s;
-    """, (user_id, user_id, limit))
-    rows = cur.fetchall()
-    cur.close()
+    with get_connection().cursor() as cur:
+        cur.execute("""
+            SELECT
+                b.id, b.result, b.winner_id,
+                b.challenger_id, pc.username AS challenger_name,
+                b.opponent_id,  po.username AS opponent_name,
+                ps_ch.name AS ch_pokemon, ps_op.name AS op_pokemon,
+                b.challenger_xp_earned, b.opponent_xp_earned,
+                b.coins_earned, b.turn_count, b.battled_at
+            FROM user_battles b
+            JOIN user_profiles pc  ON b.challenger_id = pc.id
+            JOIN user_profiles po  ON b.opponent_id   = po.id
+            JOIN user_pokemon up_ch ON b.challenger_pokemon_id = up_ch.id
+            JOIN user_pokemon up_op ON b.opponent_pokemon_id   = up_op.id
+            JOIN pokemon_species ps_ch ON up_ch.species_id = ps_ch.id
+            JOIN pokemon_species ps_op ON up_op.species_id = ps_op.id
+            WHERE b.challenger_id = %s OR b.opponent_id = %s
+            ORDER BY b.battled_at DESC
+            LIMIT %s;
+        """, (user_id, user_id, limit))
+        rows = cur.fetchall()
     cols = ["id", "result", "winner_id",
             "challenger_id", "challenger_name",
             "opponent_id", "opponent_name",
@@ -2669,17 +2666,15 @@ def get_battle_history(user_id: str, limit: int = 20) -> list:
 
 def get_battle_detail(battle_id: int) -> list:
     """Retorna todos os turnos de uma batalha."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT turn_number, attacker_pokemon_id, move_name, move_power,
-               damage, challenger_hp_remaining, opponent_hp_remaining
-        FROM user_battle_turns
-        WHERE battle_id = %s
-        ORDER BY turn_number, id;
-    """, (battle_id,))
-    rows = cur.fetchall()
-    cur.close()
+    with get_connection().cursor() as cur:
+        cur.execute("""
+            SELECT turn_number, attacker_pokemon_id, move_name, move_power,
+                   damage, challenger_hp_remaining, opponent_hp_remaining
+            FROM user_battle_turns
+            WHERE battle_id = %s
+            ORDER BY turn_number, id;
+        """, (battle_id,))
+        rows = cur.fetchall()
     cols = ["turn", "attacker_id", "move_name", "move_power",
             "damage", "ch_hp", "op_hp"]
     return [dict(zip(cols, r)) for r in rows]
@@ -2744,23 +2739,22 @@ def get_muscle_groups() -> list[dict]:
 def get_exercises(body_part: str | None = None) -> list[dict]:
     """Catálogo de exercícios, opcionalmente filtrado por body_part."""
     try:
-        metric_sql = _exercise_metric_sql()
         with get_connection().cursor() as cur:
             if body_part:
                 cur.execute("""
                     SELECT id, name, name_pt, target_muscles, body_parts, equipments, gif_url,
-                           {metric_sql} AS metric_type
+                           COALESCE(metric_type, 'weight') AS metric_type
                     FROM exercises
                     WHERE %s = ANY(body_parts)
                     ORDER BY COALESCE(name_pt, name);
-                """.format(metric_sql=metric_sql), (body_part,))
+                """, (body_part,))
             else:
                 cur.execute("""
                     SELECT id, name, name_pt, target_muscles, body_parts, equipments, gif_url,
-                           {metric_sql} AS metric_type
+                           COALESCE(metric_type, 'weight') AS metric_type
                     FROM exercises
                     ORDER BY COALESCE(name_pt, name);
-                """.format(metric_sql=metric_sql))
+                """)
             return [
                 {
                     "id": r[0], "name": r[1], "name_pt": r[2],
@@ -3423,10 +3417,19 @@ def do_exercise_event(
         day_id:    UUID do workout_day prescrito (None = treino livre).
 
     Returns:
-        {xp_earned, capped, spawn_rolled, spawned, xp_result, error}
-    """
-    import json as _json
+        {xp_earned, capped, spawn_rolled, spawned, xp_result, milestone,
+         milestone_xp, streak, prs, eggs_granted, eggs_hatched,
+         ability_effects, error}
 
+    Estrutura de transações:
+        1. Transação principal — workout_log + exercise_logs + spawn + eggs
+           + weekly_challenge + happiness + pickup (tudo atomicamente).
+           Spawns e efeitos secundários usam SAVEPOINTs para não abortar a
+           transação principal em caso de falha isolada.
+        2. Pós-commit — chamadas a award_xp() (slot 1, PR bonus, first-workout
+           bonus, synchronize). Cada award_xp() abre/commita sua própria
+           transação; erros são logados mas não revertem o treino já salvo.
+    """
     result = {
         "xp_earned":    0,
         "capped":       False,
@@ -3448,7 +3451,6 @@ def do_exercise_event(
         result["error"] = "Nenhum exercício informado."
         return result
 
-    from utils.abilities import apply_blaze as _apply_blaze
     slot1_ability = _get_slot1_ability(user_id)
     _abilfx: dict = {}
 
@@ -3471,25 +3473,25 @@ def do_exercise_event(
     if xp_to_award < raw_xp:
         result["capped"] = True
 
+    _sets_total = sum(len(ex.get("sets_data", [])) for ex in exercises)
+
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            # Primeiro treino? (antes do INSERT)
+            # ── Leituras pré-insert ───────────────────────────────────────────
             cur.execute("SELECT COUNT(*) FROM workout_logs WHERE user_id = %s;", (user_id,))
             _pre_insert_count = cur.fetchone()[0]
             is_first_workout = _pre_insert_count == 0
 
-            # Busca body_parts e nomes dos exercícios (spawn affinity + PR names)
             ex_ids = [ex["exercise_id"] for ex in exercises]
             cur.execute(
                 "SELECT id, body_parts, COALESCE(name_pt, name) FROM exercises WHERE id = ANY(%s);",
                 (ex_ids,)
             )
             ex_rows = cur.fetchall()
-            bp_map       = {r[0]: (r[1] or []) for r in ex_rows}
-            ex_name_map  = {r[0]: r[2] for r in ex_rows}
+            bp_map      = {r[0]: (r[1] or []) for r in ex_rows}
+            ex_name_map = {r[0]: r[2] for r in ex_rows}
 
-            # Session-wide types used only for milestone forced spawns
             candidate_types = _ranked_spawn_types(exercises, bp_map)
             if slot1_ability == "pressure" and candidate_types:
                 candidate_types = [candidate_types[0]]
@@ -3498,7 +3500,7 @@ def do_exercise_event(
             # Detecta PRs antes do INSERT (histórico exclui sessão atual)
             historical_bests = _get_exercise_bests(cur, user_id, ex_ids)
 
-            # Insere sessão
+            # ── Insere sessão e exercícios ────────────────────────────────────
             cur.execute("""
                 INSERT INTO workout_logs (user_id, day_id, xp_earned)
                 VALUES (%s, %s, %s)
@@ -3506,20 +3508,18 @@ def do_exercise_event(
             """, (user_id, day_id, xp_to_award))
             wl_id = cur.fetchone()[0]
 
-            # Insere logs por exercício
             for ex in exercises:
                 cur.execute("""
                     INSERT INTO exercise_logs (workout_log_id, exercise_id, sets_data, notes)
                     VALUES (%s, %s, %s::jsonb, %s);
                 """, (wl_id, ex["exercise_id"],
-                      _json.dumps(ex.get("sets_data", [])),
+                      json.dumps(ex.get("sets_data", [])),
                       ex.get("notes")))
 
-            # Streak pós-insert (inclui a sessão recém inserida)
+            # ── Streak e milestone ────────────────────────────────────────────
             new_streak = _compute_streak_from_days(_unique_workout_days_brt(cur, user_id))
             result["streak"] = new_streak
 
-            # Milestone
             force_spawn = False
             force_shiny = False
             if is_first_workout:
@@ -3534,11 +3534,7 @@ def do_exercise_event(
                 if result["milestone"] != "first_workout":
                     result["milestone"] = f"streak_{new_streak}"
 
-            # ── Per-exercise spawn with daily cap ─────────────────────────────
-            # Count spawns granted in earlier sessions today.
-            # Each workout_log records at most one spawned_species_id, so this
-            # is a slight undercount when a prior session yielded multiple spawns,
-            # making the cap mildly lenient on multi-session days.
+            # ── Spawn com budget diário ───────────────────────────────────────
             cur.execute("""
                 SELECT COUNT(*) FROM workout_logs
                 WHERE user_id = %s
@@ -3547,12 +3543,13 @@ def do_exercise_event(
                   AND id != %s
                   AND spawned_species_id IS NOT NULL;
             """, (user_id, *_brt_day_bounds(_today_brt()), wl_id))
-            prior_spawns = int(cur.fetchone()[0])
-            spawn_budget = max(0, _MAX_DAILY_SPAWNS - prior_spawns)
+            prior_spawns  = int(cur.fetchone()[0])
+            spawn_budget  = max(0, _MAX_DAILY_SPAWNS - prior_spawns)
             session_spawns = 0
 
-            # Milestone forced spawn consumes a budget slot first
+            # Milestone forced spawn — SAVEPOINT para não abortar a tx principal
             if force_spawn and spawn_budget > 0:
+                cur.execute("SAVEPOINT sp_spawn_milestone")
                 try:
                     roll_shiny = force_shiny or _shiny_roll(new_streak)
                     species_id, spawn_info = _spawn_multi_typed(
@@ -3566,14 +3563,17 @@ def do_exercise_event(
                             "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
                             (species_id, wl_id)
                         )
+                    cur.execute("RELEASE SAVEPOINT sp_spawn_milestone")
                 except Exception:
-                    pass
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_spawn_milestone")
+                    logger.warning("do_exercise_event: milestone spawn falhou | user_id={}", user_id)
 
-            # Single session-level spawn roll (25% chance for the whole session)
+            # Session-level spawn roll (25% chance)
             if session_spawns < spawn_budget and random.random() < _EXERCISE_SPAWN_CHANCE:
                 session_types = candidate_types
                 if slot1_ability == "pressure" and session_types:
                     session_types = [session_types[0]]
+                cur.execute("SAVEPOINT sp_spawn_session")
                 try:
                     roll_shiny = _shiny_roll(new_streak)
                     species_id, spawn_info = _spawn_multi_typed(
@@ -3595,82 +3595,88 @@ def do_exercise_event(
                                 "UPDATE workout_logs SET spawned_species_id = %s WHERE id = %s;",
                                 (species_id, wl_id)
                             )
+                    cur.execute("RELEASE SAVEPOINT sp_spawn_session")
                 except Exception:
-                    pass
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_spawn_session")
+                    logger.warning("do_exercise_event: session spawn falhou | user_id={}", user_id)
 
-            # Release 2A — egg system: grant milestone eggs + advance all pending
+            # ── Ovos (Release 2A) ─────────────────────────────────────────────
             _post_workout_count = _pre_insert_count + 1
+            cur.execute("SAVEPOINT sp_eggs")
             try:
                 result["eggs_granted"] = _grant_eggs_if_milestone(cur, user_id, _post_workout_count)
                 result["eggs_hatched"] = _advance_and_hatch_eggs(cur, user_id)
+                cur.execute("RELEASE SAVEPOINT sp_eggs")
             except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_eggs")
                 result["eggs_granted"] = []
                 result["eggs_hatched"] = []
+                logger.warning("do_exercise_event: egg system falhou | user_id={}", user_id)
 
-        conn.commit()
-        result["xp_earned"] = xp_to_award
+            # ── Desafio Comunitário ───────────────────────────────────────────
+            cur.execute("SAVEPOINT sp_weekly_challenge")
+            try:
+                _update_weekly_challenge(cur, user_id, xp_to_award, _sets_total)
+                cur.execute("RELEASE SAVEPOINT sp_weekly_challenge")
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_weekly_challenge")
+                logger.warning("do_exercise_event: weekly challenge falhou | user_id={}", user_id)
 
-        # Desafio Comunitário — atualiza progresso após commit
-        try:
-            _sets_total = sum(len(ex.get("sets_data", [])) for ex in exercises)
-            _wc_conn = get_connection()
-            with _wc_conn.cursor() as _wc:
-                _update_weekly_challenge(_wc, user_id, xp_to_award, _sets_total)
-            _wc_conn.commit()
-        except Exception:
-            pass
-
-        # Release 6 — Happiness: inactivity penalty + workout boost
-        try:
-            _hconn = get_connection()
-            with _hconn.cursor() as _hc:
-                # Inactivity: check the workout BEFORE this one
-                _hc.execute("""
-                    SELECT completed_at
-                    FROM workout_logs WHERE user_id = %s
+            # ── Happiness: penalidade de inatividade + bônus de treino ────────
+            cur.execute("SAVEPOINT sp_happiness")
+            try:
+                # Penalidade: se ficou >7 dias sem treinar, -5 happiness para toda a equipe
+                cur.execute("""
+                    SELECT completed_at FROM workout_logs
+                    WHERE user_id = %s
                     ORDER BY completed_at DESC
                     LIMIT 1 OFFSET 1;
                 """, (user_id,))
-                _prev = _hc.fetchone()
+                _prev = cur.fetchone()
                 if _prev:
                     _prev_day = _to_brt_date(_prev[0])
                     _days_gap = (_today_brt() - _prev_day).days if _prev_day else 0
                     if _days_gap > 7:
-                        _hc.execute("""
+                        cur.execute("""
                             SELECT up.id FROM user_team ut
                             JOIN user_pokemon up ON ut.user_pokemon_id = up.id
                             WHERE ut.user_id = %s;
                         """, (user_id,))
-                        for (_tid,) in _hc.fetchall():
-                            _bump_happiness(_hc, _tid, -5)
-                # Slot 1 gets +1 happiness for completing a workout
-                _hc.execute("""
+                        for (_tid,) in cur.fetchall():
+                            _bump_happiness(cur, _tid, -5)
+                # Bônus: +1 happiness para o slot 1 por completar o treino
+                cur.execute("""
                     SELECT ut.user_pokemon_id FROM user_team ut
                     WHERE ut.user_id = %s AND ut.slot = 1;
                 """, (user_id,))
-                _s1 = _hc.fetchone()
+                _s1 = cur.fetchone()
                 if _s1:
-                    _bump_happiness(_hc, _s1[0], 1)
-            _hconn.commit()
-        except Exception:
-            pass
-
-        # Release 3A — pickup: 10% chance for a bonus vitamin after commit
-        if slot1_ability == "pickup" and random.random() < 0.10:
-            try:
-                pickup_slug = random.choice(_LOOT_VITAMINS)
-                _conn_pk = get_connection()
-                with _conn_pk.cursor() as _c:
-                    _c.execute("SELECT id FROM shop_items WHERE slug = %s;", (pickup_slug,))
-                    _row = _c.fetchone()
-                    if _row:
-                        _add_inventory_item(_c, user_id, _row[0])
-                _conn_pk.commit()
-                _abilfx["pickup_item"] = pickup_slug
+                    _bump_happiness(cur, _s1[0], 1)
+                cur.execute("RELEASE SAVEPOINT sp_happiness")
             except Exception:
-                pass
+                cur.execute("ROLLBACK TO SAVEPOINT sp_happiness")
+                logger.warning("do_exercise_event: happiness update falhou | user_id={}", user_id)
 
-        # XP para o Pokémon slot 1 — transação separada após commit
+            # ── Pickup ability (Release 3A) ────────────────────────────────────
+            if slot1_ability == "pickup" and random.random() < 0.10:
+                cur.execute("SAVEPOINT sp_pickup")
+                try:
+                    pickup_slug = random.choice(_LOOT_VITAMINS)
+                    cur.execute("SELECT id FROM shop_items WHERE slug = %s;", (pickup_slug,))
+                    _row = cur.fetchone()
+                    if _row:
+                        _add_inventory_item(cur, user_id, _row[0])
+                    _abilfx["pickup_item"] = pickup_slug
+                    cur.execute("RELEASE SAVEPOINT sp_pickup")
+                except Exception:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_pickup")
+                    logger.warning("do_exercise_event: pickup ability falhou | user_id={}", user_id)
+
+        conn.commit()
+        result["xp_earned"] = xp_to_award
+
+        # ── Pós-commit: award_xp tem transação própria ────────────────────────
+        # Erros aqui NÃO revertem o treino já salvo — apenas são logados.
         slot1_id = None
         try:
             with get_connection().cursor() as cur2:
@@ -3684,9 +3690,9 @@ def do_exercise_event(
                 if xp_to_award > 0:
                     result["xp_result"] = award_xp(slot1_id, xp_to_award, "exercise")
         except Exception:
-            pass
+            logger.warning("do_exercise_event: award_xp slot1 falhou | user_id={}", user_id)
 
-        # Release 3A — synchronize: award +15% extra XP to team members who received XP Share
+        # Release 3A — synchronize: +15% extra XP para membros que receberam XP Share
         if slot1_ability == "synchronize" and slot1_id and xp_to_award > 0:
             sync_bonus = int(xp_to_award * 0.15)
             if sync_bonus > 0 and result.get("xp_result"):
@@ -3697,10 +3703,13 @@ def do_exercise_event(
                             award_xp(entry["user_pokemon_id"], sync_bonus,
                                      "synchronize_bonus", _distributing=True)
                         except Exception:
-                            pass
+                            logger.warning(
+                                "do_exercise_event: synchronize bonus falhou | pokemon_id={}",
+                                entry.get("user_pokemon_id"),
+                            )
                     _abilfx["synchronize_bonus_xp"] = sync_bonus
 
-        # Detecta PRs e concede bônus de XP (fora do cap diário, máx _PR_MAX_PER_SESSION)
+        # PRs: bônus de XP fora do cap diário (máx _PR_MAX_PER_SESSION)
         detected_prs = _detect_prs(exercises, historical_bests, ex_name_map)
         capped_prs   = detected_prs[:_PR_MAX_PER_SESSION]
         result["prs"] = capped_prs
@@ -3722,7 +3731,7 @@ def do_exercise_event(
                 else:
                     result["xp_result"] = pr_res
             except Exception:
-                pass
+                logger.warning("do_exercise_event: pr bonus xp falhou | user_id={}", user_id)
 
         # Bônus de primeiro treino (+50 XP fora do cap diário)
         if is_first_workout and slot1_id:
@@ -3742,7 +3751,7 @@ def do_exercise_event(
                 else:
                     result["xp_result"] = bonus_res
             except Exception:
-                pass
+                logger.warning("do_exercise_event: first_workout bonus xp falhou | user_id={}", user_id)
 
         if _abilfx and slot1_ability:
             result["ability_effects"] = {"slug": slot1_ability, **_abilfx}
@@ -3750,6 +3759,7 @@ def do_exercise_event(
         return result
 
     except Exception as e:
+        logger.exception("do_exercise_event falhou | user_id={}", user_id)
         conn.rollback()
         result["error"] = str(e)
         return result
@@ -4907,18 +4917,17 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
         days = max(int(days or 90), 1)
         start_date = end_date - datetime.timedelta(days=days - 1)
         start_ts, end_ts = _brt_date_range_bounds(start_date, end_date)
-        metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT
-                    {metric_sql} AS metric_type,
+                    COALESCE(e.metric_type, 'weight') AS metric_type,
                     (wl.completed_at + INTERVAL '-3 hours')::date AS d,
-                    CASE {metric_sql}
+                    CASE COALESCE(e.metric_type, 'weight')
                         WHEN 'weight'   THEN ROUND(SUM((s->>'weight')::float * (s->>'reps')::int)::numeric, 1)
                         WHEN 'distance' THEN ROUND(SUM((s->>'distance_m')::float / 1000)::numeric, 2)
                         WHEN 'time'     THEN ROUND(SUM((s->>'duration_s')::int / 60.0)::numeric, 1)
                     END AS volume,
-                    CASE {metric_sql}
+                    CASE COALESCE(e.metric_type, 'weight')
                         WHEN 'weight'   THEN MAX((s->>'weight')::float)
                         WHEN 'distance' THEN MAX((s->>'distance_m')::float / 1000)
                         WHEN 'time'     THEN MAX((s->>'duration_s')::int / 60.0)
@@ -4933,13 +4942,13 @@ def get_volume_history(user_id: str, exercise_id: int, days: int = 90) -> list[d
                   AND wl.completed_at >= %s
                   AND wl.completed_at < %s
                   AND (
-                      ({metric_sql} = 'weight'   AND (s->>'weight')::float > 0)
-                   OR ({metric_sql} = 'distance' AND (s->>'distance_m') IS NOT NULL)
-                   OR ({metric_sql} = 'time'     AND (s->>'duration_s')  IS NOT NULL)
+                      (COALESCE(e.metric_type, 'weight') = 'weight'   AND (s->>'weight')::float > 0)
+                   OR (COALESCE(e.metric_type, 'weight') = 'distance' AND (s->>'distance_m') IS NOT NULL)
+                   OR (COALESCE(e.metric_type, 'weight') = 'time'     AND (s->>'duration_s')  IS NOT NULL)
                   )
-                GROUP BY {metric_sql}, d
+                GROUP BY COALESCE(e.metric_type, 'weight'), d
                 ORDER BY d;
-            """.format(metric_sql=metric_sql), (user_id, exercise_id, start_ts, end_ts))
+            """, (user_id, exercise_id, start_ts, end_ts))
             _unit_map = {"weight": "kg", "distance": "km", "time": "min"}
             rows = []
             for metric_type, d, volume, max_val, total_sets in cur.fetchall():
@@ -5003,19 +5012,18 @@ def get_exercise_bests_all(user_id: str) -> list[dict]:
     Returns list of {exercise_id, name, metric_type, unit, best_primary, best_secondary}.
     """
     try:
-        metric_sql = _exercise_metric_sql("e")
         with get_connection().cursor() as cur:
             cur.execute("""
                 SELECT
                     e.id,
                     COALESCE(e.name_pt, e.name) AS name,
-                    {metric_sql} AS metric_type,
-                    CASE {metric_sql}
+                    COALESCE(e.metric_type, 'weight') AS metric_type,
+                    CASE COALESCE(e.metric_type, 'weight')
                         WHEN 'weight'   THEN MAX((s->>'weight')::float)
                         WHEN 'distance' THEN MAX((s->>'distance_m')::float / 1000)
                         WHEN 'time'     THEN MAX((s->>'duration_s')::int / 60.0)
                     END AS best_primary,
-                    CASE {metric_sql}
+                    CASE COALESCE(e.metric_type, 'weight')
                         WHEN 'weight' THEN MAX((s->>'reps')::int)::float
                         ELSE NULL
                     END AS best_secondary
@@ -5025,13 +5033,13 @@ def get_exercise_bests_all(user_id: str) -> list[dict]:
                 JOIN LATERAL jsonb_array_elements(el.sets_data) AS s ON true
                 WHERE wl.user_id = %s
                   AND (
-                      ({metric_sql} = 'weight'   AND (s->>'weight')::float > 0)
-                   OR ({metric_sql} = 'distance' AND (s->>'distance_m') IS NOT NULL)
-                   OR ({metric_sql} = 'time'     AND (s->>'duration_s')  IS NOT NULL)
+                      (COALESCE(e.metric_type, 'weight') = 'weight'   AND (s->>'weight')::float > 0)
+                   OR (COALESCE(e.metric_type, 'weight') = 'distance' AND (s->>'distance_m') IS NOT NULL)
+                   OR (COALESCE(e.metric_type, 'weight') = 'time'     AND (s->>'duration_s')  IS NOT NULL)
                   )
-                GROUP BY e.id, e.name, e.name_pt, {metric_sql}
+                GROUP BY e.id, e.name, e.name_pt, COALESCE(e.metric_type, 'weight')
                 ORDER BY name;
-            """.format(metric_sql=metric_sql), (user_id,))
+            """, (user_id,))
             _unit_map = {"weight": "kg", "distance": "km", "time": "min"}
             rows = []
             for eid, name, metric_type, best_primary, best_secondary in cur.fetchall():

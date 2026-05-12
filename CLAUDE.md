@@ -1148,6 +1148,10 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - **`utils/app_cache.py`** define `_WORKOUT_HISTORY_LIMITS = (10, 30)` — ambas as variantes de `get_cached_workout_history(user_id, limit)` são limpas em `clear_workout_cache()`; o `limit=30` é usado em contextos de análise mais longa fora do histórico padrão exibido na página de treino
 - Nos fluxos atuais de builder, as colunas reais são `workout_days.sheet_id` (não `workout_sheet_id`) e `workout_day_exercises.day_id` (não `workout_day_id`); `exercises.metric_type` existe no banco (migration aplicada 2026-05-08)
 - Stat whitelist (`_VALID_STATS`) em `db.py` — obrigatório validar antes de interpolar nome de coluna
+- **Logging:** `utils/logger.py` exporta `logger` (loguru). Importar com `from utils.logger import logger`. Nas funções críticas (`do_checkin`, `award_xp`, `finalize_battle`, `do_exercise_event`) o bloco `except` chama `logger.exception(...)` antes do rollback — registra traceback completo nos logs do Streamlit Cloud
+- **`requirements.txt`** inclui `loguru>=0.7.0`
+- Queries de métrica (volume, bests, exercícios): usam `COALESCE(e.metric_type, 'weight')` inline no SQL — a função helper `_exercise_metric_sql()` foi removida
+- **Padrão SAVEPOINT para efeitos secundários dentro de transação:** operações não-críticas dentro de um bloco `with conn.cursor() as cur:` devem usar `SAVEPOINT`/`RELEASE`/`ROLLBACK TO` para evitar que falhas isoladas abortem a transação principal. Exemplo: `cur.execute("SAVEPOINT sp_x")` → bloco de risco → `cur.execute("RELEASE SAVEPOINT sp_x")` no sucesso ou `cur.execute("ROLLBACK TO SAVEPOINT sp_x")` + `logger.warning()` no except. Aplicado em `do_exercise_event()` para spawns, ovos, weekly challenge, happiness e pickup.
 
 ---
 
@@ -1321,13 +1325,13 @@ Itens identificados na auditoria de maio/2026. Organizados por impacto crescente
 - [x] Consolidar `_collect_achievement_stats()` em uma única query com múltiplos CTEs (9 round-trips → 1 query paralela)
 - [x] Corrigir padrão de rollback em `create_workout_day` e `add_exercise_to_day` — rollback agora opera na conexão capturada
 - [x] Aplicar `migrate_performance_stage3_indexes.sql` no Supabase via MCP (4 índices criados em `workout_logs`, `exercise_logs`, `user_battles`)
-- [ ] Padronizar todos os cursors restantes em `db.py` para context manager (alguns ainda usam `cur = conn.cursor()` + `cur.close()`)
-- [ ] Substituir `.format(metric_sql=...)` em SQL por CASE WHEN inline — eliminar interpolação de string em queries
+- [x] Padronizar todos os cursors restantes em `db.py` para context manager (`start_battle`, `finalize_battle`, `get_battle_history`, `get_battle_detail`)
+- [x] Substituir `.format(metric_sql=...)` em SQL por `COALESCE(e.metric_type, 'weight')` inline — função `_exercise_metric_sql()` removida
 
 **Pendentes — alto impacto (planejamento necessário):**
 - [ ] Quebrar `utils/db.py` (5500+ linhas) em módulos temáticos: `db_catalog.py`, `db_user.py`, `db_gameplay.py`
-- [ ] Adicionar logging real (structlog ou loguru) em vez de `except Exception: return []` — erros silenciados dificultam diagnóstico em produção
-- [ ] Revisar `do_exercise_event()` (~340 linhas) — múltiplos commits pós-transação principal criam janelas de inconsistência; avaliar consolidação ou uso de savepoints
+- [x] Adicionar logging real (loguru) nas 4 funções críticas — `utils/logger.py` criado, `loguru>=0.7.0` em `requirements.txt`
+- [x] Revisar `do_exercise_event()` — 3 blocos pós-commit redundantes (weekly challenge, happiness, pickup) consolidados na transação principal via SAVEPOINTs; `import json` e `apply_blaze` movidos para nível de módulo; todos os `except: pass` pós-commit substituídos por `logger.warning()`
 
 ---
 
