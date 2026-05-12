@@ -3811,7 +3811,6 @@ def get_workout_builder_tree(user_id: str) -> list[dict]:
     try:
         day_sheet_fk = _workout_days_sheet_fk()
         day_fk = _workout_day_exercises_day_fk()
-        metric_sql = _exercise_metric_sql("e")
 
         with get_connection().cursor() as cur:
             cur.execute(f"""
@@ -3825,7 +3824,7 @@ def get_workout_builder_tree(user_id: str) -> list[dict]:
                     COALESCE(e.name_pt, e.name) AS display_name,
                     wde.sets,
                     wde.reps,
-                    {metric_sql} AS metric_type
+                    COALESCE(e.metric_type, 'weight') AS metric_type
                 FROM workout_sheets ws
                 LEFT JOIN workout_days wd ON wd.{day_sheet_fk} = ws.id
                 LEFT JOIN workout_day_exercises wde ON wde.{day_fk} = wd.id
