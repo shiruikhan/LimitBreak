@@ -1,7 +1,6 @@
 import streamlit as st
 from utils.app_cache import (
     clear_user_cache,
-    get_cached_battle_history,
     get_cached_battle_opponents,
     get_cached_daily_battle_count,
     get_cached_user_profile,
@@ -75,10 +74,6 @@ st.markdown("""
 .move-type-ph  { background: rgba(245,172,120,0.15); color: #F5AC78; border: 1px solid rgba(245,172,120,0.4); }
 .move-type-sp  { background: rgba(157,183,245,0.15); color: #9DB7F5; border: 1px solid rgba(157,183,245,0.4); }
 .move-type-st  { background: rgba(167,219,141,0.15); color: #A7DB8D; border: 1px solid rgba(167,219,141,0.4); }
-.history-card  { background: #161b22; border-radius: 16px; padding: 14px 18px; margin-bottom: 10px; border: 1px solid #30363d; }
-.history-win   { border-left: 4px solid #2f9e44; }
-.history-loss  { border-left: 4px solid #e94560; }
-.history-draw  { border-left: 4px solid #484f58; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -393,6 +388,29 @@ else:
         st.markdown(_fighter_card(op, "Oponente", winner_id == bs["opponent_id"]),
                     unsafe_allow_html=True)
 
+    # ── Log de combate ────────────────────────────────────────────────────────
+    turns = bs.get("turns", [])
+    if turns:
+        ch_id = ch["id"]
+        rows_html = ""
+        for ev in turns:
+            is_challenger = ev["attacker_id"] == ch_id
+            row_cls  = "turn-row-ch" if is_challenger else "turn-row-op"
+            attacker = ch["name"] if is_challenger else op["name"]
+            defender = op["name"] if is_challenger else ch["name"]
+            def_hp   = ev["op_hp"] if is_challenger else ev["ch_hp"]
+            dmg_txt  = f"(-{ev['damage']} HP)" if ev["damage"] else "(sem dano)"
+            label    = f" {ev['label']}" if ev.get("label") else ""
+            rows_html += (
+                f'<p class="{row_cls}">T{ev["turn"]} {attacker} usou '
+                f'<strong>{ev["move_name"]}</strong> {dmg_txt} '
+                f'→ {defender} HP: {def_hp}{label}</p>'
+            )
+        st.markdown(
+            f'<div class="turn-log">{rows_html}</div>',
+            unsafe_allow_html=True,
+        )
+
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1:
         if st.button("🔄 Nova batalha", use_container_width=True):
@@ -420,39 +438,3 @@ else:
                 st.session_state.battle_state = result
                 st.session_state.battle_saved = False
                 st.rerun()
-
-    st.divider()
-
-# ── Histórico ──────────────────────────────────────────────────────────────────
-st.subheader("Histórico de batalhas")
-history = get_cached_battle_history(user_id)
-
-if not history:
-    st.info("Nenhuma batalha ainda.")
-else:
-    for b in history:
-        is_ch      = str(b["challenger_id"]) == user_id
-        their_name = b["opponent_name"]   if is_ch else b["challenger_name"]
-        their_poke = b["op_pokemon"]      if is_ch else b["ch_pokemon"]
-        my_poke    = b["ch_pokemon"]      if is_ch else b["op_pokemon"]
-        my_xp      = b["ch_xp"]          if is_ch else b["op_xp"]
-
-        if b["winner_id"] is None:
-            outcome, css, icon = "Empate",  "history-draw", "🤝"
-        elif str(b["winner_id"]) == user_id:
-            outcome, css, icon = "Vitória", "history-win",  "🏆"
-        else:
-            outcome, css, icon = "Derrota", "history-loss", "💀"
-
-        coins_info = f" · +{b['coins']} 🪙" if str(b.get("winner_id", "")) == user_id else ""
-        date_str   = b["battled_at"].strftime("%d/%m %H:%M") if b["battled_at"] else ""
-
-        st.markdown(
-            f'<div class="history-card {css}">'
-            f"<strong>{icon} {outcome}</strong> vs {their_name} &nbsp;·&nbsp; "
-            f"{my_poke} vs {their_poke} &nbsp;·&nbsp; "
-            f"{b['turn_count']} turnos &nbsp;·&nbsp; +{my_xp} XP{coins_info} &nbsp;·&nbsp; "
-            f"<span style='color:#8b949e;font-size:0.8rem'>{date_str}</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
