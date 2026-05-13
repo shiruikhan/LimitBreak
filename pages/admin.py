@@ -4,7 +4,7 @@ from utils.app_cache import clear_catalog_cache, get_cached_exercises
 from utils.db import (
     is_admin, get_all_users, admin_update_user, admin_delete_user,
     set_admin_role, get_system_logs, get_global_stats, log_admin_action,
-    admin_gift_loot_box, admin_create_exercise,
+    admin_gift_loot_box, admin_create_exercise, admin_gift_xp_bag,
 )
 from utils.supabase_client import get_supabase_admin
 
@@ -85,7 +85,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_overview, tab_users, tab_gift, tab_exercises, tab_logs = st.tabs(["📊 Visão Geral", "👥 Usuários", "🎁 Gift Loot Box", "📝 Exercícios", "📋 Logs do Sistema"])
+tab_overview, tab_users, tab_gift, tab_xp_bag, tab_exercises, tab_logs = st.tabs(["📊 Visão Geral", "👥 Usuários", "🎁 Gift Loot Box", "⚡ Bolsa de XP", "📝 Exercícios", "📋 Logs do Sistema"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Overview
@@ -236,7 +236,51 @@ with tab_gift:
             st.error(msg)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Exercises
+# TAB 4 — XP Bag
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_xp_bag:
+    st.markdown("### ⚡ Bolsa de XP — Equipe Ativa")
+    st.caption(
+        "Concede XP diretamente a **todos os Pokémon da equipe ativa** do treinador. "
+        "O XP Share é ignorado: cada membro recebe a quantidade integralmente."
+    )
+
+    all_users_xp = get_all_users("")
+    xp_user_options = {f"{u['username'] or '(sem nome)'} — {u['email'] or u['id']}": u["id"] for u in all_users_xp}
+
+    xp_target_label = st.selectbox("Treinador destinatário", options=list(xp_user_options.keys()), key="xp_bag_target")
+    xp_amount = st.number_input(
+        "XP por Pokémon",
+        min_value=1, max_value=10_000, value=1_000, step=100,
+        key="xp_bag_amount",
+        help="Cada Pokémon da equipe ativa receberá exatamente esta quantidade de XP.",
+    )
+
+    if st.button("⚡ Enviar Bolsa de XP", key="xp_bag_send_btn", type="primary"):
+        target_uid = xp_user_options[xp_target_label]
+        ok, msg, results = admin_gift_xp_bag(user_id, target_uid, int(xp_amount))
+        if ok:
+            st.success(msg)
+            for r in results:
+                if r.get("error"):
+                    st.warning(f"Slot {r['slot']} — {r['name']}: {r['error']}")
+                    continue
+                lvl_info = ""
+                if r["levels_gained"] > 0:
+                    lvl_info = f" ↑ Lv.**{r['old_level']}** → Lv.**{r['new_level']}**"
+                evo_info = ""
+                if r["evolutions"]:
+                    names = " → ".join(e["to_name"] for e in r["evolutions"])
+                    evo_info = f" 🌟 Evoluiu para **{names}**!"
+                st.markdown(
+                    f"• Slot {r['slot']} — **{r['name']}** +{r['xp_given']} XP{lvl_info}{evo_info}",
+                    unsafe_allow_html=False,
+                )
+        else:
+            st.error(msg)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — Exercises
 # ══════════════════════════════════════════════════════════════════════════════
 _VALID_BODY_PARTS = [
     "Peitoral", "Braços", "Antebraços", "Costas", "Ombros",
@@ -336,7 +380,7 @@ with tab_exercises:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — System Logs
+# TAB 6 — System Logs
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_logs:
     fc1, fc2, fc3 = st.columns([2, 2, 1])

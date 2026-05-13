@@ -3683,6 +3683,59 @@ def admin_gift_loot_box(admin_id: str, target_user_id: str, count: int = 1) -> t
     except Exception as e:
         return False, f"Erro: {e}", []
 
+
+def admin_gift_xp_bag(admin_id: str, target_user_id: str, xp_amount: int = 1000) -> tuple[bool, str, list[dict]]:
+    """Concede XP diretamente a todos os Pokémon da equipe ativa de um usuário.
+
+    XP Share é ignorado: cada membro recebe xp_amount individualmente.
+    Retorna (success, message, list[{name, old_level, new_level, xp_given, evolutions}]).
+    """
+    if xp_amount < 1 or xp_amount > 10_000:
+        return False, "Quantidade de XP deve estar entre 1 e 10.000.", []
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM user_profiles WHERE id = %s", (target_user_id,))
+            if not cur.fetchone():
+                return False, "Usuário não encontrado.", []
+
+            cur.execute("""
+                SELECT ut.slot, up.id, p.name
+                FROM user_team ut
+                JOIN user_pokemon up ON ut.user_pokemon_id = up.id
+                JOIN pokemon_species p ON up.species_id = p.id
+                WHERE ut.user_id = %s
+                ORDER BY ut.slot;
+            """, (target_user_id,))
+            team = cur.fetchall()
+
+        if not team:
+            return False, "O usuário não possui Pokémon na equipe ativa.", []
+
+        results = []
+        for slot, up_id, poke_name in team:
+            xp_result = award_xp(up_id, xp_amount, "xp_bag", _distributing=True)
+            results.append({
+                "slot": slot,
+                "name": poke_name,
+                "xp_given": xp_amount,
+                "old_level": xp_result.get("old_level", 0),
+                "new_level": xp_result.get("new_level", 0),
+                "levels_gained": xp_result.get("levels_gained", 0),
+                "evolutions": xp_result.get("evolutions", []),
+                "error": xp_result.get("error"),
+            })
+
+        log_admin_action(
+            admin_id, "gift_xp_bag",
+            target_type="user", target_id=target_user_id,
+            details={"xp_amount": xp_amount, "pokemon_count": len(team)},
+        )
+        return True, f"Bolsa de XP concedida: {xp_amount} XP para {len(team)} Pokémon da equipe.", results
+    except Exception as e:
+        return False, f"Erro: {e}", []
+
+
 def admin_create_exercise(
     name: str,
     name_pt: str,
