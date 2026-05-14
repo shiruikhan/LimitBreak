@@ -1,6 +1,6 @@
 # LimitBreak — Roadmap Aberto
 
-> Atualizado: 06 de maio de 2026.
+> Atualizado: 14 de maio de 2026.
 >
 > Documento canônico de backlog. Mantém apenas itens ainda não implementados e frentes futuras de produto.
 >
@@ -115,7 +115,7 @@
 
 | Item | Descrição | Urgência |
 |---|---|---|
-| `db.py` com ~4400 linhas | Split em submódulos (`pokemon`, `progression`, `combat`, `shop`, `workout`, `admin`) | Baixa |
+| `db.py` com 4946 linhas | Split em andamento — `db_core` ✅ e `db_catalog` ✅ extraídos; faltam `db_user`, `db_shop`, `db_combat`, `db_workout`, `db_progression`, `db_admin` | Baixa |
 | Sem testes automatizados | Cobrir `award_xp`, `_roll_loot_box`, `_detect_prs`, `check_and_award_achievements` | Baixa |
 | Retry na conexão DB | Adicionar backoff em `get_connection()` para reduzir falha em cold start | Baixa |
 | Cache de sprites regionais | Evitar HTTP GET repetido para forms regionais (`id > 10000`) | Baixa |
@@ -154,7 +154,7 @@
 
 **Objetivo:** quebrar `utils/db.py` em módulos menores sem alterar comportamento visível da aplicação, preservando imports existentes durante a transição.
 
-### Etapa 0. Preparação e mapeamento
+### ✅ Etapa 0. Preparação e mapeamento (concluída)
 
 **Objetivo:** reduzir risco antes de mover código.
 
@@ -170,7 +170,7 @@
 - lista de helpers compartilhados;
 - ordem de extração validada.
 
-### Etapa 1. Criar camada base compartilhada
+### ✅ Etapa 1. Criar camada base compartilhada (concluída — `db_core.py` 617 linhas)
 
 **Objetivo:** separar infraestrutura comum antes de extrair regras de negócio.
 
@@ -185,7 +185,9 @@
 - nenhum import externo precisa mudar;
 - páginas continuam importando de `utils.db` sem quebra.
 
-### Etapa 2. Extrair domínio `pokemon`
+### ⏳ Etapa 2. Extrair domínio `pokemon` (parcialmente concluída)
+
+> `db_catalog.py` (114 linhas) extrai as queries de Pokédex somente-leitura. Falta extrair equipe/captura/moves/stat boosts → será feito em `db_user.py`.
 
 **Objetivo:** isolar operações de Pokédex, time, captura, moves e stats.
 

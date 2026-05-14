@@ -1,5 +1,5 @@
 # LimitBreak — Plano de Implementações Pendentes
-> Atualizado em 2026-05-12 — retomar aqui na próxima sessão.
+> Atualizado em 2026-05-14 — retomar aqui na próxima sessão.
 
 ---
 
@@ -21,36 +21,37 @@
 | Logging real (loguru) em `do_checkin`, `award_xp`, `finalize_battle`, `do_exercise_event` | `utils/db.py`, `utils/logger.py`, `requirements.txt` |
 | `import json` e `from utils.abilities import apply_blaze` movidos para nível de módulo | `utils/db.py` |
 | `do_exercise_event()` refatorada: 3 blocos pós-commit eliminados; SAVEPOINTs nos spawns e efeitos secundários; `except: pass` substituídos por `logger.warning()` | `utils/db.py` |
+| `utils/db_core.py` criado (617 linhas) — conexão, BRT helpers, stats/IV/EV/Nature, sprite helpers, `_insert_user_pokemon`, `_LOOT_VITAMINS` | `utils/db_core.py` |
+| `utils/db_catalog.py` criado (114 linhas) — queries de Pokédex somente-leitura (5 funções) | `utils/db_catalog.py` |
+| `utils/db.py` re-exporta `db_core` e `db_catalog`; compatibilidade total de imports preservada | `utils/db.py` |
 
 ---
 
-## 🏗️ Pendentes — Alto Impacto
+## 🏗️ Pendentes — Split de `utils/db.py`
 
-### 1. Quebrar `utils/db.py` em módulos temáticos
-**Contexto:** o arquivo tem ~5.500 linhas. Dificulta navegação, testes e manutenção.
+**Contexto:** `db.py` tem 4.946 linhas. `db_core` e `db_catalog` já foram extraídos.
+Faltam 6 módulos temáticos. A facade `db.py` re-exporta tudo — nenhum import externo precisa mudar.
 
-**Divisão sugerida:**
-- `utils/db_core.py` — `get_connection()`, `_today_brt()`, constantes, helpers BRT
-- `utils/db_catalog.py` — pokédex, exercícios, loja, tipos (somente leitura)
-- `utils/db_user.py` — perfil, equipe, banco, movimentos, stats, IVs/EVs
-- `utils/db_gameplay.py` — XP, batalhas, check-in, missões, conquistas, ovos
-- `utils/db_workout.py` — rotinas, treinos, analytics, PRs
-- `utils/db_admin.py` — funções admin, logs do sistema
-- `utils/db.py` — mantém apenas `from utils.db_* import *` para não quebrar nada
+### Estado atual do split
 
-**Atenção:** todos os `pages/` e `utils/` importam `from utils.db import ...`. A re-exportação central evita quebrar qualquer import existente.
+| Módulo | Status | Conteúdo |
+|---|---|---|
+| `utils/db_core.py` | ✅ Feito | Conexão, BRT, stats, sprites, `_insert_user_pokemon` |
+| `utils/db_catalog.py` | ✅ Feito | Pokédex somente-leitura (5 funções) |
+| `utils/db_user.py` | ⏳ Pendente | Perfil, equipe, bench, moves, stat boosts |
+| `utils/db_shop.py` | ⏳ Pendente | Loja, inventário, loot box, pedras, nature mint |
+| `utils/db_combat.py` | ⏳ Pendente | Batalhas PvP (9 funções) |
+| `utils/db_workout.py` | ⏳ Pendente | Exercícios, treino, spawn, PRs, ovos, analytics, rotinas |
+| `utils/db_progression.py` | ⏳ Pendente | `award_xp`, XP Share, check-in, descanso, conquistas, missões, rival, desafio |
+| `utils/db_admin.py` | ⏳ Pendente | Admin, logs, leaderboard |
 
-**Como executar:**
-1. Criar cada módulo novo
-2. Mover as funções grupo a grupo
-3. Adicionar re-exports em `utils/db.py`
-4. Testar que os imports continuam funcionando
+**Ordem de extração:** `db_user` → `db_shop` → `db_combat` → `db_workout` → `db_progression` → `db_admin`
 
 ---
 
 ## 📋 Ordem de execução sugerida
 
-1. **Tarefa 1** (quebrar db.py) — maior esforço mas maior ganho de manutenibilidade. Começar por `db_core.py` + `db_catalog.py`, que têm zero dependências circulares.
+1. **Continuar split de db.py** — extrair os 6 módulos restantes na ordem acima.
 
 ---
 

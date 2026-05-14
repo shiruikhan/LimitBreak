@@ -615,3 +615,60 @@ def hq_sprite_url(sprite_url: str) -> str:
 # Usada em: loja (open_loot_box), treino (pickup ability), missões (claim_mission_reward)
 
 _LOOT_VITAMINS = ["hp-up", "protein", "iron", "calcium", "zinc", "carbos"]
+
+
+# ── Helpers de stats pós-level-up e evolução ─────────────────────────────────
+# Thin wrappers sobre _sync_user_pokemon_stats usados por db_shop e db_progression.
+
+def _recalc_stats_for_level(
+    cur, user_pokemon_id: int, species_id: int, level: int
+) -> None:
+    """Recalcula stat_* após level-up, mantendo os stats em sincronia."""
+    _sync_user_pokemon_stats(cur, user_pokemon_id, species_id=species_id, level=level)
+
+
+def _recalc_stats_on_evolution(cur, user_pokemon_id: int) -> None:
+    """Força recálculo completo após evolução usando a nova espécie persistida."""
+    _sync_user_pokemon_stats(cur, user_pokemon_id)
+
+
+def _bump_happiness(cur, user_pokemon_id: int, delta: int) -> None:
+    """Incrementa (ou decrementa) happiness de um user_pokemon, respeitando [0, 255]."""
+    cur.execute("""
+        UPDATE user_pokemon
+        SET happiness = LEAST(255, GREATEST(0, happiness + %s))
+        WHERE id = %s;
+    """, (delta, user_pokemon_id))
+
+
+# ── Helpers de stat por nível / evolução / felicidade ────────────────────────
+# Funções internas de baixo nível usadas por db_shop, db_workout, db_progression.
+
+def _recalc_stats_for_level(
+    cur, user_pokemon_id: int, species_id: int, level: int
+) -> None:
+    """Recalcula stat_* com a fórmula padrão de Pokémon + boosts planos.
+
+    Deve ser chamada após level-ups para manter os stats individuais em
+    sincronia com o nível atual e a espécie atual.
+    """
+    _sync_user_pokemon_stats(
+        cur,
+        user_pokemon_id,
+        species_id=species_id,
+        level=level,
+    )
+
+
+def _recalc_stats_on_evolution(cur, user_pokemon_id: int) -> None:
+    """Força recálculo completo após evolução usando a nova espécie persistida."""
+    _sync_user_pokemon_stats(cur, user_pokemon_id)
+
+
+def _bump_happiness(cur, user_pokemon_id: int, delta: int) -> None:
+    """Incrementa (ou decrementa) happiness de um user_pokemon, respeitando [0, 255]."""
+    cur.execute("""
+        UPDATE user_pokemon
+        SET happiness = LEAST(255, GREATEST(0, happiness + %s))
+        WHERE id = %s;
+    """, (delta, user_pokemon_id))

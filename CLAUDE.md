@@ -112,7 +112,15 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   ├── bag_ui.py                # Componentes reutilizáveis da Mochila — render_bag_view(), render_bag_styles(), etc.
 │   ├── missions.py              # Catálogo de missões diárias/semanais (DAILY_POOL, WEEKLY_POOL)
 │   ├── quest_tracker.py         # Widget compacto de missões para a sidebar
-│   ├── db.py                    # TODAS as queries psycopg2 — ver seção abaixo
+│   ├── db.py                    # Facade de re-exportação — importa de todos os db_*.py abaixo
+│   ├── db_core.py               # Infraestrutura: conexão, BRT helpers, stats/IV/EV/Nature, sprites
+│   ├── db_catalog.py            # Pokédex somente-leitura (get_all_pokemon, get_pokemon_details, etc.)
+│   ├── db_user.py               # Perfil, equipe, bench, moves, stat boosts
+│   ├── db_shop.py               # Loja, inventário, loot box, pedras, nature mint
+│   ├── db_combat.py             # Batalhas PvP
+│   ├── db_workout.py            # Exercícios, treino, spawn, PRs, ovos, analytics, rotinas
+│   ├── db_progression.py        # award_xp, check-in, conquistas, missões, rival, desafio comunitário
+│   └── db_admin.py              # Admin CRUD, leaderboard, logs de sistema
 │   └── supabase_client.py       # Supabase client (somente Auth) — cacheado com st.cache_resource
 └── scripts/
     ├── seed_types.py                         # Popula pokemon_types (executar 1º)
@@ -1329,7 +1337,7 @@ Itens identificados na auditoria de maio/2026. Organizados por impacto crescente
 - [x] Substituir `.format(metric_sql=...)` em SQL por `COALESCE(e.metric_type, 'weight')` inline — função `_exercise_metric_sql()` removida
 
 **Pendentes — alto impacto (planejamento necessário):**
-- [ ] Quebrar `utils/db.py` (5500+ linhas) em módulos temáticos: `db_catalog.py`, `db_user.py`, `db_gameplay.py`
+- [x] Quebrar `utils/db.py` (4946 linhas) em módulos temáticos — concluído em maio/2026. `db.py` é agora uma facade pura de 128 linhas re-exportando 198 símbolos de 8 sub-módulos: `db_core`, `db_catalog`, `db_user`, `db_shop`, `db_combat`, `db_workout`, `db_progression`, `db_admin`
 - [x] Adicionar logging real (loguru) nas 4 funções críticas — `utils/logger.py` criado, `loguru>=0.7.0` em `requirements.txt`
 - [x] Revisar `do_exercise_event()` — 3 blocos pós-commit redundantes (weekly challenge, happiness, pickup) consolidados na transação principal via SAVEPOINTs; `import json` e `apply_blaze` movidos para nível de módulo; todos os `except: pass` pós-commit substituídos por `logger.warning()`
 
