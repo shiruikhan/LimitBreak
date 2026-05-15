@@ -96,7 +96,7 @@ python scripts/seed_pokemon_instances.py
 
 - `CLAUDE.md`: arquitetura, schema, funcoes importantes, navegacao atual e convencoes
 - `NEXT_STEPS.md`: roadmap atualizado e prioridades de produto
-- `PLANO_MELHORIAS_PERFORMANCE.md`: estado atual do plano de performance e proximas frentes tecnicas
+- `PLANO_IMPLEMENTACOES.md`: snapshot tecnico do que ja foi entregue, auditorias recentes e contexto de implementacao
 
 ---
 

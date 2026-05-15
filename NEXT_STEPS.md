@@ -1,10 +1,10 @@
 # LimitBreak — Roadmap Aberto
 
-> Atualizado: 14 de maio de 2026.
+> Atualizado: 15 de maio de 2026.
 >
 > Documento canônico de backlog. Mantém apenas itens ainda não implementados e frentes futuras de produto.
 >
-> Melhorias técnicas de performance em andamento ficam documentadas separadamente em `PLANO_MELHORIAS_PERFORMANCE.md`.
+> Contexto de implementacao, auditorias e sincronizacao tecnica ficam em `PLANO_IMPLEMENTACOES.md`.
 
 ---
 
@@ -115,7 +115,6 @@
 
 | Item | Descrição | Urgência |
 |---|---|---|
-| `db.py` com 4946 linhas | Split em andamento — `db_core` ✅ e `db_catalog` ✅ extraídos; faltam `db_user`, `db_shop`, `db_combat`, `db_workout`, `db_progression`, `db_admin` | Baixa |
 | Sem testes automatizados | Cobrir `award_xp`, `_roll_loot_box`, `_detect_prs`, `check_and_award_achievements` | Baixa |
 | Retry na conexão DB | Adicionar backoff em `get_connection()` para reduzir falha em cold start | Baixa |
 | Cache de sprites regionais | Evitar HTTP GET repetido para forms regionais (`id > 10000`) | Baixa |

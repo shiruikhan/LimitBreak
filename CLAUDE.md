@@ -33,6 +33,7 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 supabase>=2.0.0
 extra-streamlit-components>=0.1.71
+loguru>=0.7.0
 ```
 
 ---
