@@ -259,6 +259,24 @@ def _detail_stat_bars(member: dict, boost_counts: dict | None = None) -> str:
         )
     return f"<div class='detail-stat-grid'>{rows}</div>"
 
+
+def _move_preview_html(mv: dict, *, active: bool = False) -> str:
+    tc = get_type_color(mv["type_name"])
+    type_ic = _type_icon(mv["type_name"])
+    dmg_ic = _dmg_icon(mv["damage_class"])
+    pow_str = str(mv["power"]) if mv["power"] else "—"
+    acc_str = f"{mv['accuracy']}%" if mv["accuracy"] else "—"
+    opacity = "opacity:0.4;" if active else ""
+    return (
+        f"<div class='avail-move' style='border-left-color:{tc['bg']};{opacity}'>"
+        f"<span class='avail-move-lv'>Lv.{mv['level_learned_at']}</span>"
+        f"<span class='avail-move-name'>{mv['name']}</span>"
+        f"{type_ic}"
+        f"<span class='move-stat'>{pow_str}<span>Pow</span></span>"
+        f"<span class='move-stat'>{acc_str}<span>Acc</span></span>"
+        f"{dmg_ic}</div>"
+    )
+
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -542,6 +560,43 @@ st.markdown("""
     color:#8b949e;
     font-size:0.76rem;
     line-height:1.45;
+}
+.move-focus-card {
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:14px;
+    padding:12px 14px;
+    margin-top:10px;
+}
+.move-focus-name {
+    font-size:0.95rem;
+    font-weight:800;
+    color:#e6edf3;
+    margin-bottom:8px;
+}
+.move-focus-meta {
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap:8px;
+}
+.move-focus-stat {
+    background:#0d1117;
+    border:1px solid #21262d;
+    border-radius:10px;
+    padding:8px 10px;
+}
+.move-focus-stat strong {
+    display:block;
+    font-size:0.58rem;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color:#8b949e;
+    margin-bottom:4px;
+}
+.move-focus-stat span {
+    color:#e6edf3;
+    font-size:0.82rem;
+    font-weight:800;
 }
 
 /* Egg section */
@@ -1153,50 +1208,89 @@ with drawer_col:
                     unsafe_allow_html=True,
                 )
             else:
-                html = "<div class='avail-scroll'>"
-                for mv in avail_moves:
-                    tc = get_type_color(mv["type_name"])
-                    type_ic = _type_icon(mv["type_name"])
-                    dmg_ic = _dmg_icon(mv["damage_class"])
-                    pow_str = str(mv["power"]) if mv["power"] else "—"
-                    acc_str = f"{mv['accuracy']}%" if mv["accuracy"] else "—"
-                    is_active = mv["id"] in active_ids
-                    opacity = "opacity:0.4;" if is_active else ""
-                    html += (
-                        f"<div class='avail-move' style='border-left-color:{tc['bg']};{opacity}'>"
-                        f"<span class='avail-move-lv'>Lv.{mv['level_learned_at']}</span>"
-                        f"<span class='avail-move-name'>{mv['name']}</span>"
-                        f"{type_ic}"
-                        f"<span class='move-stat'>{pow_str}<span>Pow</span></span>"
-                        f"<span class='move-stat'>{acc_str}<span>Acc</span></span>"
-                        f"{dmg_ic}</div>"
-                    )
-                html += "</div>"
-                st.markdown(html, unsafe_allow_html=True)
+                move_filter = st.radio(
+                    "Filtrar golpes",
+                    options=["Equipáveis", "Todos", "Ativos"],
+                    horizontal=True,
+                    key=f"move_filter_{up_id}",
+                    label_visibility="collapsed",
+                )
+                move_query = st.text_input(
+                    "Buscar golpe",
+                    key=f"move_query_{up_id}",
+                    placeholder="Buscar golpe pelo nome...",
+                    label_visibility="collapsed",
+                ).strip().lower()
 
-                st.markdown("<div class='section-lbl' style='margin-top:12px'>Equipar golpe</div>", unsafe_allow_html=True)
+                filtered_moves = []
                 for mv in avail_moves:
                     is_active = mv["id"] in active_ids
-                    col_name, col_btn = st.columns([3, 1])
-                    with col_name:
-                        st.markdown(
-                            f"<span style='font-size:0.82rem;color:{'#8b949e' if is_active else '#e6edf3'}'>"
-                            f"Lv.{mv['level_learned_at']} {mv['name']}</span>",
-                            unsafe_allow_html=True,
-                        )
-                    with col_btn:
-                        if is_active:
-                            st.markdown("<small style='color:#8b949e'>Ativo</small>", unsafe_allow_html=True)
+                    if move_filter == "Equipáveis" and is_active:
+                        continue
+                    if move_filter == "Ativos" and not is_active:
+                        continue
+                    if move_query and move_query not in mv["name"].lower():
+                        continue
+                    filtered_moves.append(mv)
+
+                st.caption(f"{len(filtered_moves)} golpe(s) exibido(s)")
+
+                if not filtered_moves:
+                    st.markdown(
+                        "<span style='color:#8b949e;font-size:0.82rem'>Nenhum golpe encontrado com os filtros atuais.</span>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    selected_move = st.selectbox(
+                        "Selecionar golpe",
+                        options=filtered_moves,
+                        index=0,
+                        key=f"move_pick_{up_id}",
+                        format_func=lambda mv: (
+                            f"Lv.{mv['level_learned_at']} - {mv['name']}"
+                            + (" [ATIVO]" if mv["id"] in active_ids else "")
+                        ),
+                        label_visibility="collapsed",
+                    )
+                    sel_type = selected_move["type_name"] or "—"
+                    sel_damage = (selected_move["damage_class"] or "—").capitalize()
+                    sel_power = selected_move["power"] if selected_move["power"] else "—"
+                    sel_acc = f"{selected_move['accuracy']}%" if selected_move["accuracy"] else "—"
+
+                    st.markdown(
+                        f"<div class='move-focus-card'>"
+                        f"<div class='move-focus-name'>{selected_move['name']}</div>"
+                        f"{_move_preview_html(selected_move, active=selected_move['id'] in active_ids)}"
+                        f"<div class='move-focus-meta'>"
+                        f"<div class='move-focus-stat'><strong>Tipo</strong><span>{sel_type.upper()}</span></div>"
+                        f"<div class='move-focus-stat'><strong>Classe</strong><span>{sel_damage}</span></div>"
+                        f"<div class='move-focus-stat'><strong>Poder</strong><span>{sel_power}</span></div>"
+                        f"<div class='move-focus-stat'><strong>Precisão</strong><span>{sel_acc}</span></div>"
+                        f"<div class='move-focus-stat'><strong>Nível</strong><span>Lv.{selected_move['level_learned_at']}</span></div>"
+                        f"<div class='move-focus-stat'><strong>Status</strong><span>{'Ativo' if selected_move['id'] in active_ids else 'Disponível'}</span></div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    if selected_move["id"] in active_ids:
+                        st.markdown("<small style='color:#8b949e'>Esse golpe já está equipado.</small>", unsafe_allow_html=True)
+                    else:
+                        free_slot = next((s for s in range(1, 5) if s not in active_by_slot), None)
+                        if free_slot:
+                            if st.button("Equipar golpe selecionado", key=f"eq_{up_id}_{selected_move['id']}", use_container_width=True):
+                                equip_move(up_id, free_slot, selected_move["id"])
+                                st.rerun()
                         else:
-                            free_slot = next((s for s in range(1, 5) if s not in active_by_slot), None)
-                            if free_slot:
-                                if st.button("Equipar", key=f"eq_{up_id}_{mv['id']}", use_container_width=True):
-                                    equip_move(up_id, free_slot, mv["id"])
-                                    st.rerun()
-                            else:
-                                if st.button("Trocar", key=f"repl_init_{up_id}_{mv['id']}", use_container_width=True):
-                                    st.session_state.replacing_move_id = mv["id"]
-                                    st.rerun()
+                            if st.button("Trocar pelo golpe selecionado", key=f"repl_init_{up_id}_{selected_move['id']}", use_container_width=True):
+                                st.session_state.replacing_move_id = selected_move["id"]
+                                st.rerun()
+
+                    with st.expander("Ver lista completa"):
+                        html = "<div class='avail-scroll'>"
+                        for mv in filtered_moves:
+                            html += _move_preview_html(mv, active=mv["id"] in active_ids)
+                        html += "</div>"
+                        st.markdown(html, unsafe_allow_html=True)
     else:
         st.markdown(
             "<div class='detail-empty'>"
