@@ -19,6 +19,7 @@ from utils.db import (
     check_and_award_achievements, do_checkin,
     get_current_challenge, claim_weekly_challenge_reward,
     update_mission_progress,
+    _EXERCISE_XP_DAILY_CAP, _WEEKEND_XP_MULTIPLIER, is_weekend_bonus,
 )
 from utils.achievements import GYM_BADGES
 from utils.missions import get_mission
@@ -119,6 +120,53 @@ st.markdown(
     color: #cbd5e1;
     font-size: 0.75rem;
     margin: 0 8px 8px 0;
+}
+.hub-event {
+    background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(249,115,22,0.08));
+    border: 1px solid rgba(245,158,11,0.28);
+    border-radius: 18px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+}
+.hub-event-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.hub-event-title {
+    color: #f8fafc;
+    font-size: 0.98rem;
+    font-weight: 800;
+}
+.hub-event-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.hub-event-badge.live {
+    background: rgba(46,160,67,0.18);
+    color: #9be9a8;
+    border: 1px solid rgba(46,160,67,0.35);
+}
+.hub-event-badge.soon {
+    background: rgba(148,163,184,0.14);
+    color: #cbd5e1;
+    border: 1px solid rgba(148,163,184,0.24);
+}
+.hub-event-copy {
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+.hub-event-copy strong {
+    color: #f8fafc;
 }
 
 /* Gym badge mini-rack in hub */
@@ -438,6 +486,34 @@ def _render_snapshot() -> None:
         )
 
 
+def _render_weekend_bonus_banner() -> None:
+    weekend_live = is_weekend_bonus()
+    base_cap = _EXERCISE_XP_DAILY_CAP
+    boosted_cap = _EXERCISE_XP_DAILY_CAP * _WEEKEND_XP_MULTIPLIER
+    badge_cls = "live" if weekend_live else "soon"
+    badge_label = "Ativo Agora" if weekend_live else "Recorrente"
+    copy = (
+        f"Toda sexta, sábado e domingo, os <strong>treinos</strong> concedem "
+        f"<strong>{_WEEKEND_XP_MULTIPLIER}x XP</strong> para todos e o limite diário "
+        f"de XP de treino sobe de <strong>{base_cap}</strong> para <strong>{boosted_cap}</strong>."
+    )
+    if weekend_live:
+        copy += " O bônus já está valendo hoje."
+
+    st.markdown(
+        f"""
+<div class="hub-event">
+  <div class="hub-event-head">
+    <div class="hub-event-title">Final de Semana em Dobro</div>
+    <span class="hub-event-badge {badge_cls}">{badge_label}</span>
+  </div>
+  <div class="hub-event-copy">{copy}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_sections() -> None:
     cols = st.columns(2)
     for idx, section in enumerate(SECTION_CARDS):
@@ -469,6 +545,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+_render_weekend_bonus_banner()
 _render_snapshot()
 
 # ── Rival Semanal ──────────────────────────────────────────────────────────────
