@@ -7,7 +7,7 @@ from utils.db import (
     sprite_img_tag, hq_sprite_url, _today_brt, check_and_award_achievements,
     update_mission_progress,
     get_volume_history, get_exercise_bests_all, get_muscle_distribution,
-    get_last_exercise_values,
+    get_last_exercise_values, apply_evolution_choice,
 )
 from utils.app_cache import (
     clear_user_cache,
@@ -908,6 +908,11 @@ if active_view == "🏋️ Treino":
                             "to_name":         evo["to_name"],
                             "sprite_url":      evo.get("sprite_url", ""),
                         }
+
+                # ── Card de escolha de evolução regional ──────────────────────
+                evo_choice = xp_res.get("evolution_choice")
+                if evo_choice:
+                    st.session_state.pending_evolution_choice = evo_choice
 
                 xp_shared = xp_res.get("xp_share_distributed", [])
                 if xp_shared:

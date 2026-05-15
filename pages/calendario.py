@@ -15,6 +15,7 @@ from utils.db import (
     do_checkin, register_rest,
     sprite_img_tag, hq_sprite_url,
     _today_brt, check_and_award_achievements, update_mission_progress,
+    apply_evolution_choice,
 )
 from utils.type_colors import get_type_color
 from utils.quest_tracker import render_quest_sidebar
@@ -460,6 +461,11 @@ if res:
                         "</div></div>",
                         unsafe_allow_html=True,
                     )
+
+            # ── Escolha de evolução regional ──────────────────────────────
+            evo_choice = xp_res.get("evolution_choice")
+            if evo_choice:
+                st.session_state.pending_evolution_choice = evo_choice
 
             # XP Share distribution log
             xp_shared = xp_res.get("xp_share_distributed", [])

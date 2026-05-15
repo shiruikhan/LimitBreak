@@ -239,56 +239,56 @@ def do_checkin(user_id: str) -> dict:
             if streak % 3 == 0:
                 result["spawn_rolled"] = True
                 spawned_species_id = _pick_spawn_species(cur, user_id)
-                    if spawned_species_id is not None:
-                        checkin_shiny = _shiny_roll(streak)
+                if spawned_species_id is not None:
+                    checkin_shiny = _shiny_roll(streak)
 
-                        # Captura o Pokémon (nível 5, fórmula padrão)
-                        up_id = _insert_user_pokemon(
-                            cur,
-                            user_id,
-                            spawned_species_id,
-                            level=5,
-                            xp=0,
-                            is_shiny=checkin_shiny,
-                        )
-                        if up_id is None:
-                            raise ValueError("Espécie spawnada não encontrada para calcular stats.")
+                    # Captura o Pokémon (nível 5, fórmula padrão)
+                    up_id = _insert_user_pokemon(
+                        cur,
+                        user_id,
+                        spawned_species_id,
+                        level=5,
+                        xp=0,
+                        is_shiny=checkin_shiny,
+                    )
+                    if up_id is None:
+                        raise ValueError("Espécie spawnada não encontrada para calcular stats.")
 
-                        # Slot de equipe livre, se houver
-                        cur.execute(
-                            "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
-                            (user_id,)
-                        )
-                        used = {r[0] for r in cur.fetchall()}
-                        free = next((s for s in range(1, 7) if s not in used), None)
-                        if free:
-                            cur.execute("""
-                                INSERT INTO user_team (user_id, slot, user_pokemon_id)
-                                VALUES (%s, %s, %s);
-                            """, (user_id, free, up_id))
-
-                        # Atualiza o registro do check-in com o spawn
+                    # Slot de equipe livre, se houver
+                    cur.execute(
+                        "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
+                        (user_id,)
+                    )
+                    used = {r[0] for r in cur.fetchall()}
+                    free = next((s for s in range(1, 7) if s not in used), None)
+                    if free:
                         cur.execute("""
-                            UPDATE user_checkins SET spawned_species_id = %s
-                            WHERE user_id = %s AND checked_date = %s;
-                        """, (spawned_species_id, user_id, today))
+                            INSERT INTO user_team (user_id, slot, user_pokemon_id)
+                            VALUES (%s, %s, %s);
+                        """, (user_id, free, up_id))
 
-                        # Busca dados do Pokémon para o resultado
-                        cur.execute("""
-                            SELECT p.id, p.name, p.sprite_url, p.sprite_shiny_url,
-                                   t1.name AS type1
-                            FROM pokemon_species p
-                            LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
-                            WHERE p.id = %s;
-                        """, (spawned_species_id,))
-                        pdata = cur.fetchone()
-                        if pdata:
-                            sprite = (pdata[3] if checkin_shiny and pdata[3] else pdata[2])
-                            result["spawned"] = {
-                                "id": pdata[0], "name": pdata[1],
-                                "sprite_url": sprite, "type1": pdata[4],
-                                "is_shiny": checkin_shiny,
-                            }
+                    # Atualiza o registro do check-in com o spawn
+                    cur.execute("""
+                        UPDATE user_checkins SET spawned_species_id = %s
+                        WHERE user_id = %s AND checked_date = %s;
+                    """, (spawned_species_id, user_id, today))
+
+                    # Busca dados do Pokémon para o resultado
+                    cur.execute("""
+                        SELECT p.id, p.name, p.sprite_url, p.sprite_shiny_url,
+                               t1.name AS type1
+                        FROM pokemon_species p
+                        LEFT JOIN pokemon_types t1 ON p.type1_id = t1.id
+                        WHERE p.id = %s;
+                    """, (spawned_species_id,))
+                    pdata = cur.fetchone()
+                    if pdata:
+                        sprite = (pdata[3] if checkin_shiny and pdata[3] else pdata[2])
+                        result["spawned"] = {
+                            "id": pdata[0], "name": pdata[1],
+                            "sprite_url": sprite, "type1": pdata[4],
+                            "is_shiny": checkin_shiny,
+                        }
 
         conn.commit()
         result.update({
@@ -444,13 +444,14 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
         }
     """
     result = {
-        "levels_gained": 0,
-        "old_level": 0,
-        "new_level": 0,
-        "new_xp": 0,
-        "evolutions": [],
+        "levels_gained":       0,
+        "old_level":           0,
+        "new_level":           0,
+        "new_xp":              0,
+        "evolutions":          [],
+        "evolution_choice":    None,   # preenchido quando há escolha regional pendente
         "xp_share_distributed": [],
-        "error": None,
+        "error":               None,
     }
     if amount <= 0:
         return result
@@ -489,7 +490,8 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                 result["levels_gained"] += 1
                 happiness_delta += 2  # +2 happiness per level-up
 
-                if len(result["evolutions"]) < 3:
+                # Só verifica evolução se ainda não foi apresentada uma escolha pendente
+                if len(result["evolutions"]) < 3 and not result["evolution_choice"]:
                     cur.execute("""
                         SELECT e.to_species_id, p2.name, p2.sprite_url,
                                p1.name AS from_name, p1.sprite_url AS from_sprite
@@ -498,69 +500,109 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
                         JOIN pokemon_species p1 ON e.from_species_id = p1.id
                         WHERE e.from_species_id = %s
                           AND (
-                              (e.trigger_name = 'level-up' AND e.min_level <= %s
+                              (e.trigger_name = 'level-up'
+                               AND (e.min_level IS NULL OR e.min_level <= %s)
                                AND (e.min_happiness IS NULL OR %s >= e.min_happiness))
-                              OR (e.trigger_name NOT IN ('level-up', 'use-item', 'shed')
+                              OR (e.trigger_name NOT IN ('level-up', 'use-item', 'shed', 'player-choice')
                                   AND e.min_happiness IS NULL AND %s >= %s)
                           )
                         ORDER BY e.min_level DESC NULLS LAST
                         LIMIT 1;
                     """, (species_id, level, happiness + happiness_delta, level, _BYPASS_LEVEL))
                     evo = cur.fetchone()
+
                     if evo:
                         to_id, to_name, to_sprite, from_name, from_sprite = evo
-                        result["evolutions"].append({
-                            "from_name":       from_name,
-                            "from_sprite_url": from_sprite or "",
-                            "to_name":         to_name,
-                            "to_id":           to_id,
-                            "sprite_url":      to_sprite,
-                        })
 
-                        # Shed mechanic
+                        # Verifica se existe alternativa regional (player-choice) para este nível
                         cur.execute("""
-                            SELECT e2.to_species_id, p2.name, p2.sprite_url
+                            SELECT e2.to_species_id, p3.name, p3.sprite_url
                             FROM pokemon_evolutions e2
-                            JOIN pokemon_species p2 ON e2.to_species_id = p2.id
-                            WHERE e2.from_species_id = %s AND e2.trigger_name = 'shed';
-                        """, (species_id,))
-                        shed_row = cur.fetchone()
-                        if shed_row and user_id:
-                            shed_id, shed_name, shed_sprite = shed_row
-                            cur.execute(
-                                "SELECT COUNT(*) FROM user_team WHERE user_id = %s;",
-                                (user_id,)
-                            )
-                            if cur.fetchone()[0] < 6:
-                                shed_up_id = _insert_user_pokemon(
-                                    cur, user_id, shed_id, level=level, xp=0
-                                )
-                                if shed_up_id is None:
-                                    raise ValueError(
-                                        "Espécie de evolução complementar não encontrada."
-                                    )
+                            JOIN pokemon_species p3 ON p3.id = e2.to_species_id
+                            WHERE e2.from_species_id = %s
+                              AND e2.trigger_name = 'player-choice'
+                              AND (e2.min_level IS NULL OR e2.min_level <= %s);
+                        """, (species_id, level))
+                        choice_row = cur.fetchone()
+
+                        if choice_row:
+                            # Apresenta escolha — não auto-evolui
+                            ch_to_id, ch_to_name, ch_to_sprite = choice_row
+                            result["evolution_choice"] = {
+                                "user_pokemon_id": user_pokemon_id,
+                                "from_name":       from_name,
+                                "from_sprite_url": from_sprite or "",
+                                "current_level":   level,
+                                "options": [
+                                    {
+                                        "to_id":       to_id,
+                                        "to_name":     to_name,
+                                        "sprite_url":  to_sprite or "",
+                                        "is_regional": False,
+                                    },
+                                    {
+                                        "to_id":       ch_to_id,
+                                        "to_name":     ch_to_name,
+                                        "sprite_url":  ch_to_sprite or "",
+                                        "is_regional": True,
+                                    },
+                                ],
+                            }
+                            # Não atualiza species_id — evolução pendente de confirmação
+                        else:
+                            # Auto-evolução normal (sem alternativa regional)
+                            result["evolutions"].append({
+                                "from_name":       from_name,
+                                "from_sprite_url": from_sprite or "",
+                                "to_name":         to_name,
+                                "to_id":           to_id,
+                                "sprite_url":      to_sprite,
+                            })
+
+                            # Shed mechanic (só para evoluções automáticas)
+                            cur.execute("""
+                                SELECT e2.to_species_id, p2.name, p2.sprite_url
+                                FROM pokemon_evolutions e2
+                                JOIN pokemon_species p2 ON e2.to_species_id = p2.id
+                                WHERE e2.from_species_id = %s AND e2.trigger_name = 'shed';
+                            """, (species_id,))
+                            shed_row = cur.fetchone()
+                            if shed_row and user_id:
+                                shed_id, shed_name, shed_sprite = shed_row
                                 cur.execute(
-                                    "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
+                                    "SELECT COUNT(*) FROM user_team WHERE user_id = %s;",
                                     (user_id,)
                                 )
-                                used_slots = {r[0] for r in cur.fetchall()}
-                                free_slot = next(
-                                    (s for s in range(1, 7) if s not in used_slots), None
-                                )
-                                if free_slot:
-                                    cur.execute("""
-                                        INSERT INTO user_team (user_id, slot, user_pokemon_id)
-                                        VALUES (%s, %s, %s);
-                                    """, (user_id, free_slot, shed_up_id))
-                                result["evolutions"].append({
-                                    "from_name":  from_name,
-                                    "to_name":    shed_name,
-                                    "to_id":      shed_id,
-                                    "sprite_url": shed_sprite,
-                                    "shed":       True,
-                                })
+                                if cur.fetchone()[0] < 6:
+                                    shed_up_id = _insert_user_pokemon(
+                                        cur, user_id, shed_id, level=level, xp=0
+                                    )
+                                    if shed_up_id is None:
+                                        raise ValueError(
+                                            "Espécie de evolução complementar não encontrada."
+                                        )
+                                    cur.execute(
+                                        "SELECT slot FROM user_team WHERE user_id = %s ORDER BY slot;",
+                                        (user_id,)
+                                    )
+                                    used_slots = {r[0] for r in cur.fetchall()}
+                                    free_slot = next(
+                                        (s for s in range(1, 7) if s not in used_slots), None
+                                    )
+                                    if free_slot:
+                                        cur.execute("""
+                                            INSERT INTO user_team (user_id, slot, user_pokemon_id)
+                                            VALUES (%s, %s, %s);
+                                        """, (user_id, free_slot, shed_up_id))
+                                    result["evolutions"].append({
+                                        "from_name":  from_name,
+                                        "to_name":    shed_name,
+                                        "to_id":      shed_id,
+                                        "sprite_url": shed_sprite,
+                                        "shed":       True,
+                                    })
 
-                        species_id = to_id
+                            species_id = to_id
 
             # Ao atingir o cap: congela XP em 0
             if level >= 100:
@@ -596,6 +638,89 @@ def award_xp(user_pokemon_id: int, amount: int, source: str = "xp",
 
     except Exception as e:
         logger.exception("award_xp falhou | user_pokemon_id={} source={}", user_pokemon_id, source)
+        conn.rollback()
+        result["error"] = str(e)
+        return result
+
+
+# ── Escolha de evolução regional ──────────────────────────────────────────────
+
+def apply_evolution_choice(user_pokemon_id: int, to_species_id: int) -> dict:
+    """Aplica a evolução escolhida pelo jogador (trigger player-choice ou level-up).
+
+    Chamado quando o usuário decide entre a forma normal e a forma regional.
+
+    Args:
+        user_pokemon_id: ID do user_pokemon a evoluir.
+        to_species_id:   Espécie alvo (normal ou regional) escolhida pelo jogador.
+
+    Returns:
+        {
+            "from_name":       str,
+            "from_sprite_url": str,
+            "to_name":         str,
+            "sprite_url":      str,
+            "is_regional":     bool,
+            "error":           str | None,
+        }
+    """
+    result: dict = {"error": None}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Estado atual do Pokémon
+            cur.execute("""
+                SELECT up.species_id, up.level,
+                       ps.name AS from_name, ps.sprite_url AS from_sprite
+                FROM user_pokemon up
+                JOIN pokemon_species ps ON ps.id = up.species_id
+                WHERE up.id = %s FOR UPDATE;
+            """, (user_pokemon_id,))
+            row = cur.fetchone()
+            if not row:
+                result["error"] = "Pokémon não encontrado."
+                return result
+
+            from_species_id, level, from_name, from_sprite = row
+
+            # Valida que a evolução alvo existe (player-choice OU level-up elegível)
+            cur.execute("""
+                SELECT p2.name, p2.sprite_url
+                FROM pokemon_evolutions e
+                JOIN pokemon_species p2 ON p2.id = e.to_species_id
+                WHERE e.from_species_id = %s
+                  AND e.to_species_id   = %s
+                  AND e.trigger_name IN ('player-choice', 'level-up')
+                  AND (e.min_level IS NULL OR e.min_level <= %s);
+            """, (from_species_id, to_species_id, level))
+            evo_row = cur.fetchone()
+            if not evo_row:
+                result["error"] = "Evolução inválida para este Pokémon."
+                return result
+
+            to_name, to_sprite = evo_row
+
+            # Aplica evolução
+            cur.execute("""
+                UPDATE user_pokemon SET species_id = %s WHERE id = %s;
+            """, (to_species_id, user_pokemon_id))
+            _recalc_stats_on_evolution(cur, user_pokemon_id)
+
+        conn.commit()
+        result.update({
+            "from_name":       from_name,
+            "from_sprite_url": from_sprite or "",
+            "to_name":         to_name,
+            "sprite_url":      to_sprite or "",
+            "is_regional":     to_species_id > 10000,
+        })
+        return result
+
+    except Exception as e:
+        logger.exception(
+            "apply_evolution_choice falhou | user_pokemon_id={} to_species_id={}",
+            user_pokemon_id, to_species_id,
+        )
         conn.rollback()
         result["error"] = str(e)
         return result

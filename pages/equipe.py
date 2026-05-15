@@ -14,7 +14,7 @@ from utils.db import (
     swap_team_slots,
     remove_from_team, add_to_team, sprite_img_tag, hq_sprite_url,
     get_available_moves, get_active_moves, equip_move, unequip_move,
-    get_user_eggs,
+    get_user_eggs, apply_evolution_choice,
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc
@@ -404,9 +404,95 @@ for k, v in [
     ("team_shed_notice", None),
     ("team_spawn_notice", None),
     ("xp_share_log", None),
+    ("pending_evolution_choice", None),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ── Card de escolha de evolução regional ──────────────────────────────────────
+_pec = st.session_state.pending_evolution_choice
+if _pec:
+    _pec_from_name   = _pec.get("from_name", "")
+    _pec_from_sprite = _pec.get("from_sprite_url", "")
+    _pec_level       = _pec.get("current_level", 0)
+    _pec_options     = _pec.get("options", [])
+    _pec_upid        = _pec.get("user_pokemon_id")
+
+    _pec_from_img = (
+        sprite_img_tag(hq_sprite_url(_pec_from_sprite), width=70,
+                       extra_style="image-rendering:pixelated;opacity:.75")
+        if _pec_from_sprite else "<div style='font-size:2.5rem'>❓</div>"
+    )
+
+    st.markdown(
+        "<style>"
+        ".choice-card{background:linear-gradient(135deg,#1a0b2e,#2a1050,#1a0b2e);"
+        "border:1.5px solid #BC8CFF;border-radius:16px;padding:20px 24px;margin-bottom:16px}"
+        ".choice-title{font-size:1.2rem;font-weight:800;color:#e6edf3;margin-bottom:4px}"
+        ".choice-sub{font-size:.85rem;color:#8b949e;margin-bottom:14px}"
+        ".choice-opts{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}"
+        ".choice-opt{background:#0d1117;border:1.5px solid #30363d;border-radius:12px;"
+        "padding:12px 18px;text-align:center;cursor:pointer;transition:border-color .2s}"
+        ".choice-opt.regional{border-color:#58A6FF}"
+        ".choice-opt-name{font-weight:700;color:#e6edf3;margin-top:6px;font-size:.95rem}"
+        ".choice-opt-tag{font-size:.72rem;padding:2px 8px;border-radius:20px;"
+        "background:rgba(88,166,255,.15);color:#58A6FF;margin-top:4px;display:inline-block}"
+        ".choice-opt-tag.normal-tag{background:rgba(46,160,67,.15);color:#2ea043}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+
+    _opt_cols = st.columns(len(_pec_options) + 1)
+    with _opt_cols[0]:
+        st.markdown(
+            f"<div style='text-align:center;padding-top:8px'>"
+            f"{_pec_from_img}"
+            f"<div style='color:#8b949e;font-size:.8rem;margin-top:4px'>"
+            f"{_pec_from_name} · Lv {_pec_level}</div>"
+            f"<div style='color:#BC8CFF;font-size:1.5rem;margin-top:2px'>→</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    for _i, _opt in enumerate(_pec_options):
+        _opt_sprite = _opt.get("sprite_url", "")
+        _opt_img = (
+            sprite_img_tag(hq_sprite_url(_opt_sprite), width=80,
+                           extra_style="image-rendering:pixelated")
+            if _opt_sprite else "<div style='font-size:2.5rem'>❓</div>"
+        )
+        _opt_is_reg = _opt.get("is_regional", False)
+        _opt_tag    = "🌏 Forma Regional" if _opt_is_reg else "⚔️ Forma Padrão"
+        _opt_label  = _opt.get("to_name", "")
+        _opt_id     = _opt.get("to_id")
+
+        with _opt_cols[_i + 1]:
+            st.markdown(
+                f"<div style='text-align:center'>{_opt_img}"
+                f"<div style='font-weight:700;color:#e6edf3;font-size:.95rem;margin-top:6px'>"
+                f"{_opt_label}</div>"
+                f"<div style='font-size:.72rem;padding:2px 8px;border-radius:20px;"
+                f"{'background:rgba(88,166,255,.15);color:#58A6FF' if _opt_is_reg else 'background:rgba(46,160,67,.15);color:#2ea043'}"
+                f";margin-top:4px;display:inline-block'>{_opt_tag}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button(f"Evoluir para {_opt_label}", key=f"choice_btn_{_opt_id}",
+                         use_container_width=True):
+                _res = apply_evolution_choice(_pec_upid, _opt_id)
+                if _res.get("error"):
+                    st.error(f"Erro: {_res['error']}")
+                else:
+                    st.session_state.pending_evolution_choice = None
+                    st.session_state.team_evo_notice = {
+                        "from_name":       _res["from_name"],
+                        "from_sprite_url": _res["from_sprite_url"],
+                        "to_name":         _res["to_name"],
+                        "sprite_url":      _res["sprite_url"],
+                    }
+                    from utils.app_cache import clear_team_cache
+                    clear_team_cache(user_id)
+                    st.rerun()
 
 # ── Evolution notice banner (animated) ────────────────────────────────────────
 evo_notice = st.session_state.team_evo_notice

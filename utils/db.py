@@ -108,7 +108,7 @@ from utils.db_workout import (  # noqa: F401
 from utils.db_progression import (  # noqa: F401
     get_monthly_checkins, get_checkin_streak, do_checkin,
     register_rest, get_monthly_rest_days,
-    _distribute_xp_share, award_xp,
+    _distribute_xp_share, award_xp, apply_evolution_choice,
     get_user_achievements, _collect_achievement_stats, check_and_award_achievements,
     _week_start, get_current_mission_periods,
     _ensure_missions, ensure_current_user_missions,
