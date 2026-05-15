@@ -620,8 +620,6 @@ if active_view == "🏋️ Treino":
                     extra_rewards.append("1 XP Share")
                 if auto_checkin.get("bonus_shield"):
                     extra_rewards.append("1 Escudo de Streak")
-                if auto_checkin.get("spawned"):
-                    extra_rewards.append(f"{auto_checkin['spawned']['name']} capturado")
                 extra_text = ""
                 if extra_rewards:
                     extra_text = " Extras: " + ", ".join(extra_rewards) + "."
@@ -635,6 +633,53 @@ if active_view == "🏋️ Treino":
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+
+                # ── Card de spawn do check-in automático ──────────────────────
+                ck_spawned     = auto_checkin.get("spawned")
+                ck_spawn_rolled = auto_checkin.get("spawn_rolled", False)
+                if ck_spawned:
+                    ck_is_shiny    = ck_spawned.get("is_shiny", False)
+                    ck_sp_path     = ck_spawned.get("sprite_url", "")
+                    ck_shiny_filter = "filter:drop-shadow(0 0 10px gold) saturate(1.6)" if ck_is_shiny else ""
+                    ck_img_html = (
+                        sprite_img_tag(
+                            hq_sprite_url(ck_sp_path), width=88,
+                            extra_style=f"image-rendering:pixelated;{ck_shiny_filter}",
+                        )
+                        if ck_sp_path else ""
+                    ) or "<div style='font-size:2.6rem'>❓</div>"
+                    ck_shiny_badge = " ✨ <span style='color:#FFD700;font-weight:800'>SHINY</span>" if ck_is_shiny else ""
+                    ck_card_cls    = "shiny" if ck_is_shiny else "spawned"
+                    ck_title       = "🌟 Pokémon SHINY no check-in!" if ck_is_shiny else "✨ Pokémon apareceu no check-in!"
+                    ck_name        = ck_spawned["name"]
+                    ck_id          = ck_spawned["id"]
+                    st.markdown(
+                        f"<div class='result-card {ck_card_cls}' style='display:flex;align-items:center;gap:18px'>"
+                        f"<div>{ck_img_html}</div>"
+                        f"<div>"
+                        f"<div class='result-title'>{ck_title}</div>"
+                        f"<div class='spawn-name'>{ck_name}{ck_shiny_badge}</div>"
+                        f"<div class='result-body' style='margin-top:4px'>"
+                        f"#{str(ck_id).zfill(4)} foi capturado e adicionado à sua coleção!</div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.session_state.team_spawn_notice = {
+                        "source":     "checkin",
+                        "name":       ck_name,
+                        "id":         ck_id,
+                        "sprite_url": ck_spawned.get("sprite_url", ""),
+                        "type1":      ck_spawned.get("type1"),
+                    }
+                elif ck_spawn_rolled:
+                    st.markdown(
+                        "<div class='result-card' style='background:#161b22;border-color:#30363d'>"
+                        "<div class='result-title'>🎲 Streak de 3 dias — sorte não rolou!</div>"
+                        "<div class='result-body'>Você teve chance de capturar um Pokémon, "
+                        "mas a sorte não esteve do seu lado. Continue fazendo check-ins!</div>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
 
             prs = res.get("prs") or []
             if prs:
