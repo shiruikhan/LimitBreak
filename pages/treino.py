@@ -671,15 +671,6 @@ if active_view == "🏋️ Treino":
                         "sprite_url": ck_spawned.get("sprite_url", ""),
                         "type1":      ck_spawned.get("type1"),
                     }
-                elif ck_spawn_rolled:
-                    st.markdown(
-                        "<div class='result-card' style='background:#161b22;border-color:#30363d'>"
-                        "<div class='result-title'>🎲 Streak de 3 dias — sorte não rolou!</div>"
-                        "<div class='result-body'>Você teve chance de capturar um Pokémon, "
-                        "mas a sorte não esteve do seu lado. Continue fazendo check-ins!</div>"
-                        "</div>",
-                        unsafe_allow_html=True,
-                    )
 
             prs = res.get("prs") or []
             if prs:

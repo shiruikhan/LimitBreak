@@ -234,12 +234,11 @@ def do_checkin(user_id: str) -> dict:
                     """, (user_id, _sr[0]))
                     result["bonus_shield"] = True
 
-            # ── Spawn em múltiplo de 3 ────────────────────────────────────────
+            # ── Spawn em múltiplo de 3 (garantido — 100%) ────────────────────
             spawned_species_id = None
             if streak % 3 == 0:
                 result["spawn_rolled"] = True
-                if random.random() < 0.25:
-                    spawned_species_id = _pick_spawn_species(cur, user_id)
+                spawned_species_id = _pick_spawn_species(cur, user_id)
                     if spawned_species_id is not None:
                         checkin_shiny = _shiny_roll(streak)
 

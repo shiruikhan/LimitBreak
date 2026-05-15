@@ -303,17 +303,6 @@ if res:
                 unsafe_allow_html=True,
             )
 
-        # Spawn
-        if res.get("spawn_rolled") and not res.get("spawned"):
-            st.markdown(
-                "<div class='result-card' style='background:#161b22;border-color:#30363d'>"
-                "<div class='result-title'>🎲 Streak de 3 dias!</div>"
-                "<div class='result-body'>A sorte não esteve do seu lado dessa vez... "
-                "Continue para a próxima chance!</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
         if res.get("spawned"):
             pk      = res["spawned"]
             c       = get_type_color(pk.get("type1", "").lower() if pk.get("type1") else None)
