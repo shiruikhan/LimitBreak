@@ -37,6 +37,7 @@ from utils.abilities import apply_blaze as _apply_blaze
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _EXERCISE_XP_DAILY_CAP        = 300
+_WEEKEND_XP_MULTIPLIER        = 2      # dobro de XP e cap nas sex/sab/dom
 _FIRST_WORKOUT_BONUS_XP       = 50
 _EXERCISE_REP_XP_DIVISOR      = 2
 _EXERCISE_WEIGHT_XP_DIVISOR   = 20
@@ -86,6 +87,15 @@ _BODY_PART_TYPES: dict[str, list[str]] = {
 }
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
+
+def is_weekend_bonus() -> bool:
+    """Retorna True se hoje (BRT) é sexta (5), sábado (6) ou domingo (7).
+
+    Nesses dias o XP de treino é multiplicado por _WEEKEND_XP_MULTIPLIER
+    e o cap diário também dobra (300 → 600).
+    """
+    return _today_brt().isoweekday() in (5, 6, 7)
+
 
 def _ranked_spawn_types(exercises: list[dict], bp_map: dict[int, list[str]]) -> list[str]:
     """Returns type slugs ordered by frequency across the session's body parts."""
@@ -827,6 +837,7 @@ def do_exercise_event(
         "eggs_granted":   [],
         "eggs_hatched":   [],
         "ability_effects": None,
+        "weekend_bonus":  False,
         "error":          None,
     }
 
@@ -848,8 +859,15 @@ def do_exercise_event(
         result["error"] = "Nenhuma série registrada."
         return result
 
+    # ── Bônus de fim de semana (sex/sab/dom): XP e cap em dobro ─────────────
+    _weekend = is_weekend_bonus()
+    if _weekend:
+        raw_xp *= _WEEKEND_XP_MULTIPLIER
+    effective_cap = _EXERCISE_XP_DAILY_CAP * (_WEEKEND_XP_MULTIPLIER if _weekend else 1)
+    result["weekend_bonus"] = _weekend
+
     already_today = get_daily_xp_from_exercise(user_id)
-    remaining     = max(0, _EXERCISE_XP_DAILY_CAP - already_today)
+    remaining     = max(0, effective_cap - already_today)
     xp_to_award   = min(raw_xp, remaining)
 
     if xp_to_award < raw_xp:

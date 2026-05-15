@@ -8,6 +8,7 @@ from utils.db import (
     update_mission_progress,
     get_volume_history, get_exercise_bests_all, get_muscle_distribution,
     get_last_exercise_values, apply_evolution_choice,
+    is_weekend_bonus, _EXERCISE_XP_DAILY_CAP, _WEEKEND_XP_MULTIPLIER,
 )
 from utils.app_cache import (
     clear_user_cache,
@@ -28,7 +29,8 @@ if not st.session_state.get("user"):
 
 user_id = st.session_state.get("user_id")
 BASE_DIR = os.getcwd()
-_DAILY_CAP = 300
+# Cap dinâmico: dobra no fim de semana
+_DAILY_CAP = _EXERCISE_XP_DAILY_CAP * (_WEEKEND_XP_MULTIPLIER if is_weekend_bonus() else 1)
 
 # ── session state ─────────────────────────────────────────────────────────────
 for _k, _v in [
@@ -831,11 +833,17 @@ if active_view == "🏋️ Treino":
                 new_xp        = xp_res.get("new_xp", 0)
                 xp_to_next    = new_level * 100
                 evolutions    = xp_res.get("evolutions", [])
+                _wknd_badge   = (
+                    " &nbsp;<span style='background:#f59e0b;color:#000;font-size:.72rem;"
+                    "font-weight:800;padding:1px 7px;border-radius:20px;vertical-align:middle'>"
+                    "2× FDS</span>"
+                    if res.get("weekend_bonus") else ""
+                )
 
                 if levels_gained == 0:
                     st.markdown(
                         f"<div class='result-card' style='background:#161b22;border-color:#30363d'>"
-                        f"<div class='result-title'>⚡ +{xp_gained} XP para o Pokémon principal</div>"
+                        f"<div class='result-title'>⚡ +{xp_gained} XP para o Pokémon principal{_wknd_badge}</div>"
                         f"<div class='result-body'>"
                         f"XP: <b style='color:#58A6FF'>{new_xp}</b> / {xp_to_next} para o nível {new_level + 1}"
                         f"</div></div>",
