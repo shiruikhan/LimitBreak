@@ -70,6 +70,59 @@ def _xp_progress(level: int, xp: int) -> float:
     return min(xp / needed, 1.0) if needed else 1.0
 
 
+def _dex_label(species_id: int) -> str:
+    return f"#{str(species_id).zfill(4)}"
+
+
+def _member_sprite_html(
+    member: dict,
+    *,
+    width: int = 72,
+    hero: bool = False,
+) -> str:
+    is_shiny = member.get("is_shiny", False)
+    shiny_src = member.get("sprite_shiny_url") or ""
+
+    if is_shiny and shiny_src:
+        sprite_src = hq_sprite_url(shiny_src)
+    else:
+        raw_src = member.get("sprite_url") or ""
+        if raw_src.startswith("http"):
+            sprite_src = hq_sprite_url(raw_src)
+        else:
+            local_thumb = _thumb_path(member["species_id"])
+            sprite_src = local_thumb if os.path.isfile(local_thumb) else raw_src
+
+    style_parts = [
+        "display:block",
+        "margin:0 auto",
+        "image-rendering:pixelated",
+    ]
+    if hero:
+        style_parts.append("filter:drop-shadow(0 0 18px rgba(248,208,48,0.45))")
+    elif is_shiny:
+        style_parts.append("filter:drop-shadow(0 0 8px gold) saturate(1.5)")
+
+    return (
+        sprite_img_tag(sprite_src, width=width, extra_style=";".join(style_parts))
+        or "<div style='text-align:center;font-size:2.5rem'>❓</div>"
+    )
+
+
+def _type_badges_html(type1: str | None, type2: str | None, *, small: bool = True) -> str:
+    badge_cls = "type-sm" if small else "type-pill"
+    html = []
+    for type_name in [type1, type2]:
+        if not type_name:
+            continue
+        colors = get_type_color(type_name)
+        html.append(
+            f"<span class='{badge_cls}' style='background:{colors['bg']};color:{colors['text']}'>"
+            f"{type_name.upper()}</span>"
+        )
+    return "".join(html)
+
+
 def _nature_html(member: dict, *, compact: bool = False, align: str = "center") -> str:
     nature = member.get("nature")
     if not nature:
@@ -170,6 +223,42 @@ def _stat_bars(member: dict, boost_counts: dict | None = None) -> str:
         )
     return f"<div class='stat-grid'>{rows}</div>"
 
+
+def _detail_stat_bars(member: dict, boost_counts: dict | None = None) -> str:
+    stats = [
+        ("HP",     member["stat_hp"]),
+        ("ATK",    member["stat_attack"]),
+        ("DEF",    member["stat_defense"]),
+        ("SP.ATK", member["stat_sp_attack"]),
+        ("SP.DEF", member["stat_sp_defense"]),
+        ("SPD",    member["stat_speed"]),
+    ]
+    rows = ""
+    for label, val in stats:
+        pct = min((val or 0) / _STAT_MAX * 100, 100)
+        color = _STAT_COLORS[label]
+        stat_key = _STAT_LABEL_TO_KEY[label]
+        is_capped = (
+            boost_counts is not None
+            and boost_counts.get(stat_key, 0) >= _MAX_STAT_BOOSTS_PER_STAT
+        )
+        cap_html = (
+            "<span class='detail-stat-cap' title='Vitaminas no limite'>MAX</span>"
+            if is_capped else ""
+        )
+        rows += (
+            f"<div class='detail-stat-row'>"
+            f"<div class='detail-stat-head'>"
+            f"<span class='detail-stat-label'>{label}</span>"
+            f"<span class='detail-stat-value'>{val or 0}{cap_html}</span>"
+            f"</div>"
+            f"<div class='detail-stat-bar'>"
+            f"<div class='detail-stat-fill' style='width:{pct:.0f}%;background:{color}'></div>"
+            f"</div>"
+            f"</div>"
+        )
+    return f"<div class='detail-stat-grid'>{rows}</div>"
+
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -189,7 +278,12 @@ st.markdown("""
 /* Team card */
 .team-card {
     background: #161b22; border: 1px solid #30363d; border-radius: 16px;
-    padding: 16px 12px; transition: all 0.2s ease; min-height: 200px;
+    padding: 14px 12px; transition: all 0.2s ease; min-height: 160px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+}
+.team-card:hover {
+    border-color: #484f58;
+    transform: translateY(-2px);
 }
 .team-card.main-slot {
     border-color: #B8F82F;
@@ -207,9 +301,34 @@ st.markdown("""
 .main-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 2px; color: #B8F82F; text-transform: uppercase; }
 .sel-label  { font-size: 0.62rem; font-weight: 700; letter-spacing: 2px; color: #58a6ff; text-transform: uppercase; }
 .poke-card-name { font-size: 0.88rem; font-weight: 700; color: #e6edf3; margin: 4px 0 2px; text-align: center; }
+.poke-card-dex { font-size: 0.66rem; color: #8b949e; text-align: center; letter-spacing: 1px; text-transform: uppercase; }
+.poke-card-level { text-align:center;font-size:0.74rem;color:#8b949e;margin-top:5px;font-family:"JetBrains Mono", monospace; }
+.poke-card-badges {
+    display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-top:8px;
+}
+.card-badge {
+    display:inline-flex; align-items:center; justify-content:center;
+    padding: 3px 8px; border-radius: 999px; font-size: 0.58rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.8px;
+}
+.card-badge.shiny {
+    background: rgba(255,215,0,0.18);
+    border: 1px solid rgba(255,215,0,0.4);
+    color: #FFD700;
+}
+.card-badge.low {
+    background: rgba(255,89,89,0.15);
+    border: 1px solid rgba(255,89,89,0.35);
+    color: #ff9c9c;
+}
 .type-sm {
     display: inline-block; padding: 2px 7px; border-radius: 9999px;
     font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 3px;
+}
+.type-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 4px 10px; border-radius: 9999px; font-size: 0.64rem;
+    font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; margin-right: 5px;
 }
 .xp-track { background: #21262d; border-radius: 9999px; height: 4px; margin-top: 8px; overflow: hidden; border: 1px solid #30363d; }
 .xp-fill  { height: 100%; border-radius: 9999px; background: #58A6FF; }
@@ -279,6 +398,150 @@ st.markdown("""
     border-radius: 9999px; padding: 2px 8px;
     font-size: 0.55rem; font-weight: 700; color: #ff8080;
     text-transform: uppercase; letter-spacing: 0.5px; margin-left: 5px;
+}
+
+/* Detail drawer */
+.detail-drawer {
+    background: linear-gradient(180deg, #111827 0%, #0d1117 100%);
+    border: 1px solid #30363d;
+    border-radius: 22px;
+    padding: 22px 18px 18px;
+    box-shadow: 0 18px 42px rgba(0,0,0,0.28);
+}
+.detail-empty {
+    background: #11161d;
+    border: 1px dashed #30363d;
+    border-radius: 20px;
+    padding: 28px 20px;
+    color: #8b949e;
+    text-align: center;
+}
+.detail-topline {
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1.4px; color:#8b949e;
+}
+.detail-level {
+    color:#e6edf3;
+    font-family:"JetBrains Mono", monospace;
+}
+.detail-hero {
+    margin: 12px 0 10px;
+    padding: 18px 14px;
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at center, rgba(248,208,48,0.22) 0%, rgba(248,208,48,0.06) 42%, rgba(13,17,23,0) 72%),
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+}
+.detail-name {
+    font-size: 1.45rem;
+    font-weight: 800;
+    color: #f8fafc;
+    text-align: center;
+    margin-top: 10px;
+}
+.detail-sub {
+    text-align:center;
+    color:#8b949e;
+    font-size:0.74rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 3px;
+}
+.detail-type-row {
+    text-align:center;
+    margin-top: 10px;
+}
+.detail-meta-grid {
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+}
+.detail-meta-card {
+    background:#161b22;
+    border:1px solid #21262d;
+    border-radius:14px;
+    padding:10px 12px;
+}
+.detail-meta-label {
+    display:block;
+    font-size:0.6rem;
+    font-weight:700;
+    letter-spacing:1.3px;
+    text-transform:uppercase;
+    color:#8b949e;
+    margin-bottom:4px;
+}
+.detail-meta-value {
+    color:#e6edf3;
+    font-size:0.9rem;
+    font-weight:700;
+}
+.detail-section-title {
+    font-size:0.66rem;
+    font-weight:800;
+    letter-spacing:1.8px;
+    text-transform:uppercase;
+    color:#8b949e;
+    margin: 4px 0 10px;
+}
+.detail-stat-grid {
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+.detail-stat-row {
+    background:#161b22;
+    border:1px solid #21262d;
+    border-radius:12px;
+    padding:10px 12px;
+}
+.detail-stat-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    margin-bottom:7px;
+}
+.detail-stat-label {
+    font-size:0.66rem;
+    font-weight:800;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color:#8b949e;
+}
+.detail-stat-value {
+    font-size:0.8rem;
+    font-weight:800;
+    color:#e6edf3;
+    font-family:"JetBrains Mono", monospace;
+}
+.detail-stat-bar {
+    height: 8px;
+    background:#0d1117;
+    border-radius:999px;
+    overflow:hidden;
+    border:1px solid #21262d;
+}
+.detail-stat-fill {
+    height:100%;
+    border-radius:999px;
+}
+.detail-stat-cap {
+    display:inline-block;
+    margin-left:6px;
+    padding:1px 6px;
+    border-radius:999px;
+    font-size:0.52rem;
+    font-weight:900;
+    color:#F8D030;
+    background:rgba(248,208,48,0.12);
+    border:1px solid rgba(248,208,48,0.28);
+}
+.detail-helper {
+    color:#8b949e;
+    font-size:0.76rem;
+    line-height:1.45;
 }
 
 /* Egg section */
@@ -674,274 +937,275 @@ with col_coins:
         unsafe_allow_html=True,
     )
 
-# ── 6 Team slots ───────────────────────────────────────────────────────────────
-slot_cols = st.columns(3)
-for slot in range(1, 7):
-    col    = slot_cols[(slot - 1) % 3]
-    member = team_by_slot.get(slot)
-    is_sel = st.session_state.sel_team_slot == slot
+# ── Team layout with side drawer ───────────────────────────────────────────────
+if team and st.session_state.sel_team_slot not in team_by_slot:
+    st.session_state.sel_team_slot = min(team_by_slot)
+elif not team:
+    st.session_state.sel_team_slot = None
 
-    with col:
-        if member:
-            is_main = slot == 1
-            if is_sel:
-                card_cls = "team-card selected-slot"
-                lbl_html = "<div class='sel-label'>▶ Selecionado</div>"
-            elif is_main:
-                card_cls = "team-card main-slot"
-                lbl_html = "<div class='main-label'>★ Principal</div>"
-            else:
-                card_cls = "team-card"
-                lbl_html = f"<div class='slot-label'>Slot {slot}</div>"
+sel_slot = st.session_state.sel_team_slot
+team_col, drawer_col = st.columns([2.2, 1], gap="large")
 
-            is_shiny   = member.get("is_shiny", False)
-            shiny_src  = member.get("sprite_shiny_url") or ""
+with team_col:
+    slot_cols = st.columns(3)
+    for slot in range(1, 7):
+        col = slot_cols[(slot - 1) % 3]
+        member = team_by_slot.get(slot)
+        is_sel = sel_slot == slot
 
-            # Prefer shiny sprite for shiny Pokémon; fall back to normal sprite with glow
-            if is_shiny and shiny_src:
-                _sprite_src = hq_sprite_url(shiny_src)
-                _shiny_style = "display:block;margin:0 auto;filter:drop-shadow(0 0 8px gold) saturate(1.5)"
-            else:
-                _raw_src = member.get("sprite_url") or ""
-                if _raw_src.startswith("http"):
-                    _sprite_src = hq_sprite_url(_raw_src)
+        with col:
+            if member:
+                is_main = slot == 1
+                if is_sel:
+                    card_cls = "team-card selected-slot"
+                    lbl_html = "<div class='sel-label'>▶ Em foco</div>"
+                elif is_main:
+                    card_cls = "team-card main-slot"
+                    lbl_html = "<div class='main-label'>★ Principal</div>"
                 else:
-                    _local_thumb = _thumb_path(member["species_id"])
-                    _sprite_src = _local_thumb if os.path.isfile(_local_thumb) else _raw_src
-                _shiny_style = ("display:block;margin:0 auto;filter:drop-shadow(0 0 8px gold) saturate(1.5)"
-                                if is_shiny else "display:block;margin:0 auto")
-            img_tag = (
-                sprite_img_tag(_sprite_src, width=72, extra_style=_shiny_style)
-                or "<div style='text-align:center;font-size:2.5rem'>❓</div>"
-            )
+                    card_cls = "team-card"
+                    lbl_html = f"<div class='slot-label'>Slot {slot}</div>"
 
-            c1 = get_type_color(member["type1"])
-            c2 = get_type_color(member["type2"])
-            t1 = (f"<span class='type-sm' style='background:{c1['bg']};color:{c1['text']}'>"
-                  f"{member['type1'].upper()}</span>") if member["type1"] else ""
-            t2 = (f"<span class='type-sm' style='background:{c2['bg']};color:{c2['text']}'>"
-                  f"{member['type2'].upper()}</span>") if member["type2"] else ""
+                badges = []
+                if member.get("is_shiny", False):
+                    badges.append("<span class='card-badge shiny'>Shiny</span>")
+                if (member.get("happiness", 70) or 70) < 50:
+                    badges.append("<span class='card-badge low'>Desmotivado</span>")
+                badge_html = f"<div class='poke-card-badges'>{''.join(badges)}</div>" if badges else ""
 
-            shiny_badge = (
-                "<span style='background:#FFD700;color:#000;font-size:0.55rem;font-weight:800;"
-                "padding:1px 6px;border-radius:8px;margin-left:5px;letter-spacing:1px'>✨SHINY</span>"
-            ) if is_shiny else ""
-
-            prog     = _xp_progress(member["level"], member["xp"])
-            needed   = member["level"] * XP_PER_LV
-
-            member_boost_counts = team_boost_counts.get(member["user_pokemon_id"])
-            stat_html      = _stat_bars(member, boost_counts=member_boost_counts)
-            nature_html    = _nature_html(member)
-            happiness_html = _happiness_html(member)
-
-            ability_html = ""
-            if slot == 1:
-                ability_desc = _get_ability_desc(member.get("ability_slug"))
-                if ability_desc:
-                    aslug = member["ability_slug"]
-                    ability_html = (
-                        f"<div style='text-align:center'>"
-                        f"<span class='ability-badge'>⚡ {aslug}</span>"
-                        f"</div>"
-                    )
-
-            _happiness_val = member.get("happiness", 70) or 70
-            demot_badge = (
-                "<span class='demotivated-badge'>😔 Desmotivado</span>"
-                if _happiness_val < 50 else ""
-            )
-
-            poke_name  = member['name'].upper()
-            species_id = member['species_id']
-            level      = member['level']
-            st.markdown(
-                f"<div class='{card_cls}'>{lbl_html}{img_tag}"
-                f"<div class='poke-card-name'>#{species_id} {poke_name}{shiny_badge}{demot_badge}</div>"
-                f"<div style='text-align:center'>{t1}{t2}</div>"
-                f"<div style='text-align:center;font-size:0.78rem;color:#8b949e;margin-top:4px'>Lv. {level}</div>"
-                f"{nature_html}"
-                f"{ability_html}"
-                f"<div class='xp-track'><div class='xp-fill' style='width:{prog*100:.0f}%'></div></div>"
-                f"<div class='xp-label'>{member['xp']} / {needed} XP</div>"
-                f"{stat_html}"
-                f"{happiness_html}"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-            b1, b2, b3 = st.columns(3)
-            with b1:
-                label = "✕ Fechar" if is_sel else "⚔ Golpes"
-                if st.button(label, key=f"sel_{slot}", use_container_width=True):
-                    st.session_state.sel_team_slot   = None if is_sel else slot
+                st.markdown(
+                    f"<div class='{card_cls}'>"
+                    f"{lbl_html}"
+                    f"{_member_sprite_html(member, width=86)}"
+                    f"<div class='poke-card-name'>{member['name'].upper()}</div>"
+                    f"<div class='poke-card-dex'>{_dex_label(member['species_id'])}</div>"
+                    f"<div style='text-align:center;margin-top:8px'>{_type_badges_html(member['type1'], member['type2'])}</div>"
+                    f"<div class='poke-card-level'>Lv. {member['level']}</div>"
+                    f"{badge_html}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                button_label = "Fechar" if is_sel else "Ver detalhes"
+                if st.button(button_label, key=f"sel_{slot}", use_container_width=True):
+                    st.session_state.sel_team_slot = None if is_sel else slot
                     st.session_state.replacing_move_id = None
                     st.rerun()
-            with b2:
-                if slot > 1:
-                    if st.button("↑ Main", key=f"promote_{slot}", use_container_width=True):
-                        swap_team_slots(user_id, 1, slot)
-                        clear_team_cache(user_id)
-                        if st.session_state.sel_team_slot == slot:
-                            st.session_state.sel_team_slot = 1
-                        st.session_state.replacing_move_id = None
-                        st.rerun()
-            with b3:
-                if st.button("🗑", key=f"remove_{slot}", use_container_width=True):
-                    remove_from_team(user_id, slot)
-                    clear_team_cache(user_id)
-                    if st.session_state.sel_team_slot == slot:
-                        st.session_state.sel_team_slot = None
-                    st.rerun()
-        else:
-            st.markdown(
-                f"<div class='team-card empty-slot'>"
-                f"<div style='text-align:center'>"
-                f"<div style='font-size:2rem;opacity:.2'>+</div>"
-                f"<div style='color:#8b949e;font-size:0.72rem;margin-top:4px'>Slot {slot} vazio</div>"
-                f"</div></div>",
-                unsafe_allow_html=True,
-            )
+            else:
+                st.markdown(
+                    f"<div class='team-card empty-slot'>"
+                    f"<div style='text-align:center'>"
+                    f"<div style='font-size:2rem;opacity:.2'>+</div>"
+                    f"<div style='color:#8b949e;font-size:0.72rem;margin-top:4px'>Slot {slot} vazio</div>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
 
-# ── Move management panel ──────────────────────────────────────────────────────
-sel_slot = st.session_state.sel_team_slot
-if sel_slot and sel_slot in team_by_slot:
-    member        = team_by_slot[sel_slot]
-    up_id         = member["user_pokemon_id"]
-    species_id    = member["species_id"]
-    level         = member["level"]
-    active_moves  = get_active_moves(up_id)
-    avail_moves   = get_available_moves(species_id, level)
-    active_by_slot = {m["slot"]: m for m in active_moves}
-    active_ids     = {m["id"] for m in active_moves}
-    replacing_id   = st.session_state.replacing_move_id  # move_id waiting to be slotted
+with drawer_col:
+    if sel_slot and sel_slot in team_by_slot:
+        member = team_by_slot[sel_slot]
+        up_id = member["user_pokemon_id"]
+        species_id = member["species_id"]
+        level = member["level"]
+        needed = level * XP_PER_LV
+        progress = _xp_progress(level, member["xp"])
+        member_boost_counts = team_boost_counts.get(up_id)
+        active_moves = get_active_moves(up_id)
+        avail_moves = get_available_moves(species_id, level)
+        active_by_slot = {m["slot"]: m for m in active_moves}
+        active_ids = {m["id"] for m in active_moves}
+        replacing_id = st.session_state.replacing_move_id
+        ability_slug = member.get("ability_slug")
+        ability_desc = _get_ability_desc(ability_slug) if ability_slug else ""
+        happiness = member.get("happiness", 70) or 70
 
-    st.markdown(
-        f"<div class='move-panel'>"
-        f"<div class='move-panel-title'>⚔ GOLPES — {member['name'].upper()} Lv.{level}</div>"
-        f"{_nature_html(member, align='flex-start')}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f"<div class='detail-drawer'>"
+            f"<div class='detail-topline'>"
+            f"<span>{'Slot principal' if sel_slot == 1 else f'Slot {sel_slot}'}</span>"
+            f"<span class='detail-level'>Lv {level}</span>"
+            f"</div>"
+            f"<div class='detail-hero'>{_member_sprite_html(member, width=150, hero=True)}</div>"
+            f"<div class='detail-sub'>{_dex_label(species_id)}</div>"
+            f"<div class='detail-name'>{member['name'].upper()}</div>"
+            f"<div class='detail-type-row'>{_type_badges_html(member['type1'], member['type2'], small=False)}</div>"
+            f"<div class='xp-track'><div class='xp-fill' style='width:{progress*100:.0f}%'></div></div>"
+            f"<div class='xp-label'>{member['xp']} / {needed} XP</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
-    left, right = st.columns([1, 1.6])
-
-    # ── LEFT: active move slots ────────────────────────────────────────────────
-    with left:
-        st.markdown("<div class='section-lbl'>Golpes Ativos (máx. 4)</div>", unsafe_allow_html=True)
-
-        if replacing_id:
-            repl_name = next((m["name"] for m in avail_moves if m["id"] == replacing_id), "?")
-            st.warning(f"Escolha o slot para **{repl_name}** ou clique em Cancelar.")
-            if st.button("✕ Cancelar substituição", key="cancel_repl"):
+        action_cols = st.columns(3)
+        with action_cols[0]:
+            if sel_slot > 1 and st.button("Definir principal", key=f"promote_{sel_slot}", use_container_width=True):
+                swap_team_slots(user_id, 1, sel_slot)
+                clear_team_cache(user_id)
+                st.session_state.sel_team_slot = 1
+                st.session_state.replacing_move_id = None
+                st.rerun()
+        with action_cols[1]:
+            if st.button("Remover", key=f"remove_{sel_slot}", use_container_width=True):
+                remove_from_team(user_id, sel_slot)
+                clear_team_cache(user_id)
+                remaining_slots = sorted(s for s in team_by_slot if s != sel_slot)
+                st.session_state.sel_team_slot = remaining_slots[0] if remaining_slots else None
+                st.session_state.replacing_move_id = None
+                st.rerun()
+        with action_cols[2]:
+            if st.button("Fechar painel", key=f"close_{sel_slot}", use_container_width=True):
+                st.session_state.sel_team_slot = None
                 st.session_state.replacing_move_id = None
                 st.rerun()
 
-        for s in range(1, 5):
-            mv = active_by_slot.get(s)
-            is_replace_target = bool(replacing_id)
+        tab_attrs, tab_moves = st.tabs(["Atributos", "Golpes"])
 
-            if mv:
-                tc        = get_type_color(mv["type_name"])
-                type_ic   = _type_icon(mv["type_name"])
-                dmg_ic    = _dmg_icon(mv["damage_class"])
-                pow_str   = str(mv["power"]) if mv["power"] else "—"
-                acc_str   = f"{mv['accuracy']}%" if mv["accuracy"] else "—"
-                slot_cls  = "move-slot replace-mode" if is_replace_target else "move-slot"
+        with tab_attrs:
+            st.markdown(
+                f"<div class='detail-meta-grid'>"
+                f"<div class='detail-meta-card'><span class='detail-meta-label'>Treinador</span>"
+                f"<span class='detail-meta-value'>{trainer}</span></div>"
+                f"<div class='detail-meta-card'><span class='detail-meta-label'>Felicidade</span>"
+                f"<span class='detail-meta-value'>{happiness}/255</span></div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(_nature_html(member, align="flex-start"), unsafe_allow_html=True)
+            st.markdown(_happiness_html(member), unsafe_allow_html=True)
 
+            if ability_slug:
                 st.markdown(
-                    f"<div class='{slot_cls}' style='border-left:3px solid {tc['bg']}'>"
-                    f"<span class='move-slot-num'>{s}</span>"
-                    f"<span class='move-slot-name'>{mv['name']}</span>"
-                    f"{type_ic}"
-                    f"<span class='move-stat'>{pow_str}<span>Pow</span></span>"
-                    f"<span class='move-stat'>{acc_str}<span>Acc</span></span>"
-                    f"{dmg_ic}</div>",
+                    f"<div style='margin-top:12px'><span class='ability-badge'>⚡ {ability_slug}</span></div>",
                     unsafe_allow_html=True,
                 )
-                btn_c1, btn_c2 = st.columns([1, 1])
-                with btn_c1:
-                    if is_replace_target:
-                        if st.button(f"↩ Slot {s}", key=f"repl_{up_id}_{s}", use_container_width=True):
+                if ability_desc:
+                    st.markdown(
+                        f"<div class='detail-helper' style='margin:8px 0 12px'>{ability_desc}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+            st.markdown("<div class='detail-section-title'>Atributos completos</div>", unsafe_allow_html=True)
+            st.markdown(_detail_stat_bars(member, boost_counts=member_boost_counts), unsafe_allow_html=True)
+
+        with tab_moves:
+            st.markdown(
+                f"<div class='section-lbl'>Golpes ativos de {member['name'].upper()} (máx. 4)</div>",
+                unsafe_allow_html=True,
+            )
+
+            if replacing_id:
+                repl_name = next((m["name"] for m in avail_moves if m["id"] == replacing_id), "?")
+                st.warning(f"Escolha o slot para **{repl_name}** ou clique em Cancelar.")
+                if st.button("Cancelar substituição", key=f"cancel_repl_{up_id}"):
+                    st.session_state.replacing_move_id = None
+                    st.rerun()
+
+            for s in range(1, 5):
+                mv = active_by_slot.get(s)
+                is_replace_target = bool(replacing_id)
+
+                if mv:
+                    tc = get_type_color(mv["type_name"])
+                    type_ic = _type_icon(mv["type_name"])
+                    dmg_ic = _dmg_icon(mv["damage_class"])
+                    pow_str = str(mv["power"]) if mv["power"] else "—"
+                    acc_str = f"{mv['accuracy']}%" if mv["accuracy"] else "—"
+                    slot_cls = "move-slot replace-mode" if is_replace_target else "move-slot"
+
+                    st.markdown(
+                        f"<div class='{slot_cls}' style='border-left:3px solid {tc['bg']}'>"
+                        f"<span class='move-slot-num'>{s}</span>"
+                        f"<span class='move-slot-name'>{mv['name']}</span>"
+                        f"{type_ic}"
+                        f"<span class='move-stat'>{pow_str}<span>Pow</span></span>"
+                        f"<span class='move-stat'>{acc_str}<span>Acc</span></span>"
+                        f"{dmg_ic}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    btn_c1, btn_c2 = st.columns([1, 1])
+                    with btn_c1:
+                        if is_replace_target and st.button(f"Usar slot {s}", key=f"repl_{up_id}_{s}", use_container_width=True):
                             equip_move(up_id, s, replacing_id)
                             st.session_state.replacing_move_id = None
                             st.rerun()
-                with btn_c2:
-                    if st.button(f"✕", key=f"unequip_{up_id}_{s}", use_container_width=True):
-                        unequip_move(up_id, s)
-                        st.rerun()
-            else:
-                slot_cls = "move-slot empty-move replace-mode" if is_replace_target else "move-slot empty-move"
-                st.markdown(
-                    f"<div class='{slot_cls}'>"
-                    f"<span style='font-size:0.7rem;color:#8b949e'>Slot {s} — vazio</span></div>",
-                    unsafe_allow_html=True,
-                )
-                if is_replace_target:
-                    if st.button(f"+ Colocar no Slot {s}", key=f"fill_{up_id}_{s}", use_container_width=True):
+                    with btn_c2:
+                        if st.button("Remover golpe", key=f"unequip_{up_id}_{s}", use_container_width=True):
+                            unequip_move(up_id, s)
+                            st.rerun()
+                else:
+                    slot_cls = "move-slot empty-move replace-mode" if is_replace_target else "move-slot empty-move"
+                    st.markdown(
+                        f"<div class='{slot_cls}'>"
+                        f"<span style='font-size:0.7rem;color:#8b949e'>Slot {s} — vazio</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    if is_replace_target and st.button(f"Colocar no slot {s}", key=f"fill_{up_id}_{s}", use_container_width=True):
                         equip_move(up_id, s, replacing_id)
                         st.session_state.replacing_move_id = None
                         st.rerun()
 
-    # ── RIGHT: available moves ─────────────────────────────────────────────────
-    with right:
+            st.markdown(
+                f"<div class='section-lbl' style='margin-top:14px'>Golpes disponíveis ({len(avail_moves)})</div>",
+                unsafe_allow_html=True,
+            )
+
+            if not avail_moves:
+                st.markdown(
+                    "<span style='color:#8b949e;font-size:0.85rem'>Nenhum golpe disponível neste nível.</span>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                html = "<div class='avail-scroll'>"
+                for mv in avail_moves:
+                    tc = get_type_color(mv["type_name"])
+                    type_ic = _type_icon(mv["type_name"])
+                    dmg_ic = _dmg_icon(mv["damage_class"])
+                    pow_str = str(mv["power"]) if mv["power"] else "—"
+                    acc_str = f"{mv['accuracy']}%" if mv["accuracy"] else "—"
+                    is_active = mv["id"] in active_ids
+                    opacity = "opacity:0.4;" if is_active else ""
+                    html += (
+                        f"<div class='avail-move' style='border-left-color:{tc['bg']};{opacity}'>"
+                        f"<span class='avail-move-lv'>Lv.{mv['level_learned_at']}</span>"
+                        f"<span class='avail-move-name'>{mv['name']}</span>"
+                        f"{type_ic}"
+                        f"<span class='move-stat'>{pow_str}<span>Pow</span></span>"
+                        f"<span class='move-stat'>{acc_str}<span>Acc</span></span>"
+                        f"{dmg_ic}</div>"
+                    )
+                html += "</div>"
+                st.markdown(html, unsafe_allow_html=True)
+
+                st.markdown("<div class='section-lbl' style='margin-top:12px'>Equipar golpe</div>", unsafe_allow_html=True)
+                for mv in avail_moves:
+                    is_active = mv["id"] in active_ids
+                    col_name, col_btn = st.columns([3, 1])
+                    with col_name:
+                        st.markdown(
+                            f"<span style='font-size:0.82rem;color:{'#8b949e' if is_active else '#e6edf3'}'>"
+                            f"Lv.{mv['level_learned_at']} {mv['name']}</span>",
+                            unsafe_allow_html=True,
+                        )
+                    with col_btn:
+                        if is_active:
+                            st.markdown("<small style='color:#8b949e'>Ativo</small>", unsafe_allow_html=True)
+                        else:
+                            free_slot = next((s for s in range(1, 5) if s not in active_by_slot), None)
+                            if free_slot:
+                                if st.button("Equipar", key=f"eq_{up_id}_{mv['id']}", use_container_width=True):
+                                    equip_move(up_id, free_slot, mv["id"])
+                                    st.rerun()
+                            else:
+                                if st.button("Trocar", key=f"repl_init_{up_id}_{mv['id']}", use_container_width=True):
+                                    st.session_state.replacing_move_id = mv["id"]
+                                    st.rerun()
+    else:
         st.markdown(
-            f"<div class='section-lbl'>Golpes Disponíveis — Lv ≤ {level} "
-            f"({len(avail_moves)} golpes)</div>",
+            "<div class='detail-empty'>"
+            "<div style='font-size:2.2rem;margin-bottom:8px'>🧭</div>"
+            "<div style='font-weight:800;color:#e6edf3;margin-bottom:4px'>Escolha um Pokémon da equipe</div>"
+            "<div>O painel lateral mostra sprite em destaque, atributos completos e gerenciamento de golpes.</div>"
+            "</div>",
             unsafe_allow_html=True,
         )
-
-        if not avail_moves:
-            st.markdown("<span style='color:#8b949e;font-size:0.85rem'>Nenhum golpe disponível neste nível.</span>",
-                        unsafe_allow_html=True)
-        else:
-            html = "<div class='avail-scroll'>"
-            for mv in avail_moves:
-                tc       = get_type_color(mv["type_name"])
-                type_ic  = _type_icon(mv["type_name"])
-                dmg_ic   = _dmg_icon(mv["damage_class"])
-                pow_str  = str(mv["power"]) if mv["power"] else "—"
-                acc_str  = f"{mv['accuracy']}%" if mv["accuracy"] else "—"
-                is_active = mv["id"] in active_ids
-                opacity  = "opacity:0.4;" if is_active else ""
-                html += (
-                    f"<div class='avail-move' style='border-left-color:{tc['bg']};{opacity}'>"
-                    f"<span class='avail-move-lv'>Lv.{mv['level_learned_at']}</span>"
-                    f"<span class='avail-move-name'>{mv['name']}</span>"
-                    f"{type_ic}"
-                    f"<span class='move-stat'>{pow_str}<span>Pow</span></span>"
-                    f"<span class='move-stat'>{acc_str}<span>Acc</span></span>"
-                    f"{dmg_ic}</div>"
-                )
-            html += "</div>"
-            st.markdown(html, unsafe_allow_html=True)
-
-            # Equip buttons rendered below the HTML block (Streamlit constraint)
-            st.markdown("<div class='section-lbl' style='margin-top:12px'>Equipar golpe:</div>",
-                        unsafe_allow_html=True)
-            for mv in avail_moves:
-                is_active = mv["id"] in active_ids
-                col_name, col_btn = st.columns([3, 1])
-                with col_name:
-                    tc = get_type_color(mv["type_name"])
-                    st.markdown(
-                        f"<span style='font-size:0.82rem;color:{'#8b949e' if is_active else '#e6edf3'}'>"
-                        f"Lv.{mv['level_learned_at']} {mv['name']}</span>",
-                        unsafe_allow_html=True,
-                    )
-                with col_btn:
-                    if is_active:
-                        st.markdown("<small style='color:#8b949e'>✓ Ativo</small>", unsafe_allow_html=True)
-                    else:
-                        free_slot = next((s for s in range(1, 5) if s not in active_by_slot), None)
-                        if free_slot:
-                            if st.button("+ Equipar", key=f"eq_{up_id}_{mv['id']}", use_container_width=True):
-                                equip_move(up_id, free_slot, mv["id"])
-                                st.rerun()
-                        else:
-                            if st.button("↩ Trocar", key=f"repl_init_{up_id}_{mv['id']}", use_container_width=True):
-                                st.session_state.replacing_move_id = mv["id"]
-                                st.rerun()
 
 # ── Ovos ──────────────────────────────────────────────────────────────────────
 eggs = get_user_eggs(user_id)
