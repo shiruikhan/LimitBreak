@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 from utils.app_cache import clear_user_cache, get_cached_user_pokemon_ids
+from utils.design_system import inject_design_system, render_page_heading
 from utils.supabase_client import get_supabase
 
 # Mesmo key que app.py — acessa os mesmos cookies do browser
@@ -14,39 +15,14 @@ def _save_session(session):
                        expires_at=exp, key="save_on_login")
 
 # ── Page style ─────────────────────────────────────────────────────────────────
+inject_design_system("auth")
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
-.brand-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 3.5rem; font-weight: 400; letter-spacing: 4px;
-    text-align: center; margin-bottom: 0;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.brand-sub {
-    text-align: center; color: #8b949e; font-size: 0.95rem;
-    margin-top: 4px; margin-bottom: 32px; letter-spacing: 1px;
-}
 .login-card {
     background: #161b22; border: 1px solid #30363d;
-    border-radius: 16px; padding: 40px 36px;
+    border-radius: 18px; padding: 40px 36px;
     box-shadow: 0 16px 48px rgba(0,0,0,0.5);
 }
-/* Inputs */
-.stTextInput > div > div > input {
-    background-color: #0d1117 !important;
-    border: 1px solid #30363d !important;
-    border-radius: 8px !important;
-    color: #e6edf3 !important;
-    padding: 10px 14px !important;
-}
-.stTextInput > div > div > input:focus {
-    border-color: #B8F82F !important;
-    box-shadow: 0 0 0 2px rgba(184,248,47,0.15) !important;
-}
-/* Buttons */
 .stButton > button {
     width: 100% !important;
     background: linear-gradient(90deg, #7AB21A, #B8F82F) !important;
@@ -78,8 +54,8 @@ div[data-testid="stTabs"] button[aria-selected="true"] {
 
 _, center, _ = st.columns([1, 1.6, 1])
 with center:
-    st.markdown("<div class='brand-title'>LIMITBREAK</div>", unsafe_allow_html=True)
-    st.markdown("<div class='brand-sub'>SUA ACADEMIA. SUA POKÉDEX.</div>", unsafe_allow_html=True)
+    render_page_heading("LIMITBREAK", "SUA ACADEMIA. SUA POKEDEX.", align="center")
+    st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
     with st.container():
         st.markdown("<div class='login-card'>", unsafe_allow_html=True)

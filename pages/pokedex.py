@@ -4,6 +4,7 @@ from utils.db import (
     get_all_pokemon, get_pokemon_details, get_pokemon_moves,
     get_full_evolution_chain, sprite_img_tag,
 )
+from utils.design_system import inject_design_system
 from utils.type_colors import get_type_color, TYPE_COLORS
 
 BASE_DIR = os.getcwd()
@@ -71,22 +72,13 @@ def _asset_img_tag(asset_path: str, width: int = 20) -> str:
 # ── CSS ────────────────────────────────────────────────────────────────────────
 
 def _inject_global_css():
+    inject_design_system("app")
     st.markdown("""
 <style>
-/* App background */
-.stApp { background: #0d1117; color: #e6edf3; }
-
-/* Sidebar */
-[data-testid="stSidebar"] { background-color: #0d1117 !important; border-right: 1px solid #21262d; }
-[data-testid="stSidebar"] * { color: #e6edf3 !important; }
-[data-testid="stSidebar"] .stSelectbox > div > div {
-    background: #161b22 !important; border-color: #30363d !important;
-}
-
 /* Section labels */
 .section-label {
-    font-size: 0.65rem; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #8b949e; margin-bottom: 10px;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.18em;
+    text-transform: uppercase; color: #94a3b8; margin-bottom: 10px;
 }
 
 /* Type badge */
@@ -103,11 +95,12 @@ def _inject_global_css():
     background: #161b22; border-radius: 10px;
     padding: 8px 14px; margin-bottom: 8px;
     border-left: 3px solid #30363d;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .move-card:hover {
-    transform: translateX(4px) scale(1.02);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    transform: translateY(-1px);
+    border-left-color: #B8F82F;
+    box-shadow: 0 8px 20px rgba(184,248,47,0.2);
 }
 .move-lv {
     font-size: 0.65rem; font-weight: 700; color: #8b949e;
@@ -165,7 +158,7 @@ def _inject_global_css():
 }
 .evo-node.active {
     background: rgba(184,248,47,0.10);
-    box-shadow: 0 0 0 2px #B8F82F;
+    box-shadow: 0 0 0 2px rgba(184,248,47,0.85);
 }
 .evo-name {
     font-size: 0.78rem; font-weight: 700; margin-top: 6px;

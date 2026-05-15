@@ -20,6 +20,7 @@ from utils.db import (
     use_stat_item,
     use_xp_share_item,
 )
+from utils.design_system import coin_badge, render_page_heading
 
 _ALL_NATURES = (
     "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
@@ -41,29 +42,27 @@ def render_bag_styles() -> None:
 <style>
 .bag-title {
     font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 0.18em;
     background: linear-gradient(90deg, #B8F82F, #7AB21A);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin: 0; text-transform: uppercase;
 }
-.bag-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; }
-.coins-badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: linear-gradient(135deg, #FFC531, #B38200);
-    border-radius: 9999px; padding: 6px 16px;
-    font-size: 0.95rem; font-weight: 800; color: #0d1117;
-}
+.bag-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; letter-spacing: 0.12em; text-transform: uppercase; }
 .section-title {
-    font-size: 0.65rem; font-weight: 700; letter-spacing: 2px;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.18em;
     text-transform: uppercase; color: #8b949e;
-    border-bottom: 1px solid #21262d; padding-bottom: 6px; margin: 20px 0 12px;
+    border-bottom: 1px solid #30363d; padding-bottom: 6px; margin: 20px 0 12px;
 }
 .inv-card {
     background: #161b22; border: 1px solid #30363d; border-radius: 16px;
     padding: 14px; display: flex; align-items: center; gap: 10px;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
-.inv-card:hover { border-color: #484f58; }
+.inv-card:hover {
+    border-color: rgba(184,248,47,0.42);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(184,248,47,0.2);
+}
 .inv-icon  { font-size: 1.8rem; flex-shrink: 0; }
 .inv-info  { flex: 1; min-width: 0; }
 .inv-name  { font-weight: 700; color: #e6edf3; font-size: 0.85rem; }
@@ -90,12 +89,11 @@ def render_bag_header(*, show_shop_button: bool) -> None:
 
     col_title, col_actions = st.columns([3, 1])
     with col_title:
-        st.markdown("<p class='bag-title'>MOCHILA</p>", unsafe_allow_html=True)
-        st.markdown("<p class='bag-sub'>USE SEUS ITENS SEM PASSAR PELA LOJA</p>", unsafe_allow_html=True)
+        render_page_heading("MOCHILA", "USE SEUS ITENS SEM PASSAR PELA LOJA")
     with col_actions:
         st.markdown(
             f"<div style='text-align:right;margin-top:8px'>"
-            f"<div class='coins-badge'>🪙 {coins:,}</div></div>",
+            f"{coin_badge(coins)}</div>",
             unsafe_allow_html=True,
         )
 

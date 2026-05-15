@@ -2,6 +2,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 from utils.app_cache import clear_user_cache
+from utils.design_system import inject_design_system, render_page_heading
 from utils.db import create_user_profile, sprite_img_tag
 
 BASE_DIR = os.getcwd()
@@ -36,25 +37,9 @@ easter_unlocked: bool = st.session_state.easter_unlocked
 STARTERS = STARTERS_BASE + (STARTERS_SECRET if easter_unlocked else [])
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
-
+inject_design_system("auth")
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-.brand-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 3.5rem; font-weight: 400; letter-spacing: 4px; text-align: center; margin-bottom: 0;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.brand-sub { text-align: center; color: #8b949e; font-size: 0.95rem; margin-top: 4px; margin-bottom: 32px; }
-.stTextInput > div > div > input {
-    background-color: #0d1117 !important; border: 1px solid #30363d !important;
-    border-radius: 8px !important; color: #e6edf3 !important;
-}
-.stTextInput > div > div > input:focus {
-    border-color: #B8F82F !important; box-shadow: 0 0 0 2px rgba(184,248,47,0.20) !important;
-}
-
 /* Easter egg hidden trigger — moved off-screen, never visible to the user */
 button[data-easter="true"] {
     position: fixed !important;
@@ -146,16 +131,13 @@ if not easter_unlocked:
 
 # ── Page content ───────────────────────────────────────────────────────────────
 
-st.markdown("<div class='brand-title'>LIMITBREAK</div>", unsafe_allow_html=True)
-st.markdown(
-    "<div class='brand-sub'>BEM-VINDO, TREINADOR — ESCOLHA SEU COMPANHEIRO</div>",
-    unsafe_allow_html=True,
-)
+render_page_heading("LIMITBREAK", "BEM-VINDO, TREINADOR. ESCOLHA SEU COMPANHEIRO.", align="center")
+st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
 username = st.text_input("Seu nome de treinador", placeholder="Ash Ketchum", key="trainer_name")
 
 st.markdown("---")
-st.markdown("##### Escolha seu Pokémon inicial:")
+st.markdown("<div class='lb-section-title'>Escolha seu Pokemon inicial</div>", unsafe_allow_html=True)
 st.write("")
 
 def _thumb_src(pokemon_id: int) -> str:

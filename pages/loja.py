@@ -8,35 +8,27 @@ from utils.app_cache import (
     get_cached_user_team,
     get_cached_xp_share_status,
 )
+from utils.design_system import coin_badge, inject_design_system, render_page_heading
 from utils.db import buy_item
 from utils.bag_ui import ensure_bag_session_state, render_bag_view
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
-
+inject_design_system("app")
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
 .shop-title {
     font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
+    font-size: 2.4rem; font-weight: 400; letter-spacing: 0.18em;
     background: linear-gradient(90deg, #FFDD7A, #FFC531);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin: 0; text-transform: uppercase;
 }
-.shop-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; }
-
-.coins-badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: linear-gradient(135deg, #FFC531, #B38200);
-    border-radius: 9999px; padding: 6px 16px;
-    font-size: 0.95rem; font-weight: 800; color: #0d1117;
-}
+.shop-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; letter-spacing: 0.12em; text-transform: uppercase; }
 
 .section-title {
-    font-size: 0.65rem; font-weight: 700; letter-spacing: 2px;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.18em;
     text-transform: uppercase; color: #8b949e;
-    border-bottom: 1px solid #21262d; padding-bottom: 6px; margin: 20px 0 12px;
+    border-bottom: 1px solid #30363d; padding-bottom: 6px; margin: 20px 0 12px;
 }
 
 /* Cards de item */
@@ -45,7 +37,7 @@ st.markdown("""
     border-radius: 16px; padding: 16px 14px 12px;
     text-align: center; height: 100%;
     display: flex; flex-direction: column; gap: 6px;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
 .item-icon  { font-size: 2.2rem; line-height: 1; }
 .item-name  { font-weight: 700; color: #e6edf3; font-size: 0.88rem; }
@@ -55,6 +47,11 @@ st.markdown("""
     margin-top: 4px; font-family: "JetBrains Mono", monospace;
 }
 .item-price.cant-afford { color: #484f58; }
+.item-card:hover {
+    border-color: rgba(184,248,47,0.42);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(184,248,47,0.2);
+}
 
 /* Badge "em breve" */
 .soon-badge {
@@ -111,12 +108,11 @@ others        = [i for i in items if i["category"] == "other" and i["slug"] != "
 
 col_title, col_coins = st.columns([3, 1])
 with col_title:
-    st.markdown("<p class='shop-title'>LOJA</p>", unsafe_allow_html=True)
-    st.markdown("<p class='shop-sub'>GASTE SUAS MOEDAS COM SABEDORIA</p>", unsafe_allow_html=True)
+    render_page_heading("LOJA", "GASTE SUAS MOEDAS COM SABEDORIA", tone="gold")
 with col_coins:
     st.markdown(
         f"<div style='text-align:right;margin-top:8px'>"
-        f"<div class='coins-badge'>🪙 {coins:,}</div></div>",
+        f"{coin_badge(coins)}</div>",
         unsafe_allow_html=True,
     )
 
