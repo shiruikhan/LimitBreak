@@ -34,7 +34,7 @@
 ## Fase 1 — Banco e Disponibilidade (esforço: baixo · impacto: alto) ✅ CONCLUÍDA em 2026-06-11
 
 > Status: 1.1, 1.2, 1.3 e 1.4(a) aplicados. 1.5 **descartado** — leaked password protection não está disponível no plano free do Supabase.
-> Pendência manual: cadastrar os secrets `SUPABASE_URL` e `SUPABASE_ANON_KEY` no GitHub (Settings → Secrets and variables → Actions) e fazer push para ativar o workflow de keep-alive.
+> Secrets `SUPABASE_URL` e `SUPABASE_ANON_KEY` cadastrados no GitHub e workflow de keep-alive validado com execução manual bem-sucedida em 2026-06-11.
 
 ### 1.1 Migration de índices de FK pendentes
 Criar `scripts/migrate_performance_stage4_indexes.sql` (idempotente):
