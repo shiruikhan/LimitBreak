@@ -15,6 +15,7 @@ Não importa de nenhum outro módulo db_*.
 import os
 import base64
 import random
+import time
 import datetime
 import psycopg2
 import streamlit as st
@@ -141,8 +142,27 @@ def _db_params() -> dict:
     return _DB_PARAMS
 
 
+_CONN_RETRY_DELAYS = (0.5, 1.0, 2.0)  # backoff p/ cold start do pooler (pós-pausa do free tier)
+
+
 def _new_conn():
-    return psycopg2.connect(**_db_params())
+    last_exc: psycopg2.OperationalError | None = None
+    for attempt, delay in enumerate(_CONN_RETRY_DELAYS, start=1):
+        try:
+            return psycopg2.connect(**_db_params())
+        except psycopg2.OperationalError as exc:
+            last_exc = exc
+            logger.warning(
+                "Conexão ao banco falhou (tentativa {}/{}); aguardando {}s | {}",
+                attempt, len(_CONN_RETRY_DELAYS), delay, exc,
+            )
+            time.sleep(delay)
+    # Última tentativa sem sleep — se falhar, propaga
+    try:
+        return psycopg2.connect(**_db_params())
+    except psycopg2.OperationalError:
+        logger.error("Conexão ao banco falhou após {} tentativas", len(_CONN_RETRY_DELAYS) + 1)
+        raise
 
 
 def get_connection():

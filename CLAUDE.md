@@ -106,6 +106,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 │   └── admin.py                 # Painel administrativo — restrito a is_admin(); 5 tabs
 ├── utils/
 │   ├── __init__.py
+│   ├── design_system.py         # Design system global — inject_design_system(), render_page_heading(), coin_badge(); CSS vars, fontes (Bebas Neue/Space Grotesk/JetBrains Mono)
+│   ├── logger.py                # Exporta logger (loguru) — usado nas funções críticas de db_*
 │   ├── type_colors.py           # Paleta de cores dos 18 tipos Pokémon
 │   ├── achievements.py          # Catálogo de conquistas (CATALOG, CATEGORY_META, GYM_BADGES, badge_url)
 │   ├── abilities.py             # Registro de habilidades passivas de treino (Release 3A)
@@ -159,6 +161,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
     ├── update_sprites.py                     # Substitui URLs da PokéAPI por caminhos locais (espécies normais)
     ├── update_regional_sprites.py            # Substitui URLs de sprites para formas regionais via CDN HybridShivam
     ├── migrate_performance_stage3_indexes.sql # Índices da Etapa 3 de performance para workout_logs/exercise_logs/user_battles
+    ├── migrate_performance_stage4_indexes.sql # Índices de FK (weekly_rival_id, wcp.user_id) — aplicada em 2026-06-11
+    ├── migrate_drop_legacy_user_pokemons.sql  # Remove tabela legada user_pokemons — aplicada em 2026-06-11
     └── create_user_tables.sql                # DDL completo das tabelas de usuário — executar no Supabase
 ```
 
@@ -223,7 +227,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | from_species_id | INT FK | Pré-evolução (nullable) |
 | to_species_id | INT FK | Pós-evolução |
 | min_level | INT | Nível mínimo (nullable) |
-| trigger_name | TEXT | "level-up", "use-item", "shed", etc. |
+| trigger_name | TEXT | "level-up", "use-item", "shed", "player-choice" (escolha de forma regional pelo jogador), etc. |
 | item_name | TEXT | Slug do item quando trigger = "use-item" (ex: "fire-stone") |
 | min_happiness | SMALLINT | Felicidade mínima para evoluções por amizade (normalmente 220); `NULL` para demais triggers |
 
@@ -265,8 +269,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | metric_type | TEXT | `'weight'` (padrão), `'distance'` ou `'time'` — define como a série é registrada e como o XP é calculado |
 | created_at | TIMESTAMPTZ | |
 
-> **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Adicionado via `migrate_metric_type.sql`.
-> **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Migration aplicada em 2026-05-08.
+> **Valores de metric_type:** `weight` → `{reps, weight}`; `distance` → `{distance_m}`; `time` → `{duration_s}`. Adicionado via `migrate_metric_type.sql` (aplicada em 2026-05-08).
 
 #### `workout_sheets`
 | Coluna | Tipo | Descrição |
@@ -504,7 +507,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 
 > Usada por `log_admin_action()` e lida por `get_system_logs()`. Requer `is_admin()` para acesso.
 
-> **Tabela legada — `user_pokemons` (0 rows):** existe no banco com schema diferente (UUID PK, `current_xp`, `is_in_party`) mas não é usada pelo app. A tabela ativa é `user_pokemon` (SERIAL PK).
+> **Tabela legada — `user_pokemons`:** removida do banco em 2026-06-11 via `migrate_drop_legacy_user_pokemons.sql` (tinha 0 rows e schema antigo). A tabela ativa é `user_pokemon` (SERIAL PK).
 
 ---
 
@@ -514,7 +517,7 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 | Função | Descrição |
 |---|---|
 | `_db_params()` | Lê credenciais: `st.secrets["database"]` primeiro, fallback para `.env` |
-| `get_connection()` | Retorna conexão psycopg2 por sessão (`st.session_state._db_conn`); reconecta se fechada ou em estado de erro |
+| `get_connection()` | Retorna conexão psycopg2 por sessão (`st.session_state._db_conn`); reconecta se fechada ou em estado de erro. `_new_conn()` faz retry com backoff (0.5s/1s/2s, 4 tentativas) em `OperationalError` para tolerar cold start do pooler pós-pausa do free tier |
 | `get_image_as_base64(path)` | Converte apenas assets locais para base64; URLs remotas nao passam mais por este helper |
 | `sprite_img_tag(sprite_url, width=..., extra_style=...)` | Renderiza sprite com `src` direto para URLs HTTP/S; para caminhos locais tenta CDN HybridShivam antes do fallback em base64 |
 | `_today_brt()` | Retorna `datetime.date` de hoje no fuso BRT (UTC-3) |
@@ -576,7 +579,8 @@ Credenciais disponíveis em: Supabase → **Settings → API** (supabase) e **Se
 ### XP, XP Share e evolução automática
 | Função | Descrição |
 |---|---|
-| `award_xp(user_pokemon_id, amount, source, _distributing=False)` | **Ponto de integração com o módulo de treinos.** Aplica modificador de happiness ao XP bruto (≥180 → +5%; <50 → −5%). Concede XP, processa loop de level-up (fórmula: `level × 100`), acumula +2 happiness por level-up, detecta evoluções por nível (até 3 por chamada), inclui evoluções por amizade (`min_happiness` atendida), recalcula stats. Se XP Share ativo e `_distributing=False`, distribui 30% do XP para os demais Pokémon da equipe via `_distribute_xp_share()`. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, xp_share_distributed, error}` |
+| `award_xp(user_pokemon_id, amount, source, _distributing=False)` | **Ponto de integração com o módulo de treinos.** Aplica modificador de happiness ao XP bruto (≥180 → +5%; <50 → −5%). Concede XP, processa loop de level-up (fórmula: `level × 100`), acumula +2 happiness por level-up, detecta evoluções por nível (até 3 por chamada), inclui evoluções por amizade (`min_happiness` atendida), recalcula stats. Se XP Share ativo e `_distributing=False`, distribui 30% do XP para os demais Pokémon da equipe via `_distribute_xp_share()`. Se a espécie tem alternativa regional (`trigger='player-choice'`), não auto-evolui — popula `evolution_choice` para o usuário decidir. Retorna `{levels_gained, old_level, new_level, new_xp, evolutions, evolution_choice, xp_share_distributed, error}` |
+| `apply_evolution_choice(user_pokemon_id, to_species_id)` | Aplica a evolução escolhida pelo jogador (forma normal ou regional) após `evolution_choice` pendente; valida que o alvo é elegível; recalcula stats. Retorna `{from_name, from_sprite_url, to_name, sprite_url, is_regional, error}` |
 | `get_xp_share_status(user_id)` | Retorna `{"active": bool, "expires_at": datetime \| None, "days_left": int}` — consultado por equipe.py e loja.py |
 | `_extend_xp_share(cur, user_id)` | **Interno.** Estende `xp_share_expires_at` em +15 dias (GREATEST para não perder tempo restante); chamado por `do_checkin()` nos dias bônus |
 | `_distribute_xp_share(user_id, main_pokemon_id, amount, source)` | **Interno.** Distribui 30% do XP para todos os Pokémon da equipe exceto o principal; usa `_distributing=True` para evitar recursão. Retorna `list[{name, xp, user_pokemon_id}]` para log de distribuição |
@@ -654,7 +658,8 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `get_last_exercise_values(user_id, exercise_ids)` | Último valor logado por exercício, usado para pré-preencher o Import Default. Retorna `{exercise_id: {reps, weight, distance_km, duration_min}}` — campos irrelevantes ao `metric_type` do exercício são `None` |
 | `get_workout_streak(user_id)` | Dias consecutivos com treino registrado |
 | `get_workout_history(user_id, limit=10)` | Últimas sessões `[{date, day_name, exercise_count, xp_earned, spawned_species_id}]` |
-| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP (com efeito de habilidade passiva), bumps happiness +1 no slot 1, aplica penalidade de inatividade (−5 happiness se ≥7 dias sem treino), detecta PRs, avança/choca ovos, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}` |
+| `do_exercise_event(user_id, exercises, day_id=None)` | Registra sessão de treino completa: persiste `workout_log` + `exercise_logs`, aplica XP (com efeito de habilidade passiva e **bônus de fim de semana** — sex/sáb/dom: XP ×2 e cap 300→600), bumps happiness +1 no slot 1, aplica penalidade de inatividade (−5 happiness se ≥7 dias sem treino), detecta PRs, avança/choca ovos, rola spawn, verifica milestones de streak. Retorna `{xp_earned, capped, weekend_bonus, spawn_rolled, spawned, xp_result, milestone, milestone_xp, streak, prs, hatched_eggs, granted_eggs, error}` |
+| `is_weekend_bonus()` | `True` se hoje (BRT) é sexta, sábado ou domingo — dias com `_WEEKEND_XP_MULTIPLIER = 2` aplicado a XP e cap diário de treino |
 
 ### Analytics de Treino
 | Função | Descrição |
@@ -680,6 +685,7 @@ Todas retornam `list[dict]` com chaves `user_id, username, value, lead_pokemon, 
 | `log_admin_action(admin_id, action, details)` | Registra ação no log de auditoria |
 | `get_system_logs(limit=200, action_filter="", user_filter="")` | Últimas entradas do log administrativo (filtrável por ação e usuário) |
 | `admin_gift_loot_box(admin_id, target_id, count=1)` | Concede `count` loot boxes; retorna `(bool, msg, list[dict])` |
+| `admin_gift_xp_bag(admin_id, target_user_id, xp_amount=1000)` | Concede XP diretamente a todos os Pokémon da equipe ativa do alvo (1–10.000 XP cada, XP Share ignorado); retorna `(bool, msg, list[{name, old_level, new_level, xp_given, evolutions}])` |
 | `admin_create_exercise(name, name_pt, ...)` | Cria exercício no catálogo |
 | `get_global_stats()` | Métricas do sistema: total usuários, treinos, batalhas, Pokémon capturados |
 
@@ -798,7 +804,8 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 - **Badge de XP Share:** exibe status do XP Share no topo da página — se ativo, mostra dias restantes (`get_xp_share_status()`)
 - Ações por slot: ⚔ Golpes (abre painel) / ↑ Promover para slot 1 / 🗑 Remover (vai para banco)
 - **Banco de Pokémon:** seção abaixo da equipe com todos os `user_pokemon` fora de `user_team`; botão "→ Equipe" (desabilitado se equipe cheia 6/6)
-- Painel de movimentos: 4 slots ativos (desquipar) + lista de disponíveis com botão equipar/trocar
+- Painel de movimentos: 4 slots ativos (desquipar) + lista de disponíveis com botão equipar/trocar; **preview de golpe** via `_move_preview_html()` — card com tipo, classe de dano, power, accuracy e filtros antes de equipar
+- **Escolha de evolução regional:** quando `award_xp()` retorna `evolution_choice`, exibe painel com as duas opções (forma normal vs regional) e confirma via `apply_evolution_choice()`
 - Modo substituição: quando 4 slots cheios, clicar em novo move entra em modo replace (borda amarela)
 - Banner de evolução: se `st.session_state.team_evo_notice` estiver definido, exibe banner roxo com sprite e nome da evolução (limpo após exibição)
 - Banner de Shedinja: se `st.session_state.team_shed_notice` estiver definido, exibe banner verde ("👻 Shedinja capturado!") com sprite e texto "A muda de Nincada ganhou vida" (limpo após exibição); set em `calendario.py` quando mecânica shed dispara no check-in
@@ -823,8 +830,7 @@ O app usa `st.navigation(..., position="hidden")` e renderiza uma sidebar custom
 ### `pages/batalha.py`
 - Header com título + contador diário colorido (verde/laranja/vermelho conforme uso)
 - Selectbox de oponentes com seu Pokémon slot 1 + botão "⚔️ Batalhar" (desabilitado se limite atingido)
-- Resultado: card de vitória/derrota/empate + cards dos dois lutadores com HP bar + log de turnos expansível
-- Histórico: últimas batalhas como expanders com log de turnos dentro
+- Resultado: card de vitória/derrota/empate + cards dos dois lutadores com HP bar + **log de combate ao vivo** na tela de resultado (substituiu a seção de histórico de batalhas)
 
 ### `pages/loja.py`
 - Tab **Loja**: grade de itens por categoria (Pedras / Vitaminas / Outros) com preço e indicador de estoque
@@ -872,7 +878,9 @@ Duas tabs: **🏋️ Treino** e **📊 Análise**.
 - Tabela de exercícios editável: cada linha tem nome, sets, e uma coluna de medida que varia por `metric_type` (Reps para weight, Distância km para distance, Duração min para time), mais Peso (kg) apenas para weight; botão de remoção por linha; botão de adição de linha nova
 - Sessão livre: quando sem rotina selecionada, exibe apenas a tabela vazia para preenchimento manual
 - "✅ Registrar Treino": chama `do_exercise_event(user_id, exercises, day_id)`, exibe card de resultado (XP ganho, cap indicator, spawn se rolou, level-up se subiu, milestones de streak)
-- Progress bar de cap diário: XP hoje / 300 — via `get_daily_xp_from_exercise()`; laranja > 200 XP, vermelho quando capped
+- **Check-in automático:** se o usuário ainda não fez check-in hoje, `do_checkin()` é chamado automaticamente após registrar o treino; resultado anexado em `res["auto_checkin"]` e exibido em card (streak, XP Share, shield, spawn do check-in)
+- **Banner de bônus de fim de semana:** quando `is_weekend_bonus()` é `True`, exibe banner informando XP ×2 e cap dobrado (600)
+- Progress bar de cap diário: XP hoje / 300 (600 sex–dom) — via `get_daily_xp_from_exercise()`; laranja > 200 XP, vermelho quando capped
 - Streak de treino no topo (independente do streak de check-in), via `get_workout_streak()`
 - Histórico: últimos 7 dias em tabela (`get_workout_history()`) com badge 🌟 se houve spawn
 - Após resultado: define `st.session_state.team_evo_notice` (evolução), `st.session_state.team_shed_notice` (Shedinja), `st.session_state.team_spawn_notice` (spawn), `st.session_state.xp_share_log` se aplicável
@@ -935,7 +943,8 @@ Duas tabs: **🏋️ Treino** e **📊 Análise**.
 3. Loop: enquanto `xp >= level * 100` → subtrai, incrementa nível, acumula `happiness_delta += 2` por level-up
 4. Para cada nível atingido: busca em `pokemon_evolutions` WHERE `trigger='level-up' AND min_level <= level`
 5. **Evoluções por amizade:** `trigger='level-up' AND min_happiness IS NOT NULL` — verificadas quando `happiness + happiness_delta >= min_happiness`
-6. **Bypass de triggers não-padrão** (`_BYPASS_LEVEL = 36`): evoluções com `trigger NOT IN ('level-up', 'use-item', 'shed')` sem `min_happiness` disparam automaticamente no nível 36
+6. **Bypass de triggers não-padrão** (`_BYPASS_LEVEL = 36`): evoluções com `trigger NOT IN ('level-up', 'use-item', 'shed', 'player-choice')` sem `min_happiness` disparam automaticamente no nível 36
+6b. **Escolha de evolução regional (`player-choice`):** se existe linha `trigger='player-choice'` para a espécie no nível atingido, o Pokémon **não** auto-evolui — `award_xp()` retorna `evolution_choice` com as duas opções (normal e regional) e a UI (`equipe.py`) confirma via `apply_evolution_choice()`
 7. **Mecânica Shed:** se `trigger='shed'` (Nincada→Shedinja), verifica se a equipe tem espaço livre; se sim, captura um Shedinja diretamente para o próximo slot disponível; o dict de evolução retornado inclui `"shed": True`
 8. Se evoluiu: atualiza `species_id` localmente para que o próximo nível use a nova espécie
 9. Persiste `level`, `xp`, `species_id` e `happiness` de uma vez
@@ -1147,6 +1156,7 @@ Acesso restrito a usuários com `is_admin(user_id) == True`. Implementado em Rel
 - Imagens HQ: trocar `/images/` por `/imagesHQ/` no caminho; usar `_resolve_asset()` para garantir fallback CDN
 - Queries SQL com parâmetros: sempre `%s` (psycopg2) — **nunca f-strings com valores do usuário**
 - Cores de tipo: `utils/type_colors.py` → `get_type_color(slug)` retorna `{bg, light, dark, text}`
+- **Design system:** `utils/design_system.py` → `inject_design_system(page_variant)` injeta CSS global (variáveis `--color-lime`, `--bg-card`, etc., fontes Bebas Neue/Space Grotesk/JetBrains Mono, estilização de botões/inputs/tabs/sidebar); chamado uma vez em `app.py`. `render_page_heading(title, subtitle, tone=...)` para cabeçalhos padronizados e `coin_badge(value)` para o badge de moedas. Novas páginas devem usar as classes `lb-*` (`lb-card`, `lb-panel`, `lb-hero`, `lb-page-title`, `lb-section-title`) em vez de CSS local duplicado
 - **Sem backslash em f-strings** (`c[\"key\"]` é SyntaxError no parser do Streamlit Cloud) — extrair para variável antes: `bg = c["bg"]`
 - Leituras repetidas por usuário agora podem passar por `utils/app_cache.py`, que centraliza `@st.cache_data` para perfil, equipe, inventário, missões, check-ins, batalhas, árvore agregada de treino, catálogos quase estáticos e flags de admin
 - `utils/supabase_client.py` usa `@st.cache_resource` para reutilizar o client do Supabase
@@ -1214,7 +1224,25 @@ Todos os scripts são **idempotentes** (upsert com `ON CONFLICT`).
 
 ---
 
-## Estado Atual do Projeto (maio 2026)
+## Estado Atual do Projeto (junho 2026)
+
+### Novidades — junho 2026 ✅
+- **Design system global (`utils/design_system.py`):** CSS vars, fontes e componentes (`render_page_heading`, `coin_badge`); injetado em `app.py`. Adoção parcial — páginas legadas ainda carregam CSS próprio (ver plano de melhorias)
+- **Bônus de fim de semana:** sex/sáb/dom → XP de treino ×2 e cap diário 300→600 (`is_weekend_bonus()`, `_WEEKEND_XP_MULTIPLIER`); banner na página de treino
+- **Check-in automático pós-treino:** registrar treino dispara `do_checkin()` se ainda não houve check-in no dia; card de resultado na própria página de treino
+- **Escolha de evolução regional (`player-choice`):** espécies com alternativa regional não auto-evoluem — `award_xp()` retorna `evolution_choice` e o jogador decide em `equipe.py` via `apply_evolution_choice()`
+- **Preview de golpes em `equipe.py`:** card de preview com tipo/power/accuracy e filtros antes de equipar
+- **Log de combate ao vivo em `batalha.py`:** substituiu o histórico de batalhas na tela de resultado
+- **`admin_gift_xp_bag()`:** admin concede XP em massa à equipe ativa de um usuário
+
+### Auditoria Supabase — 2026-06-11 (via MCP)
+- Projeto `nxtcetqtnmqpamhfpjdm` (sa-east-1, Postgres 17). Estava **pausado por inatividade** (free tier) e foi restaurado durante a auditoria — atenção: o free tier pausa após ~1 semana sem tráfego
+- Dados: 1.067 espécies (1.025 + 42 regionais), 8 usuários, 55 user_pokemon, 64 workout_logs, 204 exercícios, 20 shop_items
+- Schema em sincronia com o código: `metric_type`, `happiness`, `weekly_rival_id`, índices stage3 e 2 evoluções `player-choice` confirmados
+- **Advisors (segurança):** leaked password protection desabilitado (WARN); `user_rest_days`, `weekly_challenges`, `weekly_challenge_participants` têm RLS habilitado sem policies (INFO — deny-all para acesso REST; o app usa psycopg2 com role postgres, então não é bloqueante)
+- **Advisors (performance):** 2 FKs sem índice — corrigido em 2026-06-11 via `migrate_performance_stage4_indexes.sql`
+- Tabela legada `user_pokemons` — removida em 2026-06-11
+- **Fase 1 do `PLANO_MELHORIAS.md` aplicada em 2026-06-11:** índices de FK, drop da tabela legada, retry/backoff em `_new_conn()` (`db_core.py`), workflow keep-alive `.github/workflows/supabase-keepalive.yml` (requer secrets `SUPABASE_URL` e `SUPABASE_ANON_KEY` no GitHub). Leaked password protection não habilitado — indisponível no plano free
 
 ### Implementado ✅
 - Auth completo: login, cadastro e sessão persistente via cookie (30 dias, rotação automática)

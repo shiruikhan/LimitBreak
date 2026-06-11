@@ -1,0 +1,28 @@
+# Mantém o projeto Supabase (free tier) ativo — o plano free pausa o projeto
+# após ~7 dias sem tráfego. Um SELECT leve via REST a cada 3 dias evita a pausa.
+#
+# Requer dois secrets no repositório (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL      → https://nxtcetqtnmqpamhfpjdm.supabase.co
+#   SUPABASE_ANON_KEY → anon key (Settings → API no dashboard do Supabase)
+
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "0 9 */3 * *" # a cada 3 dias às 09:00 UTC (06:00 BRT)
+  workflow_dispatch: {} # permite disparo manual para teste
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/pokemon_types?select=id&limit=1")
+          echo "HTTP $status"
+          # 200 = ok; 401/404 também contam como tráfego (mantêm o projeto ativo),
+          # mas falham o job para sinalizar configuração incorreta dos secrets.
+          test "$status" = "200"

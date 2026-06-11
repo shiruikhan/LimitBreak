@@ -1,5 +1,7 @@
 # LimitBreak — Snapshot de Implementação
-> Atualizado em 2026-05-15 após auditoria e sincronização da documentação.
+> Atualizado em 2026-06-11 após auditoria completa (código + Supabase via MCP) e sincronização da documentação.
+>
+> Plano detalhado de melhorias de layout/performance derivado dessa auditoria: `PLANO_MELHORIAS.md`.
 
 ---
 
