@@ -2,6 +2,7 @@ import os
 import streamlit as st
 
 from utils.db import get_user_eggs, sprite_img_tag
+from utils.design_system import render_empty_state, render_page_heading
 
 BASE_DIR = os.getcwd()
 
@@ -13,21 +14,17 @@ if not user_id:
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-.stApp { background: #0d1117; color: #e6edf3; }
-
-.eggs-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin-bottom: 4px; text-transform: uppercase;
+@keyframes egg-wiggle {
+    0%, 88%, 100% { transform: rotate(0deg); }
+    90% { transform: rotate(-8deg); }
+    93% { transform: rotate(8deg); }
+    96% { transform: rotate(-5deg); }
 }
-.eggs-sub { color: #8b949e; font-size: 0.85rem; margin-bottom: 20px; }
 
 .egg-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-border);
+    border-radius: var(--radius-lg);
     padding: 18px 14px;
     text-align: center;
     transition: border-color 0.2s, transform 0.15s;
@@ -36,59 +33,45 @@ st.markdown("""
 .egg-card.rarity-uncommon { border-color: rgba(59,130,246,0.5); }
 .egg-card.rarity-rare     { border-color: rgba(168,85,247,0.6); }
 
-.egg-emoji { font-size: 2.6rem; line-height: 1; }
+.egg-emoji { font-size: 2.6rem; line-height: 1; display: inline-block; }
+.egg-card.ready .egg-emoji { animation: egg-wiggle 2.2s ease-in-out infinite; }
 
 .egg-rarity {
     font-size: 0.6rem; font-weight: 700; letter-spacing: 2px;
     text-transform: uppercase; margin: 8px 0 4px;
 }
-.egg-rarity.common   { color: #8b949e; }
-.egg-rarity.uncommon { color: #58a6ff; }
+.egg-rarity.common   { color: var(--text-faint); }
+.egg-rarity.uncommon { color: var(--color-blue); }
 .egg-rarity.rare     { color: #d2a8ff; }
 
 .egg-progress-bg {
-    background: #21262d; border-radius: 9999px; height: 8px;
-    margin: 8px 0 4px; overflow: hidden; border: 1px solid #30363d;
+    background: var(--bg-surface); border-radius: var(--radius-full); height: 8px;
+    margin: 8px 0 4px; overflow: hidden; border: 1px solid var(--bg-border);
 }
-.egg-progress-fill { height: 100%; border-radius: 9999px; }
+.egg-progress-fill { height: 100%; border-radius: var(--radius-full); transition: width 0.4s ease; }
 .egg-progress-fill.common   { background: #4b5563; }
 .egg-progress-fill.uncommon { background: #3b82f6; }
 .egg-progress-fill.rare     { background: linear-gradient(90deg, #8b5cf6, #d946ef); }
 
 .egg-count {
-    font-size: 0.68rem; color: #8b949e; margin-bottom: 4px;
-    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem; color: var(--text-faint); margin-bottom: 4px;
+    font-family: var(--font-mono);
 }
-.egg-count span { color: #e6edf3; font-weight: 700; }
+.egg-count span { color: var(--text-body); font-weight: 700; }
 
 .egg-date {
-    font-size: 0.6rem; color: #484f58; margin-top: 4px;
-    font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem; color: var(--text-dim); margin-top: 4px;
+    font-family: var(--font-mono);
 }
 
 .egg-almost {
-    font-size: 0.62rem; font-weight: 700; color: #B8F82F;
+    font-size: 0.62rem; font-weight: 700; color: var(--color-lime);
     margin-top: 6px; letter-spacing: 0.5px;
 }
 
 .egg-species {
-    font-size: 0.72rem; font-weight: 700; color: #e6edf3; margin-top: 6px;
+    font-size: 0.72rem; font-weight: 700; color: var(--text-body); margin-top: 6px;
 }
-.egg-species-hint { color: #8b949e; font-size: 0.62rem; font-style: italic; }
-
-.eggs-empty {
-    text-align: center; padding: 48px 24px; color: #8b949e;
-}
-.eggs-empty-icon { font-size: 3.5rem; margin-bottom: 12px; }
-.eggs-empty-title { font-size: 1rem; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
-.eggs-empty-body  { font-size: 0.85rem; line-height: 1.6; max-width: 380px; margin: 0 auto; }
-
-.eggs-tip {
-    background: rgba(184,248,47,0.06); border: 1px solid rgba(184,248,47,0.18);
-    border-radius: 12px; padding: 12px 16px; margin-bottom: 20px;
-    font-size: 0.8rem; color: #8b949e; line-height: 1.5;
-}
-.eggs-tip strong { color: #B8F82F; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,37 +79,29 @@ st.markdown("""
 eggs = get_user_eggs(user_id)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
-st.markdown("<div class='eggs-title'>OVOS EM INCUBAÇÃO</div>", unsafe_allow_html=True)
-st.markdown(
-    f"<div class='eggs-sub'>"
-    f"{'Nenhum ovo pendente.' if not eggs else f'{len(eggs)} ovo(s) aguardando chocagem.'}"
-    f"</div>",
-    unsafe_allow_html=True,
+render_page_heading(
+    "Ovos em Incubação",
+    "Nenhum ovo pendente." if not eggs else f"{len(eggs)} ovo(s) aguardando chocagem.",
 )
 
 # ── Dica ───────────────────────────────────────────────────────────────────────
 st.markdown(
-    "<div class='eggs-tip'>"
+    "<div class='lb-banner lime'><div>"
     "🥚 Ovos avançam a cada <strong>sessão de treino registrada</strong>. "
     "Ovos comuns chocam em <strong>5 treinos</strong>, incomuns em <strong>8</strong> e raros em <strong>12</strong>. "
     "A espécie só é revelada quando o ovo chocar."
-    "</div>",
+    "</div></div>",
     unsafe_allow_html=True,
 )
 
 # ── Estado vazio ───────────────────────────────────────────────────────────────
 if not eggs:
-    st.markdown(
-        "<div class='eggs-empty'>"
-        "<div class='eggs-empty-icon'>🥚</div>"
-        "<div class='eggs-empty-title'>Nenhum ovo em incubação</div>"
-        "<div class='eggs-empty-body'>"
+    render_empty_state(
+        "🥚",
+        "Nenhum ovo em incubação",
         "Você ganha ovos ao completar marcos de treino: "
         "<strong>25</strong>, <strong>50</strong> e <strong>100</strong> sessões registradas. "
-        "Continue treinando para conquistar os próximos!"
-        "</div>"
-        "</div>",
-        unsafe_allow_html=True,
+        "Continue treinando para conquistar os próximos!",
     )
     if st.button("🏋️ Ir para Treino", use_container_width=False):
         st.switch_page("pages/treino.py")
@@ -167,7 +142,7 @@ for row in rows:
                 almost_html = f"<div class='egg-almost'>⚡ Falta {remaining} treino(s)!</div>"
 
             st.markdown(
-                f"<div class='egg-card rarity-{rar}'>"
+                f"<div class='egg-card rarity-{rar}{' ready' if is_ready else ''}'>"
                 f"<div class='egg-emoji'>🥚</div>"
                 f"<div class='egg-rarity {rar}'>{emoji} {label}</div>"
                 f"<div class='egg-progress-bg'>"

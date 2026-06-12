@@ -18,6 +18,7 @@ from utils.db import (
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc
+from utils.design_system import render_evolution_animation
 from utils.quest_tracker import render_quest_sidebar
 
 BASE_DIR   = os.getcwd()
@@ -280,18 +281,14 @@ def _move_preview_html(mv: dict, *, active: bool = False) -> str:
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-.stApp { background: #0d1117; color: #e6edf3; }
-[data-testid="stSidebar"] { background-color: #0d1117 !important; border-right: 1px solid #21262d; }
-[data-testid="stSidebar"] * { color: #e6edf3 !important; }
-
 .page-title {
-    font-family: "Bebas Neue", sans-serif;
+    font-family: var(--font-display);
     font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
+    background: linear-gradient(90deg, var(--color-lime-light), var(--color-lime));
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin-bottom: 4px; text-transform: uppercase;
 }
-.page-sub { color: #8b949e; font-size: 0.85rem; margin-bottom: 20px; }
+.page-sub { color: var(--text-faint); font-size: 0.85rem; margin-bottom: 20px; }
 
 /* Team card */
 .team-card {
@@ -835,53 +832,7 @@ if evo_notice:
         if _to_sprite else "<div style='font-size:2.5rem'>🌟</div>"
     )
 
-    st.markdown(
-        "<style>"
-        "@keyframes lb-evo-in{"
-        "0%{opacity:0;transform:translateY(-10px) scale(.97)}"
-        "100%{opacity:1;transform:translateY(0) scale(1)}}"
-        "@keyframes lb-evo-glow{"
-        "0%{box-shadow:0 0 0 #BC8CFF00;border-color:#3d1f5e}"
-        "45%{box-shadow:0 0 35px #BC8CFF55,0 0 70px #BC8CFF22;border-color:#BC8CFF}"
-        "100%{box-shadow:0 0 14px #BC8CFF33;border-color:#BC8CFF}}"
-        "@keyframes lb-evo-from{"
-        "0%,25%{opacity:1;filter:brightness(1)}"
-        "60%{opacity:1;filter:brightness(8) drop-shadow(0 0 10px #fff)}"
-        "100%{opacity:0;filter:brightness(20);transform:scale(.8)}}"
-        "@keyframes lb-evo-arrow{"
-        "0%,35%{opacity:.25;transform:scale(1)}"
-        "65%{opacity:1;transform:scale(1.5)}"
-        "100%{opacity:.8;transform:scale(1.1)}}"
-        "@keyframes lb-evo-to{"
-        "0%,50%{opacity:0;filter:brightness(20) saturate(0);transform:scale(.7)}"
-        "70%{opacity:1;filter:brightness(5) drop-shadow(0 0 22px #BC8CFF);transform:scale(1.2)}"
-        "87%{filter:brightness(2) drop-shadow(0 0 12px #BC8CFF);transform:scale(1.0)}"
-        "100%{opacity:1;filter:drop-shadow(0 0 8px #BC8CFF77);transform:scale(1.0)}}"
-        "@keyframes lb-evo-text{"
-        "0%,58%{opacity:0;transform:translateX(-10px)}"
-        "100%{opacity:1;transform:translateX(0)}}"
-        "</style>"
-        "<div style='"
-        "background:linear-gradient(135deg,#1a0b2e 0%,#2a1050 50%,#1a0b2e 100%);"
-        "border-radius:16px;padding:20px 24px;margin-bottom:16px;"
-        "display:flex;align-items:center;gap:20px;"
-        "border:1.5px solid transparent;"
-        "animation:lb-evo-in .4s ease-out both,lb-evo-glow 2s ease-out both'>"
-        f"<div style='flex-shrink:0;animation:lb-evo-from 1.1s ease-in-out .2s both'>{_from_img}</div>"
-        "<div style='color:#BC8CFF;font-size:2rem;font-weight:900;flex-shrink:0;"
-        "animation:lb-evo-arrow .7s ease .75s both'>→</div>"
-        f"<div style='flex-shrink:0;animation:lb-evo-to 1.1s ease-out .8s both'>{_to_img}</div>"
-        "<div style='animation:lb-evo-text .5s ease-out 1.4s both'>"
-        "<div style='font-weight:800;color:#e6edf3;font-size:1.1rem'>🌟 Pokémon evoluiu!</div>"
-        "<div style='margin-top:6px'>"
-        f"<span style='color:#8b949e;font-weight:700'>{_from_name}</span>"
-        "<span style='color:#BC8CFF;margin:0 10px;font-size:1.3rem'>→</span>"
-        f"<span style='color:#BC8CFF;font-size:1.1rem;font-weight:800'>{_to_name}</span>"
-        "</div>"
-        "<div style='color:#8b949e;font-size:0.8rem;margin-top:4px'>Stats recalculados para a nova forma!</div>"
-        "</div></div>",
-        unsafe_allow_html=True,
-    )
+    render_evolution_animation(_from_img, _to_img, _from_name, _to_name)
     st.session_state.team_evo_notice = None
 
 # ── Shedinja capture banner ────────────────────────────────────────────────────

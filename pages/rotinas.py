@@ -6,6 +6,7 @@ from utils.db import (
     add_exercise_to_day,
     update_day_exercise, remove_exercise_from_day,
 )
+from utils.design_system import render_page_heading
 
 if not st.session_state.get("user"):
     st.warning("Faça login para acessar esta página.")
@@ -37,7 +38,7 @@ _RO_METRIC_ICONS  = {"weight": "🏋️", "distance": "📏", "time": "⏱️"}
 # ── header ────────────────────────────────────────────────────────────────────
 col_title, col_new = st.columns([5, 1])
 with col_title:
-    st.title("Rotinas 📋")
+    render_page_heading("Rotinas 📋", "Workout builder")
 with col_new:
     st.write("")
     if st.button("＋ Nova Rotina", use_container_width=True, type="primary"):

@@ -81,7 +81,11 @@ Dashboard Supabase → Authentication → Settings → habilitar "Leaked passwor
 
 ---
 
-## Fase 2 — Layout / UX (esforço: médio · impacto: alto)
+## Fase 2 — Layout / UX (esforço: médio · impacto: alto) ✅ CONCLUÍDA em 2026-06-11
+
+> Status: 2.1 (lotes A, B e C), 2.2 e 2.3 entregues. 2.4 parcialmente — toasts já existiam nos fluxos principais; classe `lb-skeleton` disponível no design system para uso futuro.
+> Entregas extras: fundo global com glow lime, fade-in de página, hover lift em cards/tiles, pulso animado no "VS" da arena, wiggle no ovo pronto para chocar, brilho nos ranks 🥇🥈🥉 do leaderboard.
+> Validação: `py_compile` em todas as páginas/utils + boot headless do Streamlit com `/_stcore/health` = ok.
 
 ### 2.1 Migrar páginas restantes para o design system
 Hoje só `app.py`, `login.py`, `loja.py`, `pokedex.py`, `starter.py` e `bag_ui.py` usam `inject_design_system`/`render_page_heading`. Migrar as demais em lotes, removendo CSS local redundante:
@@ -164,12 +168,12 @@ As 3 tabelas com RLS sem policy estão em deny-all para REST — seguro, mas imp
 | 2 | ✅ Retry em `_new_conn()` (`db_core.py`) | 1.3 | 1 h | Alto |
 | 3 | ✅ Keep-alive (`.github/workflows/supabase-keepalive.yml` — falta cadastrar secrets no GitHub) | 1.4 | 30 min | Alto |
 | 4 | ❌ Leaked password protection — indisponível no plano free | 1.5 | — | — |
-| 5 | Design system — lote A | 2.1 | 1–2 dias | Alto |
-| 6 | Design system — lotes B e C | 2.1 | 2–3 dias | Médio |
-| 7 | Animação de evolução | 2.2 | 0,5 dia | Médio |
+| 5 | ✅ Design system — lote A (hub, treino, equipe) | 2.1 | 1–2 dias | Alto |
+| 6 | ✅ Design system — lotes B e C (todas as demais páginas) | 2.1 | 2–3 dias | Médio |
+| 7 | ✅ Animação de evolução compartilhada (`render_evolution_animation`) | 2.2 | 0,5 dia | Médio |
 | 8 | Testes pytest mínimos | 3.1/3.2 | 1–2 dias | Alto (regressão) |
 | 9 | Cache de sprites + fragments | 4.1/4.2 | 1 dia | Médio |
-| 10 | Responsividade mobile | 2.3 | 1 dia | Médio (cresce com Android) |
+| 10 | ✅ Responsividade mobile (media queries ≤640px no design system) | 2.3 | 1 dia | Médio (cresce com Android) |
 | 11 | Extração de componentes | 4.3 | 1–2 dias | Baixo (manutenção) |
 
 **Quick wins desta semana:** itens 1–4 (meio dia total, eliminam os achados do advisor e o risco de cold start).
@@ -181,6 +185,6 @@ As 3 tabelas com RLS sem policy estão em deny-all para REST — seguro, mas imp
 - [x] Advisors do Supabase sem lints de FK não indexada (verificado em 2026-06-11)
 - [x] `user_pokemons` removida e nota do CLAUDE.md atualizada
 - [x] Primeira conexão pós-pausa não estoura exceção para o usuário (retry 0.5s/1s/2s em `_new_conn()`)
-- [ ] Nenhuma página define paleta/fonte/botão fora do design system
+- [x] Nenhuma página define paleta/fonte/botão fora do design system (migração concluída em 2026-06-11)
 - [ ] `pytest` verde cobrindo XP, PRs, loot box, weekend bonus e evolution choice
 - [ ] Documentação (`CLAUDE.md`, `PLANO_IMPLEMENTACOES.md`, `NEXT_STEPS.md`) refletindo o estado real após cada fase

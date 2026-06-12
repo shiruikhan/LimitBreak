@@ -6,6 +6,7 @@ from utils.db import (
     claim_mission_reward,
     get_image_as_base64, get_user_team,
 )
+from utils.design_system import render_empty_state, render_page_heading
 
 if not st.session_state.get("user"):
     st.warning("Faça login para acessar esta página.")
@@ -17,45 +18,32 @@ user_id = st.session_state.user_id
 
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
-.missions-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.missions-sub {
-    color: #8b949e; font-size: 0.85rem; margin: 0 0 20px;
-    letter-spacing: 2px; text-transform: uppercase;
-}
-
 .section-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 1.4rem; letter-spacing: 3px; color: #e6edf3;
+    font-family: var(--font-display);
+    font-size: 1.4rem; letter-spacing: 3px; color: var(--text-body);
     margin: 24px 0 12px; text-transform: uppercase;
 }
 .section-divider {
-    border: none; border-top: 1px solid #21262d; margin: 0 0 16px;
+    border: none; border-top: 1px solid var(--bg-border-soft); margin: 0 0 16px;
 }
 
 /* Mission card */
 .mission-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-border);
+    border-radius: var(--radius-lg);
     padding: 18px 20px 14px;
     margin-bottom: 12px;
     position: relative;
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, transform 0.15s ease;
 }
+.mission-card:hover { transform: translateY(-1px); }
 .mission-card.completed {
     border-color: rgba(184,248,47,0.5);
     background: rgba(184,248,47,0.04);
 }
 .mission-card.claimed {
-    border-color: #21262d;
+    border-color: var(--bg-border-soft);
     opacity: 0.55;
 }
 .mission-card.weekly {
@@ -69,51 +57,16 @@ st.markdown("""
 
 .mission-icon { font-size: 1.5rem; margin-right: 8px; }
 .mission-label {
-    font-size: 0.95rem; font-weight: 700; color: #e6edf3;
+    font-size: 0.95rem; font-weight: 700; color: var(--text-body);
     display: inline; vertical-align: middle;
 }
 .mission-reward {
-    font-size: 0.75rem; color: #8b949e;
+    font-size: 0.75rem; color: var(--text-faint);
     margin-top: 6px; letter-spacing: 0.5px;
 }
-.reward-badge {
-    display: inline-block;
-    background: #21262d; border: 1px solid #30363d;
-    border-radius: 20px; padding: 2px 10px;
-    font-size: 0.72rem; font-weight: 700; color: #B8F82F;
-    letter-spacing: 0.5px;
-}
-
-/* Progress bar */
-.progress-wrap {
-    background: #21262d; border-radius: 6px;
-    height: 8px; margin-top: 10px; overflow: hidden;
-}
-.progress-fill {
-    height: 100%; border-radius: 6px;
-    transition: width 0.3s ease;
-}
-.progress-fill.daily  { background: linear-gradient(90deg, #B8F82F, #7AB21A); }
-.progress-fill.weekly { background: linear-gradient(90deg, #7e69ff, #5b42e8); }
 .progress-label {
-    font-size: 0.68rem; color: #484f58; margin-top: 4px;
-    text-align: right; font-family: "JetBrains Mono", monospace;
-}
-
-/* Claim result card */
-.claim-card {
-    background: rgba(184,248,47,0.08);
-    border: 1px solid rgba(184,248,47,0.35);
-    border-radius: 12px; padding: 14px 18px; margin-top: 8px;
-}
-.claim-title { font-weight: 700; color: #B8F82F; font-size: 0.9rem; }
-.claim-body  { color: #8b949e; font-size: 0.82rem; margin-top: 4px; }
-
-/* Empty state */
-.empty-missions {
-    background: #161b22; border: 1px dashed #30363d;
-    border-radius: 16px; padding: 32px; text-align: center;
-    color: #484f58; font-size: 0.9rem;
+    font-size: 0.68rem; color: var(--text-dim); margin-top: 4px;
+    text-align: right; font-family: var(--font-mono);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -150,10 +103,7 @@ def _time_until_monday_brt() -> str:
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
-st.markdown("""
-<p class='missions-sub'>Progressão diária</p>
-<h1 class='missions-title'>Missões</h1>
-""", unsafe_allow_html=True)
+render_page_heading("Missões", "Progressão diária")
 
 # ── Load missions ─────────────────────────────────────────────────────────────
 
@@ -180,18 +130,19 @@ def _mission_card_html(m: dict, mtype: str) -> str:
 
     status_badge = ""
     if claimed:
-        status_badge = "<span style='float:right;font-size:0.7rem;color:#484f58;font-weight:700'>✓ Coletada</span>"
+        status_badge = "<span style='float:right;font-size:0.7rem;color:var(--text-dim);font-weight:700'>✓ Coletada</span>"
     elif completed:
-        status_badge = "<span style='float:right;font-size:0.7rem;color:#B8F82F;font-weight:700'>✅ Completa</span>"
+        status_badge = "<span style='float:right;font-size:0.7rem;color:var(--color-lime);font-weight:700'>✅ Completa</span>"
 
+    bar_tone = "" if fill_cls == "daily" else "purple"
     return (
         f"<div class='{card_cls}'>"
         f"{status_badge}"
         f"<span class='mission-icon'>{icon}</span>"
         f"<span class='mission-label'>{label}</span>"
-        f"<div class='mission-reward'>Recompensa: <span class='reward-badge'>{reward_lbl}</span></div>"
-        f"<div class='progress-wrap'>"
-        f"<div class='progress-fill {fill_cls}' style='width:{pct}%'></div>"
+        f"<div class='mission-reward'>Recompensa: <span class='lb-badge'>{reward_lbl}</span></div>"
+        f"<div class='lb-progress' style='margin-top:10px'>"
+        f"<span class='{bar_tone}' style='width:{pct}%'></span>"
         f"</div>"
         f"<div class='progress-label'>{progress} / {target}</div>"
         f"</div>"
@@ -223,10 +174,9 @@ def _show_claim_result(result: dict) -> None:
         body = label
 
     st.markdown(
-        f"<div class='claim-card'>"
-        f"<div class='claim-title'>🎉 Recompensa coletada!</div>"
-        f"<div class='claim-body'>{body}</div>"
-        f"</div>",
+        f"<div class='lb-banner lime'><div>"
+        f"<strong>🎉 Recompensa coletada!</strong><br>{body}"
+        f"</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -245,32 +195,24 @@ _d_bar_pct = int(d_done / d_total * 100) if d_total else 0
 
 st.markdown(
     f"""
-<div style='display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap'>
-  <div style='flex:1;min-width:160px;background:#161b22;border:1px solid #30363d;
-              border-radius:14px;padding:14px 18px'>
-    <div style='font-family:"Bebas Neue",sans-serif;font-size:1.6rem;
-                color:#B8F82F;letter-spacing:2px'>{d_done}/{d_total}</div>
-    <div style='font-size:0.62rem;color:#8b949e;text-transform:uppercase;
-                letter-spacing:2px;font-weight:700;margin-top:2px'>Diárias</div>
-    <div style='background:#21262d;border-radius:4px;height:6px;margin-top:8px;overflow:hidden'>
-      <div style='width:{_d_bar_pct}%;height:100%;border-radius:4px;
-                  background:linear-gradient(90deg,#B8F82F,#7AB21A)'></div>
+<div class='lb-stat-row'>
+  <div class='lb-stat-tile' style='min-width:160px'>
+    <div class='val'>{d_done}/{d_total}</div>
+    <div class='lbl'>Diárias</div>
+    <div class='lb-progress' style='height:6px;margin-top:8px'>
+      <span style='width:{_d_bar_pct}%'></span>
     </div>
-    <div style='font-size:0.6rem;color:#484f58;margin-top:4px;font-family:"JetBrains Mono",monospace'>
+    <div style='font-size:0.6rem;color:var(--text-dim);margin-top:4px;font-family:var(--font-mono)'>
       ↺ renova em {_time_until_midnight_brt()}
     </div>
   </div>
-  <div style='flex:1;min-width:160px;background:#161b22;border:1px solid #30363d;
-              border-radius:14px;padding:14px 18px'>
-    <div style='font-family:"Bebas Neue",sans-serif;font-size:1.6rem;
-                color:#7e69ff;letter-spacing:2px'>{w_pct}%</div>
-    <div style='font-size:0.62rem;color:#8b949e;text-transform:uppercase;
-                letter-spacing:2px;font-weight:700;margin-top:2px'>Semanal</div>
-    <div style='background:#21262d;border-radius:4px;height:6px;margin-top:8px;overflow:hidden'>
-      <div style='width:{w_pct}%;height:100%;border-radius:4px;
-                  background:linear-gradient(90deg,#7e69ff,#5b42e8)'></div>
+  <div class='lb-stat-tile tone-purple' style='min-width:160px'>
+    <div class='val'>{w_pct}%</div>
+    <div class='lbl'>Semanal</div>
+    <div class='lb-progress' style='height:6px;margin-top:8px'>
+      <span class='purple' style='width:{w_pct}%'></span>
     </div>
-    <div style='font-size:0.6rem;color:#484f58;margin-top:4px;font-family:"JetBrains Mono",monospace'>
+    <div style='font-size:0.6rem;color:var(--text-dim);margin-top:4px;font-family:var(--font-mono)'>
       ↺ renova em {_time_until_monday_brt()}
     </div>
   </div>
@@ -285,7 +227,7 @@ st.markdown("<div class='section-title'>📅 Missões Diárias</div>", unsafe_al
 st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
 
 if not daily:
-    st.markdown("<div class='empty-missions'>Nenhuma missão diária disponível. Tente recarregar a página.</div>", unsafe_allow_html=True)
+    render_empty_state("🎯", "Nenhuma missão diária", "Tente recarregar a página.")
 else:
     for m in daily:
         mid       = m["id"]
@@ -316,7 +258,7 @@ st.markdown("<div class='section-title'>📆 Missão Semanal</div>", unsafe_allo
 st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
 
 if not weekly:
-    st.markdown("<div class='empty-missions'>Nenhuma missão semanal disponível. Tente recarregar a página.</div>", unsafe_allow_html=True)
+    render_empty_state("📆", "Nenhuma missão semanal", "Tente recarregar a página.")
 else:
     for m in weekly:
         mid       = m["id"]

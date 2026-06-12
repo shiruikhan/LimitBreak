@@ -18,6 +18,7 @@ from utils.db import (
     apply_evolution_choice,
 )
 from utils.type_colors import get_type_color
+from utils.design_system import coin_badge, render_evolution_animation, render_page_heading, stat_tile
 from utils.quest_tracker import render_quest_sidebar
 
 BASE_DIR = os.getcwd()
@@ -36,27 +37,6 @@ WEEKDAYS_PT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
-.cal-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.cal-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; letter-spacing: 2px; text-transform: uppercase; }
-
-/* Stat cards */
-.stat-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-.stat-card {
-    background: #161b22; border: 1px solid #30363d; border-radius: 16px;
-    padding: 16px 20px; flex: 1; min-width: 120px; text-align: center;
-}
-.stat-val  { font-family: "Bebas Neue", sans-serif; font-size: 2rem; font-weight: 400; color: #B8F82F; letter-spacing: 2px; }
-.stat-lbl  { font-size: 0.65rem; color: #8b949e; text-transform: uppercase;
-             letter-spacing: 2px; margin-top: 4px; font-weight: 700; }
-
 /* Cabeçalho do mês */
 .month-nav {
     display: flex; align-items: center; justify-content: center;
@@ -153,15 +133,10 @@ with st.sidebar:
 
 col_title, col_coins = st.columns([3, 1])
 with col_title:
-    st.markdown("<p class='cal-title'>CALENDÁRIO</p>", unsafe_allow_html=True)
-    st.markdown("<p class='cal-sub'>CHECK-IN DIÁRIO</p>", unsafe_allow_html=True)
+    render_page_heading("Calendário", "Check-in diário")
 with col_coins:
     st.markdown(
-        f"<div style='text-align:right;margin-top:8px'>"
-        f"<div style='display:inline-flex;align-items:center;gap:6px;"
-        f"background:linear-gradient(135deg,#FFC531,#B38200);border-radius:9999px;"
-        f"padding:6px 16px;font-size:0.95rem;font-weight:800;color:#0d1117'>"
-        f"🪙 {coins:,}</div></div>",
+        f"<div style='text-align:right;margin-top:8px'>{coin_badge(coins)}</div>",
         unsafe_allow_html=True,
     )
 
@@ -177,26 +152,17 @@ is_bonus_day        = today.day in (15, last_day)
 already_checked     = today.day in checkins_this_month
 next_milestone      = 3 - (streak % 3) if streak % 3 != 0 else 3
 
-st.markdown(f"""
-<div class='stat-row'>
-  <div class='stat-card'>
-    <div class='stat-val'>🔥 {streak}</div>
-    <div class='stat-lbl'>Streak atual</div>
-  </div>
-  <div class='stat-card'>
-    <div class='stat-val'>{month_total}</div>
-    <div class='stat-lbl'>Check-ins este mês</div>
-  </div>
-  <div class='stat-card'>
-    <div class='stat-val'>🪙 {coins:,}</div>
-    <div class='stat-lbl'>Moedas totais</div>
-  </div>
-  <div class='stat-card'>
-    <div class='stat-val'>{'⭐ Hoje!' if is_bonus_day else str(next_milestone)}</div>
-    <div class='stat-lbl'>{'Dia especial' if is_bonus_day else 'Dias para spawn'}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+tiles = (
+    stat_tile("Streak atual", f"🔥 {streak}")
+    + stat_tile("Check-ins este mês", str(month_total))
+    + stat_tile("Moedas totais", f"🪙 {coins:,}", tone="gold")
+    + stat_tile(
+        "Dia especial" if is_bonus_day else "Dias para spawn",
+        "⭐ Hoje!" if is_bonus_day else str(next_milestone),
+        tone="gold" if is_bonus_day else "purple",
+    )
+)
+st.markdown(f"<div class='lb-stat-row'>{tiles}</div>", unsafe_allow_html=True)
 
 # ── Botão de check-in ─────────────────────────────────────────────────────────
 
@@ -412,54 +378,9 @@ if res:
                         )
                         if evo_sprite else "<div style='font-size:2.5rem'>🌟</div>"
                     )
-                    _cal_from_name = evo["from_name"]
-                    _cal_to_name   = evo["to_name"]
-                    st.markdown(
-                        "<style>"
-                        "@keyframes lb-evo-in{"
-                        "0%{opacity:0;transform:translateY(-10px) scale(.97)}"
-                        "100%{opacity:1;transform:translateY(0) scale(1)}}"
-                        "@keyframes lb-evo-glow{"
-                        "0%{box-shadow:0 0 0 #BC8CFF00;border-color:#3d1f5e}"
-                        "45%{box-shadow:0 0 35px #BC8CFF55,0 0 70px #BC8CFF22;border-color:#BC8CFF}"
-                        "100%{box-shadow:0 0 14px #BC8CFF33;border-color:#BC8CFF}}"
-                        "@keyframes lb-evo-from{"
-                        "0%,25%{opacity:1;filter:brightness(1)}"
-                        "60%{opacity:1;filter:brightness(8) drop-shadow(0 0 10px #fff)}"
-                        "100%{opacity:0;filter:brightness(20);transform:scale(.8)}}"
-                        "@keyframes lb-evo-arrow{"
-                        "0%,35%{opacity:.25;transform:scale(1)}"
-                        "65%{opacity:1;transform:scale(1.5)}"
-                        "100%{opacity:.8;transform:scale(1.1)}}"
-                        "@keyframes lb-evo-to{"
-                        "0%,50%{opacity:0;filter:brightness(20) saturate(0);transform:scale(.7)}"
-                        "70%{opacity:1;filter:brightness(5) drop-shadow(0 0 22px #BC8CFF);transform:scale(1.2)}"
-                        "87%{filter:brightness(2) drop-shadow(0 0 12px #BC8CFF);transform:scale(1.0)}"
-                        "100%{opacity:1;filter:drop-shadow(0 0 8px #BC8CFF77);transform:scale(1.0)}}"
-                        "@keyframes lb-evo-text{"
-                        "0%,58%{opacity:0;transform:translateX(-10px)}"
-                        "100%{opacity:1;transform:translateX(0)}}"
-                        "</style>"
-                        "<div style='"
-                        "background:linear-gradient(135deg,#1a0b2e 0%,#2a1050 50%,#1a0b2e 100%);"
-                        "border-radius:16px;padding:20px 24px;margin-top:12px;"
-                        "display:flex;align-items:center;gap:20px;"
-                        "border:1.5px solid transparent;"
-                        "animation:lb-evo-in .4s ease-out both,lb-evo-glow 2s ease-out both'>"
-                        f"<div style='flex-shrink:0;animation:lb-evo-from 1.1s ease-in-out .2s both'>{_cal_from_img}</div>"
-                        "<div style='color:#BC8CFF;font-size:2rem;font-weight:900;flex-shrink:0;"
-                        "animation:lb-evo-arrow .7s ease .75s both'>→</div>"
-                        f"<div style='flex-shrink:0;animation:lb-evo-to 1.1s ease-out .8s both'>{_cal_to_img}</div>"
-                        "<div style='animation:lb-evo-text .5s ease-out 1.4s both'>"
-                        "<div style='font-weight:800;color:#e6edf3;font-size:1.1rem'>🌟 Pokémon evoluiu!</div>"
-                        "<div style='margin-top:6px'>"
-                        f"<span style='color:#8b949e;font-weight:700'>{_cal_from_name}</span>"
-                        "<span style='color:#BC8CFF;margin:0 10px;font-size:1.3rem'>→</span>"
-                        f"<span style='color:#BC8CFF;font-size:1.1rem;font-weight:800'>{_cal_to_name}</span>"
-                        "</div>"
-                        "<div style='color:#8b949e;font-size:0.8rem;margin-top:4px'>Stats recalculados para a nova forma!</div>"
-                        "</div></div>",
-                        unsafe_allow_html=True,
+                    render_evolution_animation(
+                        _cal_from_img, _cal_to_img,
+                        evo["from_name"], evo["to_name"],
                     )
 
             # ── Escolha de evolução regional ──────────────────────────────

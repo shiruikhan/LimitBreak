@@ -1,5 +1,6 @@
 import streamlit as st
 from utils.app_cache import get_cached_distinct_body_parts, get_cached_exercises
+from utils.design_system import render_page_heading
 from utils.type_colors import get_type_color
 
 if not st.session_state.get("user"):
@@ -56,8 +57,8 @@ def _dominant_type(body_parts: list[str] | None) -> str | None:
     return None
 
 
-st.title("Biblioteca 📚")
-st.caption("Catálogo de exercícios — clique em um card para ver detalhes.")
+render_page_heading("Biblioteca 📚", "Catálogo de exercícios")
+st.caption("Clique em um card para ver detalhes.")
 
 # ── filtros ───────────────────────────────────────────────────────────────────
 col_search, col_bp, col_eq = st.columns([2, 2, 2])

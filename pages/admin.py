@@ -40,40 +40,41 @@ st.markdown("""
 .admin-header {
     background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
     border: 1px solid #ff6b35;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 1.25rem 1.5rem;
     margin-bottom: 1.5rem;
+    box-shadow: 0 10px 28px rgba(255, 107, 53, 0.10);
 }
-.admin-header h1 { color: #ff6b35; margin: 0; font-family: "Bebas Neue", sans-serif;
+.admin-header h1 { color: #ff6b35; margin: 0; font-family: var(--font-display);
     font-size: 2rem; letter-spacing: 2px; }
-.admin-header p  { color: #8b949e; margin: 0.25rem 0 0; font-size: 0.85rem; }
+.admin-header p  { color: var(--text-faint); margin: 0.25rem 0 0; font-size: 0.85rem; }
 
 .stat-card {
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-border);
     border-radius: 10px;
     padding: 1rem;
     text-align: center;
 }
 .stat-card .val { font-size: 1.8rem; font-weight: 700; color: #ff6b35; line-height: 1; }
-.stat-card .lbl { font-size: 0.75rem; color: #8b949e; margin-top: 0.25rem; }
+.stat-card .lbl { font-size: 0.75rem; color: var(--text-faint); margin-top: 0.25rem; }
 
 .user-row {
-    background: #161b22;
-    border: 1px solid #21262d;
-    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-border-soft);
+    border-radius: var(--radius-sm);
     padding: 0.75rem 1rem;
     margin-bottom: 0.5rem;
 }
-.badge-admin { background: #ff6b35; color: #0d1117; border-radius: 4px;
+.badge-admin { background: #ff6b35; color: var(--bg-base); border-radius: 4px;
     padding: 1px 7px; font-size: 0.7rem; font-weight: 700; }
-.badge-user  { background: #21262d; color: #8b949e; border-radius: 4px;
+.badge-user  { background: var(--bg-surface); color: var(--text-faint); border-radius: 4px;
     padding: 1px 7px; font-size: 0.7rem; }
 
-.log-row { border-left: 3px solid #30363d; padding-left: 0.75rem; margin-bottom: 0.4rem; }
+.log-row { border-left: 3px solid var(--bg-border); padding-left: 0.75rem; margin-bottom: 0.4rem; }
 .log-row.admin-action { border-color: #ff6b35; }
-.log-row.delete { border-color: #f85149; }
-.log-time { color: #8b949e; font-size: 0.72rem; }
+.log-row.delete { border-color: var(--color-danger); }
+.log-time { color: var(--text-faint); font-size: 0.72rem; }
 </style>
 """, unsafe_allow_html=True)
 

@@ -3,6 +3,7 @@ import re
 import streamlit as st
 from utils.app_cache import get_cached_user_pokemon_ids
 from utils.db import get_all_pokemon_with_types, sprite_img_tag
+from utils.design_system import render_page_heading
 from utils.type_colors import TYPE_COLORS, get_type_color
 
 BASE_DIR = os.getcwd()
@@ -31,37 +32,23 @@ GENERATIONS = {
 
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
-.pdex-header {
-    display: flex; align-items: center; gap: 16px; margin-bottom: 4px;
-}
-.pdex-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.pdex-subtitle { color: #8b949e; font-size: 0.85rem; margin: 0; }
-
 .progress-wrap {
-    background: #161b22; border: 1px solid #30363d; border-radius: 16px;
+    background: var(--bg-card); border: 1px solid var(--bg-border); border-radius: var(--radius-lg);
     padding: 16px 20px; margin-bottom: 20px;
 }
 .progress-row {
     display: flex; justify-content: space-between; align-items: baseline;
     margin-bottom: 8px;
 }
-.progress-count { font-size: 2rem; font-weight: 800; color: #B8F82F; }
-.progress-total { color: #8b949e; font-size: 0.9rem; }
-.progress-pct   { color: #e6edf3; font-size: 1rem; font-weight: 600; }
+.progress-count { font-size: 2rem; font-weight: 800; color: var(--color-lime); }
+.progress-total { color: var(--text-faint); font-size: 0.9rem; }
+.progress-pct   { color: var(--text-body); font-size: 1rem; font-weight: 600; }
 .progress-bar-bg {
-    background: #0d1117; border-radius: 8px; height: 10px; overflow: hidden;
+    background: var(--bg-base); border-radius: 8px; height: 10px; overflow: hidden;
 }
 .progress-bar-fill {
     height: 100%; border-radius: 8px;
-    background: linear-gradient(90deg, #7AB21A, #B8F82F);
+    background: linear-gradient(90deg, var(--color-lime-dark), var(--color-lime));
     transition: width 0.4s ease;
 }
 
@@ -173,14 +160,7 @@ pct = (captured_n / total * 100) if total else 0
 
 # ── Header ───────────────────────────────────────────────────────────────────────
 
-st.markdown("""
-<div class='pdex-header'>
-  <div>
-    <p class='pdex-title'>MINHA POKÉDEX</p>
-    <p class='pdex-subtitle'>REGISTRO PESSOAL DE CAPTURAS</p>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+render_page_heading("Minha Pokédex", "Registro pessoal de capturas")
 
 # Barra de progresso geral
 bar_w = f"{pct:.1f}%"

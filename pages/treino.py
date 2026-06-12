@@ -21,6 +21,7 @@ from utils.app_cache import (
 )
 from utils.type_colors import get_type_color
 from utils.abilities import get_ability_description as _get_ability_desc, WORKOUT_ABILITIES as _WORKOUT_ABILITIES
+from utils.design_system import render_evolution_animation, render_page_heading
 from utils.quest_tracker import render_quest_sidebar
 
 if not st.session_state.get("user"):
@@ -164,27 +165,10 @@ def _render_recent_muscle_balance() -> None:
 # ── styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-.tr-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #FF7E6B, #FFB347);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.tr-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; letter-spacing: 2px; text-transform: uppercase; }
-
-.tr-stat-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.tr-stat-card {
-    background: #161b22; border: 1px solid #30363d; border-radius: 14px;
-    padding: 12px 18px; flex: 1; min-width: 120px;
-}
-.tr-stat-val { font-family: "Bebas Neue", sans-serif; font-size: 1.7rem; color: #FFB347; letter-spacing: 2px; }
-.tr-stat-lbl { font-size: 0.62rem; color: #8b949e; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin-top: 2px; }
-
 .cap-bar-bg {
-    background: #21262d; border-radius: 9999px; height: 8px; overflow: hidden; margin-top: 6px;
+    background: var(--bg-surface); border-radius: var(--radius-full); height: 8px; overflow: hidden; margin-top: 6px;
 }
-.cap-bar-fill { height: 100%; border-radius: 9999px; transition: width 0.3s ease; }
+.cap-bar-fill { height: 100%; border-radius: var(--radius-full); transition: width 0.3s ease; }
 .cap-bar-fill.ok    { background: linear-gradient(90deg, #2ea043, #58A6FF); }
 .cap-bar-fill.warn  { background: linear-gradient(90deg, #FFB347, #FF7E6B); }
 .cap-bar-fill.full  { background: #f85149; }
@@ -263,8 +247,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── page header (outside tabs so it's always visible) ─────────────────────────
-st.markdown("<p class='tr-title'>TREINO 🏋️</p>", unsafe_allow_html=True)
-st.markdown("<p class='tr-sub'>REGISTRO DE SESSÃO</p>", unsafe_allow_html=True)
+render_page_heading("Treino 🏋️", "Registro de sessão", tone="ember")
 
 active_view = st.radio(
     "Visao da pagina",
@@ -283,14 +266,14 @@ if active_view == "🏋️ Treino":
     cap_cls = "full" if xp_today >= _DAILY_CAP else ("warn" if xp_today > 200 else "ok")
 
     st.markdown(f"""
-    <div class='tr-stat-row'>
-      <div class='tr-stat-card'>
-        <div class='tr-stat-val'>🔥 {streak}</div>
-        <div class='tr-stat-lbl'>Streak de treino</div>
+    <div class='lb-stat-row'>
+      <div class='lb-stat-tile tone-gold'>
+        <div class='val'>🔥 {streak}</div>
+        <div class='lbl'>Streak de treino</div>
       </div>
-      <div class='tr-stat-card' style='flex:2'>
-        <div class='tr-stat-val'>{xp_today} / {_DAILY_CAP} XP</div>
-        <div class='tr-stat-lbl'>Cap diário de exercício</div>
+      <div class='lb-stat-tile tone-gold' style='flex:2'>
+        <div class='val'>{xp_today} / {_DAILY_CAP} XP</div>
+        <div class='lbl'>Cap diário de exercício</div>
         <div class='cap-bar-bg'>
           <div class='cap-bar-fill {cap_cls}' style='width:{xp_pct*100:.0f}%'></div>
         </div>
@@ -894,21 +877,15 @@ if active_view == "🏋️ Treino":
                             "sprite_url": evo.get("sprite_url", ""),
                         }
                     else:
-                        st.markdown(
-                            f"<div class='result-card evolution' "
-                            f"style='display:flex;align-items:center;gap:18px'>"
-                            f"<div>{evo_img}</div>"
-                            f"<div>"
-                            f"<div class='result-title'>🌟 Seu Pokémon evoluiu!</div>"
-                            f"<div style='margin-top:6px'>"
-                            f"<span class='evo-name-from'>{evo['from_name']}</span>"
-                            f"<span class='evo-arrow'>→</span>"
-                            f"<span class='evo-name-to'>{evo['to_name']}</span>"
-                            f"</div>"
-                            f"<div class='result-body' style='margin-top:6px'>"
-                            f"Stats recalculados para a nova forma!</div>"
-                            f"</div></div>",
-                            unsafe_allow_html=True,
+                        evo_from_img = (
+                            sprite_img_tag(evo.get("from_sprite_url", ""), width=80,
+                                           extra_style="image-rendering:pixelated")
+                            or "<div style='font-size:2.5rem;opacity:.6'>❓</div>"
+                        )
+                        render_evolution_animation(
+                            evo_from_img, evo_img,
+                            evo["from_name"], evo["to_name"],
+                            title="🌟 Seu Pokémon evoluiu!",
                         )
                         st.session_state.team_evo_notice = {
                             "from_name":       evo["from_name"],

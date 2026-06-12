@@ -11,6 +11,7 @@ from utils.db import (
     get_image_as_base64, sprite_img_tag, _MAX_BATTLES_PER_DAY, _calc_damage, _best_move, _MAX_TURNS,
     _type_effectiveness, check_and_award_achievements, update_mission_progress,
 )
+from utils.design_system import coin_badge
 from utils.quest_tracker import render_quest_sidebar
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
@@ -18,17 +19,11 @@ st.markdown("""
 <style>
 .battle-header {
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    border-radius: 20px; padding: 20px 24px; margin-bottom: 20px;
-    border: 1px solid #e94560;
+    border-radius: var(--radius-2xl); padding: 20px 24px; margin-bottom: 20px;
+    border: 1px solid var(--color-red);
+    box-shadow: 0 12px 32px rgba(233, 69, 96, 0.12);
 }
-.battle-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #e94560, #ff8099);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.battle-sub    { font-size: 0.85rem; color: #8b949e; margin: 4px 0 0 0; }
+.battle-sub    { font-size: 0.85rem; color: var(--text-faint); margin: 4px 0 0 0; }
 .counter-badge {
     display: inline-flex; align-items: center;
     padding: 6px 14px; border-radius: 9999px; font-weight: 700; font-size: 0.78rem;
@@ -38,36 +33,41 @@ st.markdown("""
 .counter-warn  { background: rgba(232,89,12,0.15); color: #ffa94d; border: 1px solid rgba(232,89,12,0.5); }
 .counter-full  { background: rgba(233,69,96,0.15); color: #ff8099; border: 1px solid rgba(233,69,96,0.4); }
 .fighter-card  {
-    background: #161b22; border-radius: 16px; padding: 16px;
-    border: 1px solid #30363d; text-align: center;
+    background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px;
+    border: 1px solid var(--bg-border); text-align: center;
     transition: all 0.2s ease;
 }
-.fighter-name  { font-size: 1rem; font-weight: 700; color: #e6edf3; margin: 6px 0 2px 0; }
-.fighter-level { font-size: 0.75rem; color: #8b949e; font-family: "JetBrains Mono", monospace; }
+.fighter-name  { font-size: 1rem; font-weight: 700; color: var(--text-body); margin: 6px 0 2px 0; }
+.fighter-level { font-size: 0.75rem; color: var(--text-faint); font-family: var(--font-mono); }
 .hp-bar-bg     {
-    background: #21262d; border-radius: 9999px; height: 8px; margin: 8px 0;
-    border: 1px solid #30363d; overflow: hidden;
+    background: var(--bg-surface); border-radius: var(--radius-full); height: 8px; margin: 8px 0;
+    border: 1px solid var(--bg-border); overflow: hidden;
 }
-.hp-bar-fill   { height: 8px; border-radius: 9999px; transition: width 0.4s ease; }
+.hp-bar-fill   { height: 8px; border-radius: var(--radius-full); transition: width 0.4s ease; }
+@keyframes vs-pulse {
+    0%, 100% { transform: scale(1); text-shadow: 0 0 12px rgba(233,69,96,0.4); }
+    50%      { transform: scale(1.08); text-shadow: 0 0 24px rgba(233,69,96,0.7); }
+}
 .vs-badge      {
-    font-family: "Bebas Neue", sans-serif;
+    font-family: var(--font-display);
     font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    color: #e94560; text-align: center; padding-top: 30px;
+    color: var(--color-red); text-align: center; padding-top: 30px;
+    animation: vs-pulse 1.6s ease-in-out infinite;
 }
 .turn-log      {
-    background: #0d1117; border-radius: 16px; padding: 12px 16px;
+    background: var(--bg-base); border-radius: var(--radius-lg); padding: 12px 16px;
     max-height: 200px; overflow-y: auto; margin-top: 12px;
-    border: 1px solid #21262d;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 0.72rem; color: #D4FC6B;
+    border: 1px solid var(--bg-border-soft);
+    font-family: var(--font-mono);
+    font-size: 0.72rem; color: var(--color-lime-light);
 }
-.turn-row-ch   { color: #58A6FF; margin: 4px 0; }
-.turn-row-op   { color: #e94560; margin: 4px 0; }
+.turn-row-ch   { color: var(--color-blue); margin: 4px 0; }
+.turn-row-op   { color: var(--color-red); margin: 4px 0; }
 .result-win    { background: linear-gradient(135deg,#1a472a,#2d6a3f); border: 1px solid #2f9e44; border-radius: 16px; padding: 24px; text-align: center; }
 .result-loss   { background: linear-gradient(135deg,#3b1219,#6b2131); border: 1px solid #e94560; border-radius: 16px; padding: 24px; text-align: center; }
 .result-draw   { background: linear-gradient(135deg,#161b22,#1a1f35); border: 1px solid #484f58; border-radius: 16px; padding: 24px; text-align: center; }
 .result-title  {
-    font-family: "Bebas Neue", sans-serif;
+    font-family: var(--font-display);
     font-size: 2.4rem; font-weight: 400; letter-spacing: 4px; margin: 0;
 }
 .reward-chip   { display: inline-block; margin: 4px; padding: 5px 14px; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; }
@@ -100,12 +100,12 @@ st.markdown(f"""
 <div class="battle-header">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
     <div>
-      <p class="battle-title">🥊 ARENA</p>
+      <p class="lb-page-title gradient-red">🥊 ARENA</p>
       <p class="battle-sub">Slot 1 vs slot 1 · você escolhe os golpes · oponente usa melhor golpe</p>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
       <span class="counter-badge {ctr_cls}">{ctr_txt}</span>
-      <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#FFC531,#B38200);border-radius:9999px;padding:6px 14px;font-size:0.85rem;font-weight:800;color:#0d1117;">🪙 {coins:,}</span>
+      {coin_badge(coins)}
     </div>
   </div>
 </div>

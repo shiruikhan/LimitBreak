@@ -8,6 +8,7 @@ from utils.db import (
     get_leaderboard_workout_xp,
     _today_brt,
 )
+from utils.design_system import render_page_heading
 
 MONTH_PT = [
     "", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -18,71 +19,52 @@ MONTH_PT = [
 
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
-.lb-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.lb-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px; letter-spacing: 2px; text-transform: uppercase; }
-
 .month-nav {
     display: flex; align-items: center; justify-content: center;
     gap: 16px; margin-bottom: 20px;
 }
 .month-label {
-    font-size: 1.1rem; font-weight: 700; color: #e6edf3;
+    font-size: 1.1rem; font-weight: 700; color: var(--text-body);
     min-width: 200px; text-align: center;
 }
 
-.lb-table {
-    width: 100%; border-collapse: collapse; margin-top: 8px;
-}
-.lb-table th {
-    font-size: 0.65rem; font-weight: 700; color: #484f58;
-    text-transform: uppercase; letter-spacing: 2px;
-    padding: 8px 12px; border-bottom: 1px solid #21262d; text-align: left;
-}
 .lb-row {
     display: flex; align-items: center; gap: 12px;
-    padding: 10px 12px; border-bottom: 1px solid #161b22;
+    padding: 10px 12px; border-bottom: 1px solid var(--bg-card);
     transition: background 0.15s;
 }
-.lb-row:hover { background: #161b22; border-radius: 8px; }
-.lb-row.is-me { background: rgba(184,248,47,0.07); border-radius: 8px; border: 1px solid rgba(184,248,47,0.2); margin: 2px 0; }
+.lb-row:hover { background: var(--bg-card); border-radius: var(--radius-sm); }
+.lb-row.is-me { background: rgba(184,248,47,0.07); border-radius: var(--radius-sm); border: 1px solid rgba(184,248,47,0.2); margin: 2px 0; }
 
 .lb-rank {
-    font-family: "Bebas Neue", sans-serif; font-size: 1.5rem;
+    font-family: var(--font-display); font-size: 1.5rem;
     letter-spacing: 2px; min-width: 36px; text-align: center;
 }
-.lb-rank.gold   { color: #FFD700; }
-.lb-rank.silver { color: #C0C0C0; }
-.lb-rank.bronze { color: #CD7F32; }
-.lb-rank.other  { color: #484f58; }
+.lb-rank.gold   { color: #FFD700; text-shadow: 0 0 12px rgba(255,215,0,0.4); }
+.lb-rank.silver { color: #C0C0C0; text-shadow: 0 0 10px rgba(192,192,192,0.3); }
+.lb-rank.bronze { color: #CD7F32; text-shadow: 0 0 10px rgba(205,127,50,0.3); }
+.lb-rank.other  { color: var(--text-dim); }
 
 .lb-sprite { width: 48px; height: 48px; object-fit: contain; image-rendering: pixelated; }
 .lb-sprite-placeholder { width: 48px; height: 48px; }
 
 .lb-info { flex: 1; min-width: 0; }
-.lb-username { font-weight: 700; font-size: 0.95rem; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lb-pokemon  { font-size: 0.75rem; color: #8b949e; }
-.lb-pokemon span { color: #B8F82F; font-weight: 700; }
+.lb-username { font-weight: 700; font-size: 0.95rem; color: var(--text-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-pokemon  { font-size: 0.75rem; color: var(--text-faint); }
+.lb-pokemon span { color: var(--color-lime); font-weight: 700; }
 
 .lb-value {
-    font-family: "Bebas Neue", sans-serif; font-size: 1.6rem;
-    letter-spacing: 2px; color: #B8F82F; min-width: 60px; text-align: right;
+    font-family: var(--font-display); font-size: 1.6rem;
+    letter-spacing: 2px; color: var(--color-lime); min-width: 60px; text-align: right;
 }
-.lb-value-unit { font-size: 0.6rem; color: #484f58; text-transform: uppercase; letter-spacing: 1px; display: block; }
+.lb-value-unit { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; display: block; }
 
 .lb-empty {
-    text-align: center; color: #484f58; padding: 40px 0;
+    text-align: center; color: var(--text-dim); padding: 40px 0;
     font-size: 0.9rem; letter-spacing: 1px;
 }
 .lb-me-badge {
-    background: rgba(184,248,47,0.15); color: #B8F82F;
+    background: rgba(184,248,47,0.15); color: var(--color-lime);
     font-size: 0.6rem; font-weight: 700; letter-spacing: 1px;
     padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
     border: 1px solid rgba(184,248,47,0.3);
@@ -111,8 +93,7 @@ month = st.session_state.lb_month
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
-st.markdown('<p class="lb-sub">LimitBreak</p>', unsafe_allow_html=True)
-st.markdown('<p class="lb-title">Ranking</p>', unsafe_allow_html=True)
+render_page_heading("Ranking", "LimitBreak")
 
 # ── Month navigation ──────────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@ import streamlit as st
 from utils.app_cache import get_cached_user_achievements
 from utils.db import check_and_award_achievements
 from utils.achievements import CATALOG, CATEGORY_META, GYM_BADGES, badge_url
+from utils.design_system import render_page_heading
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
 
@@ -14,43 +15,22 @@ if not user_id:
 
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 60%, #0d1117 100%); }
-
-.cq-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 2.4rem; font-weight: 400; letter-spacing: 4px;
-    background: linear-gradient(90deg, #D4FC6B, #B8F82F);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin: 0; text-transform: uppercase;
-}
-.cq-sub { color: #8b949e; font-size: 0.85rem; margin: 0 0 4px;
-          letter-spacing: 2px; text-transform: uppercase; }
-
 /* Progress bar */
 .cq-progress-wrap { margin: 12px 0 20px; }
-.cq-progress-track {
-    background: #161b22; border-radius: 99px; height: 8px;
-    border: 1px solid #21262d; overflow: hidden;
-}
-.cq-progress-fill {
-    height: 100%; border-radius: 99px;
-    background: linear-gradient(90deg, #B8F82F, #7AB21A);
-    transition: width 0.4s ease;
-}
 .cq-progress-label {
-    font-size: 0.75rem; color: #8b949e; margin-top: 6px;
-    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem; color: var(--text-faint); margin-top: 6px;
+    font-family: var(--font-mono);
 }
-.cq-progress-label span { color: #B8F82F; font-weight: 700; }
+.cq-progress-label span { color: var(--color-lime); font-weight: 700; }
 
 /* New-unlock banner */
 .cq-new-banner {
     background: rgba(184,248,47,0.08); border: 1px solid rgba(184,248,47,0.3);
-    border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;
+    border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px;
 }
 .cq-new-banner-title {
-    font-family: "Bebas Neue", sans-serif; font-size: 1.1rem;
-    color: #B8F82F; letter-spacing: 2px; margin-bottom: 10px;
+    font-family: var(--font-display); font-size: 1.1rem;
+    color: var(--color-lime); letter-spacing: 2px; margin-bottom: 10px;
 }
 .cq-loot-rows { display: flex; flex-direction: column; gap: 8px; }
 .cq-loot-row {
@@ -167,14 +147,13 @@ earned = len(unlocked)
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
-st.markdown('<p class="cq-sub">LimitBreak</p>', unsafe_allow_html=True)
-st.markdown('<p class="cq-title">Conquistas</p>', unsafe_allow_html=True)
+render_page_heading("Conquistas", "LimitBreak")
 
 pct = int(earned / total * 100) if total else 0
 st.markdown(f"""
 <div class="cq-progress-wrap">
-  <div class="cq-progress-track">
-    <div class="cq-progress-fill" style="width:{pct}%"></div>
+  <div class="lb-progress">
+    <span style="width:{pct}%"></span>
   </div>
   <p class="cq-progress-label">
     <span>{earned}</span> / {total} desbloqueadas &nbsp;·&nbsp; <span>{pct}%</span>

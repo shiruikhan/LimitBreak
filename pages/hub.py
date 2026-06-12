@@ -22,6 +22,7 @@ from utils.db import (
     _EXERCISE_XP_DAILY_CAP, _WEEKEND_XP_MULTIPLIER, is_weekend_bonus,
 )
 from utils.achievements import GYM_BADGES
+from utils.design_system import stat_tile
 from utils.missions import get_mission
 
 
@@ -37,94 +38,10 @@ if not user_id:
 st.markdown(
     """
 <style>
-.hub-hero {
-    background: linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96));
-    border: 1px solid rgba(184,248,47,0.18);
-    border-radius: 24px;
-    padding: 28px 30px;
-    margin-bottom: 18px;
-    box-shadow: 0 18px 40px rgba(0,0,0,0.28);
-}
-.hub-kicker {
-    font-size: 0.72rem;
-    color: #9fb3c8;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    margin-bottom: 8px;
-    font-weight: 700;
-}
-.hub-title {
-    font-family: "Bebas Neue", sans-serif;
-    font-size: 3rem;
-    letter-spacing: 0.12em;
-    color: #f8fafc;
-    margin: 0;
-}
-.hub-sub {
-    color: #94a3b8;
-    font-size: 0.95rem;
-    margin: 8px 0 0;
-    max-width: 760px;
-}
-.hub-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
-    margin-bottom: 20px;
-}
-.hub-stat {
-    background: rgba(15,23,42,0.88);
-    border: 1px solid rgba(148,163,184,0.16);
-    border-radius: 18px;
-    padding: 18px 16px;
-}
-.hub-stat-label {
-    color: #94a3b8;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    margin-bottom: 10px;
-    font-weight: 700;
-}
-.hub-stat-value {
-    color: #f8fafc;
-    font-size: 1.8rem;
-    font-weight: 800;
-}
-.hub-panel {
-    background: rgba(15,23,42,0.82);
-    border: 1px solid rgba(148,163,184,0.16);
-    border-radius: 20px;
-    padding: 18px 18px 16px;
-    height: 100%;
-}
-.hub-panel-title {
-    color: #f8fafc;
-    font-size: 1rem;
-    font-weight: 800;
-    margin-bottom: 4px;
-}
-.hub-panel-sub {
-    color: #94a3b8;
-    font-size: 0.8rem;
-    margin-bottom: 14px;
-}
-.hub-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border-radius: 999px;
-    padding: 5px 10px;
-    border: 1px solid rgba(148,163,184,0.18);
-    background: rgba(30,41,59,0.9);
-    color: #cbd5e1;
-    font-size: 0.75rem;
-    margin: 0 8px 8px 0;
-}
 .hub-event {
     background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(249,115,22,0.08));
-    border: 1px solid rgba(245,158,11,0.28);
-    border-radius: 18px;
+    border: 1px solid var(--color-warning-border);
+    border-radius: var(--radius-xl);
     padding: 16px 18px;
     margin-bottom: 18px;
 }
@@ -136,14 +53,14 @@ st.markdown(
     margin-bottom: 8px;
 }
 .hub-event-title {
-    color: #f8fafc;
+    color: var(--text-primary);
     font-size: 0.98rem;
     font-weight: 800;
 }
 .hub-event-badge {
     display: inline-flex;
     align-items: center;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     padding: 4px 10px;
     font-size: 0.72rem;
     font-weight: 800;
@@ -153,38 +70,38 @@ st.markdown(
 .hub-event-badge.live {
     background: rgba(46,160,67,0.18);
     color: #9be9a8;
-    border: 1px solid rgba(46,160,67,0.35);
+    border: 1px solid var(--color-success-border);
 }
 .hub-event-badge.soon {
     background: rgba(148,163,184,0.14);
-    color: #cbd5e1;
+    color: var(--text-secondary);
     border: 1px solid rgba(148,163,184,0.24);
 }
 .hub-event-copy {
-    color: #cbd5e1;
+    color: var(--text-secondary);
     font-size: 0.85rem;
     line-height: 1.5;
 }
 .hub-event-copy strong {
-    color: #f8fafc;
+    color: var(--text-primary);
 }
 
 /* Gym badge mini-rack in hub */
 .hub-gym-rack {
-    background: rgba(15,23,42,0.82);
+    background: var(--surface-panel-lg);
     border: 1px solid rgba(245,158,11,0.18);
-    border-radius: 18px;
+    border-radius: var(--radius-xl);
     padding: 14px 18px;
     display: flex; align-items: center; gap: 14px;
     margin-bottom: 18px;
 }
 .hub-gym-label {
-    color: #94a3b8; font-size: 0.72rem; text-transform: uppercase;
+    color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase;
     letter-spacing: 0.18em; font-weight: 700; white-space: nowrap;
     margin-right: 4px;
 }
 .hub-gym-count {
-    color: #f59e0b; font-size: 1rem; font-weight: 800;
+    color: var(--color-warning); font-size: 1rem; font-weight: 800;
     white-space: nowrap; margin-right: 12px;
 }
 .hub-gym-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -194,42 +111,40 @@ st.markdown(
     font-size: 0.9rem;
     transition: transform 0.1s;
 }
+.hub-gym-dot:hover { transform: scale(1.2); }
 .hub-gym-dot.locked { background: #1c2332; filter: grayscale(1) opacity(0.3); }
 
 /* Rival banner */
 .hub-rival {
-    border-radius: 18px;
+    border-radius: var(--radius-xl);
     padding: 14px 20px;
     display: flex; align-items: center; gap: 14px;
     margin-bottom: 18px;
 }
-.hub-rival.ahead   { background: rgba(46,160,67,0.1);  border: 1px solid rgba(46,160,67,0.35); }
+.hub-rival.ahead   { background: var(--color-success-bg);  border: 1px solid var(--color-success-border); }
 .hub-rival.behind  { background: rgba(255,136,0,0.08); border: 1px solid rgba(255,136,0,0.35); }
 .hub-rival.tied    { background: rgba(148,163,184,0.07); border: 1px solid rgba(148,163,184,0.2); }
-.hub-rival-label { font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;
+.hub-rival-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
     letter-spacing: 0.18em; font-weight: 700; margin-bottom: 2px; }
-.hub-rival-msg   { font-size: 0.88rem; color: #e6edf3; font-weight: 600; }
-.hub-rival-sub   { font-size: 0.72rem; color: #8b949e; margin-top: 2px; }
+.hub-rival-msg   { font-size: 0.88rem; color: var(--text-body); font-weight: 600; }
+.hub-rival-sub   { font-size: 0.72rem; color: var(--text-faint); margin-top: 2px; }
 
 /* Weekly challenge banner */
 .hub-challenge {
-    background: rgba(88,166,255,0.06);
-    border: 1px solid rgba(88,166,255,0.25);
-    border-radius: 18px;
+    background: var(--color-info-bg);
+    border: 1px solid var(--color-info-border);
+    border-radius: var(--radius-xl);
     padding: 16px 20px;
     margin-bottom: 18px;
 }
 .hub-challenge.done {
-    background: rgba(46,160,67,0.08);
-    border-color: rgba(46,160,67,0.35);
+    background: var(--color-success-bg);
+    border-color: var(--color-success-border);
 }
-.hub-challenge-label { font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;
+.hub-challenge-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
     letter-spacing: 0.18em; font-weight: 700; margin-bottom: 4px; }
-.hub-challenge-title { font-size: 0.92rem; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
-.hub-challenge-bar-wrap { background: #21262d; border-radius: 9999px; height: 8px;
-    overflow: hidden; margin-bottom: 6px; }
-.hub-challenge-bar { height: 100%; border-radius: 9999px; transition: width 0.3s ease; }
-.hub-challenge-sub { font-size: 0.72rem; color: #8b949e; }
+.hub-challenge-title { font-size: 0.92rem; font-weight: 700; color: var(--text-body); margin-bottom: 8px; }
+.hub-challenge-sub { font-size: 0.72rem; color: var(--text-faint); }
 </style>
 """,
     unsafe_allow_html=True,
@@ -342,29 +257,13 @@ def _render_snapshot() -> None:
     daily_done = sum(1 for mission in daily if mission.get("completed"))
     coins = profile["coins"] if profile else 0
 
-    st.markdown(
-        f"""
-<div class="hub-grid">
-  <div class="hub-stat">
-    <div class="hub-stat-label">Moedas</div>
-    <div class="hub-stat-value">🪙 {coins:,}</div>
-  </div>
-  <div class="hub-stat">
-    <div class="hub-stat-label">Equipe</div>
-    <div class="hub-stat-value">{len(team)}/6</div>
-  </div>
-  <div class="hub-stat">
-    <div class="hub-stat-label">Streak</div>
-    <div class="hub-stat-value">🔥 {streak}</div>
-  </div>
-  <div class="hub-stat">
-    <div class="hub-stat-label">Arena Hoje</div>
-    <div class="hub-stat-value">{remaining}/{_MAX_BATTLES_PER_DAY}</div>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
+    tiles = (
+        stat_tile("Moedas", f"🪙 {coins:,}", tone="gold")
+        + stat_tile("Equipe", f"{len(team)}/6")
+        + stat_tile("Streak", f"🔥 {streak}", tone="gold")
+        + stat_tile("Arena Hoje", f"{remaining}/{_MAX_BATTLES_PER_DAY}", tone="red" if remaining == 0 else "blue")
     )
+    st.markdown(f"<div class='lb-stat-row'>{tiles}</div>", unsafe_allow_html=True)
 
     # ── Gym badge mini-rack ────────────────────────────────────────────────────
     try:
@@ -403,9 +302,9 @@ def _render_snapshot() -> None:
     with left:
         st.markdown(
             """
-<div class="hub-panel">
-  <div class="hub-panel-title">Rotina do dia</div>
-  <div class="hub-panel-sub">Acesse as áreas mais usadas sem depender da sidebar.</div>
+<div class="lb-panel">
+  <div class="lb-panel-title">Rotina do dia</div>
+  <div class="lb-panel-sub">Acesse as áreas mais usadas sem depender da sidebar.</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -476,10 +375,10 @@ def _render_snapshot() -> None:
 
         st.markdown(
             f"""
-<div class="hub-panel">
-  <div class="hub-panel-title">Missões diárias</div>
-  <div class="hub-panel-sub" style="margin-bottom:10px">{daily_label} · {today.strftime("%d/%m")}</div>
-  {mission_rows_html if mission_rows_html else "<div style='color:#8b949e;font-size:0.8rem'>Nenhuma missão carregada.</div>"}
+<div class="lb-panel">
+  <div class="lb-panel-title">Missões diárias</div>
+  <div class="lb-panel-sub" style="margin-bottom:10px">{daily_label} · {today.strftime("%d/%m")}</div>
+  {mission_rows_html if mission_rows_html else "<div style='color:var(--text-faint);font-size:0.8rem'>Nenhuma missão carregada.</div>"}
 </div>
 """,
             unsafe_allow_html=True,
@@ -520,9 +419,9 @@ def _render_sections() -> None:
         with cols[idx % 2]:
             st.markdown(
                 f"""
-<div class="hub-panel">
-  <div class="hub-panel-title">{section['icon']} {section['title']}</div>
-  <div class="hub-panel-sub">{section['desc']}</div>
+<div class="lb-panel">
+  <div class="lb-panel-title">{section['icon']} {section['title']}</div>
+  <div class="lb-panel-sub">{section['desc']}</div>
 </div>
 """,
                 unsafe_allow_html=True,
@@ -536,10 +435,10 @@ def _render_sections() -> None:
 
 st.markdown(
     f"""
-<div class="hub-hero">
-  <div class="hub-kicker">Dashboard</div>
-  <h1 class="hub-title">LIMITBREAK COMMAND</h1>
-  <p class="hub-sub">Bem-vindo, {trainer_name}. Use este hub para navegar entre treino, batalha, equipe e colecao com menos cliques e menos ruído visual.</p>
+<div class="lb-hero">
+  <div class="lb-kicker">Dashboard</div>
+  <h1 class="lb-hero-title">LIMITBREAK COMMAND</h1>
+  <p class="lb-hero-sub">Bem-vindo, {trainer_name}. Use este hub para navegar entre treino, batalha, equipe e coleção com menos cliques e menos ruído visual.</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -629,7 +528,7 @@ def _render_challenge_banner() -> None:
     contributed = ch["user_contributed"]
     claimed     = ch["reward_claimed"]
     pct         = min(current / goal_val * 100, 100) if goal_val else 100
-    bar_color   = "#2ea043" if completed else "#58a6ff"
+    bar_tone    = "" if completed else " blue"
     css_extra   = " done" if completed else ""
 
     goal_type   = ch.get("goal_type", "total_xp")
@@ -640,8 +539,8 @@ def _render_challenge_banner() -> None:
         f"<div class='hub-challenge{css_extra}'>"
         f"<div class='hub-challenge-label'>🌍 Desafio da Semana</div>"
         f"<div class='hub-challenge-title'>Meta: {ch['description']}</div>"
-        f"<div class='hub-challenge-bar-wrap'>"
-        f"<div class='hub-challenge-bar' style='width:{pct:.1f}%;background:{bar_color}'></div>"
+        f"<div class='lb-progress' style='margin-bottom:6px'>"
+        f"<span class='{bar_tone.strip()}' style='width:{pct:.1f}%'></span>"
         f"</div>"
         f"<div class='hub-challenge-sub'>{progress_text}</div>"
         f"</div>",
