@@ -26,7 +26,12 @@
       "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__list_tables",
       "mcp__d02602c0-f879-47c8-b376-9b3c45b6a2a8__get_advisors",
       "PowerShell(.venv\\\\Scripts\\\\python.exe -c \"import utils.db; from utils.db_core import _new_conn, _CONN_RETRY_DELAYS, get_connection; print\\('imports OK, delays =', _CONN_RETRY_DELAYS\\)\")",
-      "PowerShell(Start-Process -FilePath \".venv\\\\Scripts\\\\python.exe\" -ArgumentList \"-m\",\"streamlit\",\"run\",\"app.py\",\"--server.headless\",\"true\",\"--server.port\",\"8599\" -WindowStyle Hidden; Start-Sleep -Seconds 14; try { $r = Invoke-WebRequest -Uri \"http://localhost:8599\" -UseBasicParsing -TimeoutSec 10; Write-Output \"HTTP $\\($r.StatusCode\\) — app de pé\" } catch { Write-Output \"FALHOU: $\\($_.Exception.Message\\)\" })"
+      "PowerShell(Start-Process -FilePath \".venv\\\\Scripts\\\\python.exe\" -ArgumentList \"-m\",\"streamlit\",\"run\",\"app.py\",\"--server.headless\",\"true\",\"--server.port\",\"8599\" -WindowStyle Hidden; Start-Sleep -Seconds 14; try { $r = Invoke-WebRequest -Uri \"http://localhost:8599\" -UseBasicParsing -TimeoutSec 10; Write-Output \"HTTP $\\($r.StatusCode\\) — app de pé\" } catch { Write-Output \"FALHOU: $\\($_.Exception.Message\\)\" })",
+      "Bash(python -m py_compile utils/design_system.py)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(python -m py_compile utils/design_system.py pages/hub.py pages/calendario.py)",
+      "Bash(python3 -c \"import ast, sys; ast.parse\\(sys.stdin.read\\(\\)\\); print\\('AST OK'\\)\")",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
